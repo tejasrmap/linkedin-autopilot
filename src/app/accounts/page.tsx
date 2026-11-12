@@ -30,8 +30,21 @@ function AccountsContent() {
   const errorParam = searchParams.get('error');
   const toast = useToast();
 
-  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [accounts, setAccounts] = useState<SocialAccount[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_accounts');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !sessionStorage.getItem('autopilot_accounts');
+    }
+    return true;
+  });
   const [connecting, setConnecting] = useState(false);
   const [requestOrg, setRequestOrg] = useState(false);
   const [manualCode, setManualCode] = useState('');
@@ -61,11 +74,14 @@ function AccountsContent() {
 
   const fetchAccounts = async () => {
     try {
-      setLoading(true);
       const res = await fetch('/api/linkedin/accounts');
       if (res.ok) {
         const data = await res.json();
-        setAccounts(data.accounts || []);
+        const accs = data.accounts || [];
+        setAccounts(accs);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('autopilot_accounts', JSON.stringify(accs));
+        }
       }
     } catch (e: any) {
       toast.error('Failed to load accounts: ' + e.message);

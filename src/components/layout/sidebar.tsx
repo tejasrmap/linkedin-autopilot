@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
   LayoutDashboard,
   PenSquare,
@@ -42,9 +42,99 @@ const managementNavigation = [
   { name: 'Billing', href: '/billing', icon: CreditCard },
 ];
 
-export function Sidebar() {
+function NavLinks() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get('tab');
 
+  const checkIsActive = (href: string) => {
+    if (href.includes('?')) {
+      const [itemPath, query] = href.split('?');
+      if (pathname !== itemPath) return false;
+      const params = new URLSearchParams(query);
+      return currentTab === params.get('tab');
+    }
+    if (pathname === href) {
+      if (href === '/posts' && currentTab) return false;
+      return true;
+    }
+    return false;
+  };
+
+  return (
+    <>
+      <nav className="space-y-1">
+        {mainNavigation.map((item) => {
+          const isActive = checkIsActive(item.href);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                isActive
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
+                  : item.highlight
+                  ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
+              }`}
+            >
+              <Icon
+                className={`w-4 h-4 transition-transform group-hover:scale-110 flex-shrink-0 ${
+                  isActive ? 'text-white' : item.highlight ? 'text-blue-500' : 'text-slate-400'
+                }`}
+              />
+              <span className="flex-1 truncate">{item.name}</span>
+              {item.badge && !isActive && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                  {item.badge}
+                </span>
+              )}
+              {isActive && (
+                <ChevronRight className="w-3.5 h-3.5 text-white/70 animate-in fade-in" />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="pt-4">
+        <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2 flex items-center justify-between">
+          <span>Workspace &amp; Settings</span>
+        </div>
+        <nav className="space-y-1">
+          {managementNavigation.map((item) => {
+            const isActive = checkIsActive(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  isActive
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                <Icon
+                  className={`w-4 h-4 transition-transform group-hover:scale-110 flex-shrink-0 ${
+                    isActive ? 'text-white' : 'text-slate-400'
+                  }`}
+                />
+                <span className="flex-1 truncate">{item.name}</span>
+                {isActive && (
+                  <ChevronRight className="w-3.5 h-3.5 text-white/70 animate-in fade-in" />
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+    </>
+  );
+}
+
+export function Sidebar() {
   return (
     <aside className="w-64 flex-shrink-0 flex flex-col border-r border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-xl h-screen sticky top-0 select-none z-30 transition-colors">
       {/* Brand Header */}
@@ -64,86 +154,30 @@ export function Sidebar() {
       </div>
 
       {/* Navigation List */}
-      <div className="flex-1 overflow-y-auto py-4 px-3 space-y-6">
+      <div className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
         <div>
-          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2 flex items-center justify-between">
+          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-1.5 flex items-center justify-between">
             <span>Publishing Engine</span>
           </div>
-          <nav className="space-y-1">
-            {mainNavigation.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href.includes('?') && pathname === item.href.split('?')[0]);
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                    isActive
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
-                      : item.highlight
-                      ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
-                  }`}
-                >
-                  <Icon
-                    className={`w-4 h-4 transition-transform group-hover:scale-110 ${
-                      isActive ? 'text-white' : item.highlight ? 'text-blue-500' : 'text-slate-400'
-                    }`}
-                  />
-                  <span className="flex-1 truncate">{item.name}</span>
-                  {item.badge && !isActive && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                      {item.badge}
-                    </span>
-                  )}
-                  {isActive && <ChevronRight className="w-3.5 h-3.5 opacity-70" />}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div>
-          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2">
-            Workspace &amp; Settings
-          </div>
-          <nav className="space-y-1">
-            {managementNavigation.map((item) => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                    isActive
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
-                  }`}
-                >
-                  <Icon
-                    className={`w-4 h-4 transition-transform group-hover:scale-110 ${
-                      isActive ? 'text-white' : 'text-slate-400'
-                    }`}
-                  />
-                  <span className="flex-1 truncate">{item.name}</span>
-                  {isActive && <ChevronRight className="w-3.5 h-3.5 opacity-70" />}
-                </Link>
-              );
-            })}
-          </nav>
+          <Suspense fallback={<div className="h-40 animate-pulse bg-slate-100 dark:bg-slate-800/40 rounded-xl" />}>
+            <NavLinks />
+          </Suspense>
         </div>
       </div>
 
-      {/* Footer Security Badge */}
-      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80">
-        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 shadow-sm">
-          <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-          <div className="min-w-0">
-            <div className="font-semibold text-slate-700 dark:text-slate-300 truncate">OAuth 2.0 &amp; RLS</div>
-            <div className="text-[10px] text-slate-400 truncate">AES-256 Token Encryption</div>
+      {/* Status & Security Badge Footer */}
+      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30">
+        <div className="flex items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 text-[11px]">
+          <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+            <ShieldCheck className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+              OAuth 2.0 &amp; RLS
+            </div>
+            <div className="text-[10px] text-slate-400 truncate">
+              AES-256 Token Encryption
+            </div>
           </div>
         </div>
       </div>

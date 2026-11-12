@@ -35,21 +35,45 @@ export function TopNav() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [activeNotifTab, setActiveNotifTab] = useState<'all' | 'unread'>('all');
 
-  const [workspaces, setWorkspaces] = useState<any[]>([]);
-  const [currentWs, setCurrentWs] = useState<any>(null);
+  const [workspaces, setWorkspaces] = useState<any[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_workspaces');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [currentWs, setCurrentWs] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_current_ws');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return { name: "Lead Developer (GT InnoX)'s Workspace", id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31' };
+  });
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showCreateWsModal, setShowCreateWsModal] = useState(false);
   const [newWsName, setNewWsName] = useState('');
   const [creatingWs, setCreatingWs] = useState(false);
 
-  const [userProfile, setUserProfile] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_user');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return { full_name: 'Teja Ganugula', email: 'tejag.vijay@gmail.com' };
+  });
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   const navRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchProfileAndWorkspaces();
-    fetchNotifications();
+    // Parallelize non-blocking profile and notifications revalidation
+    Promise.allSettled([fetchProfileAndWorkspaces(), fetchNotifications()]);
 
     const handleClickOutside = (e: MouseEvent) => {
       if (navRef.current && !navRef.current.contains(e.target as Node)) {
@@ -70,10 +94,18 @@ export function TopNav() {
         setUserProfile(data.user);
         setWorkspaces(data.workspaces || []);
         const active = (data.workspaces || []).find((w: any) => w.id === data.currentWorkspaceId) || data.workspaces?.[0];
-        setCurrentWs(active || { name: 'Main Workspace', id: 'default' });
+        const resolvedWs = active || { name: "Lead Developer (GT InnoX)'s Workspace", id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31' };
+        setCurrentWs(resolvedWs);
+
+        // Cache for 0ms instant display on subsequent refreshes
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('autopilot_workspaces', JSON.stringify(data.workspaces || []));
+          sessionStorage.setItem('autopilot_current_ws', JSON.stringify(resolvedWs));
+          sessionStorage.setItem('autopilot_user', JSON.stringify(data.user || {}));
+        }
       }
     } catch {
-      setCurrentWs({ name: 'Default Workspace', id: 'default' });
+      // Retain existing state
     }
   };
 

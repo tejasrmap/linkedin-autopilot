@@ -22,7 +22,16 @@ export interface AuthContext {
  */
 export async function getAuthContext(requestWorkspaceId?: string | null): Promise<AuthContext | null> {
   const supabase = createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  let user: any = null;
+
+  // Fast-path: Read session claims directly from local cookie without network round-trip
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user?.id) {
+    user = session.user;
+  } else {
+    const { data: { user: remoteUser } } = await supabase.auth.getUser();
+    user = remoteUser;
+  }
 
   if (!user || !user.id) {
     // Only allow dev fallback in local development when ALLOW_DEV_AUTH is explicitly set

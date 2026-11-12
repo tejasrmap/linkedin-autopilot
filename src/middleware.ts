@@ -7,6 +7,20 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // 1. PERFORMANCE OPTIMIZATION: Immediate fast-path bypass for API routes & static assets
+  const isPublicOrApi =
+    path.startsWith('/api') ||
+    path.startsWith('/_next') ||
+    path.startsWith('/icon') ||
+    path.startsWith('/favicon') ||
+    path.includes('.');
+
+  if (isPublicOrApi) {
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -42,25 +56,25 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Fast-path: Check session from cookie first
+  let user = null;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    user = session.user;
+  } else {
+    const { data: { user: remoteUser } } = await supabase.auth.getUser();
+    user = remoteUser;
+  }
 
-  const path = request.nextUrl.pathname;
   const isAuthPage = path.startsWith('/login') || path.startsWith('/register');
-  const isPublicOrApi =
-    path.startsWith('/api') ||
-    path.startsWith('/_next') ||
-    path.startsWith('/icon') ||
-    path.includes('.');
 
-  // 1. If not logged in and trying to access protected pages, redirect to /login
-  if (!user && !isAuthPage && !isPublicOrApi) {
+  // 2. If not logged in and trying to access protected pages, redirect to /login
+  if (!user && !isAuthPage) {
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2. If already logged in and visiting login/register, redirect to /dashboard
+  // 3. If already logged in and visiting login/register, redirect to /dashboard
   if (user && isAuthPage) {
     const dashboardUrl = new URL('/dashboard', request.url);
     return NextResponse.redirect(dashboardUrl);
@@ -70,6 +84,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 };
-

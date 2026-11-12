@@ -27,6 +27,7 @@ import {
   Sparkle,
   Eye,
   Check,
+  ChevronDown,
 } from 'lucide-react';
 import { SocialAccount } from '@/types';
 
@@ -38,9 +39,35 @@ function ComposerContent() {
 
   const [content, setContent] = useState(initialContent);
   const [postType, setPostType] = useState<'text' | 'image' | 'video' | 'document'>('text');
-  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+  const [accounts, setAccounts] = useState<SocialAccount[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_accounts');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [accountsLoading, setAccountsLoading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !sessionStorage.getItem('autopilot_accounts');
+    }
+    return true;
+  });
   const [destinationType, setDestinationType] = useState<'member' | 'organization'>('member');
-  const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [selectedAccount, setSelectedAccount] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_accounts');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const firstMember = parsed.find((a: any) => a.account_type === 'member') || parsed[0];
+          if (firstMember) return firstMember.id;
+        }
+      } catch {}
+    }
+    return '';
+  });
   const [mediaAssets, setMediaAssets] = useState<any[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [scheduleMode, setScheduleMode] = useState(false);
@@ -68,7 +95,10 @@ function ComposerContent() {
         const data = await res.json();
         const accs: SocialAccount[] = data.accounts || [];
         setAccounts(accs);
-        if (accs.length > 0) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('autopilot_accounts', JSON.stringify(accs));
+        }
+        if (accs.length > 0 && !selectedAccount) {
           const firstMember = accs.find((a) => a.account_type === 'member') || accs[0];
           setSelectedAccount(firstMember.id);
           setDestinationType(firstMember.account_type);
@@ -76,6 +106,8 @@ function ComposerContent() {
       }
     } catch (e: any) {
       toast.error('Failed to load LinkedIn accounts: ' + e.message);
+    } finally {
+      setAccountsLoading(false);
     }
   };
 
@@ -332,7 +364,17 @@ function ComposerContent() {
 
             {/* Destination Specific Selector / Status */}
             {destinationType === 'member' ? (
-              memberAccounts.length === 0 ? (
+              accountsLoading && memberAccounts.length === 0 ? (
+                <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:border-slate-800 bg-slate-200 dark:bg-slate-800" />
+                    <div className="space-y-1.5">
+                      <div className="w-28 h-3 rounded bg-slate-200 dark:bg-slate-800" />
+                      <div className="w-40 h-2 rounded bg-slate-200 dark:bg-slate-800" />
+                    </div>
+                  </div>
+                </div>
+              ) : memberAccounts.length === 0 ? (
                 <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex items-center justify-between">
                   <span>No personal profile connected.</span>
                   <a href="/accounts" className="text-blue-600 hover:underline font-semibold flex items-center gap-1">
@@ -379,17 +421,20 @@ function ComposerContent() {
                 </div>
               </div>
             ) : (
-              <select
-                value={selectedAccount}
-                onChange={(e) => setSelectedAccount(e.target.value)}
-                className="w-full text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                {orgAccounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.account_name} (URN: urn:li:organization:{acc.provider_account_id})
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={selectedAccount}
+                  onChange={(e) => setSelectedAccount(e.target.value)}
+                  className="w-full appearance-none text-xs rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3.5 pr-8 py-2.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm"
+                >
+                  {orgAccounts.map((acc) => (
+                    <option key={acc.id} value={acc.id} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">
+                      {acc.account_name} (URN: urn:li:organization:{acc.provider_account_id})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3 pointer-events-none" />
+              </div>
             )}
           </div>
 

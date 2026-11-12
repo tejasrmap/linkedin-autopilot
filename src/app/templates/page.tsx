@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bookmark, Plus, ArrowRight, Loader2, Sparkles, Folder, Trash2, Copy } from 'lucide-react';
+import { Bookmark, Plus, ArrowRight, Loader2, Sparkles, Folder, Trash2, Copy, ChevronDown } from 'lucide-react';
 import { ContentTemplate } from '@/types';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
@@ -186,18 +186,21 @@ export default function TemplatesPage() {
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Category
             </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Framework">Framework</option>
-              <option value="Storytelling">Storytelling</option>
-              <option value="Product Launch">Product Launch</option>
-              <option value="Hiring / Culture">Hiring / Culture</option>
-              <option value="Educational / How-to">Educational / How-to</option>
-              <option value="Contrarian Take">Contrarian Take</option>
-            </select>
+            <div className="relative">
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-sm"
+              >
+                <option value="Framework" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Framework</option>
+                <option value="Storytelling" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Storytelling</option>
+                <option value="Product Launch" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Product Launch</option>
+                <option value="Hiring / Culture" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Hiring / Culture</option>
+                <option value="Educational / How-to" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Educational / How-to</option>
+                <option value="Contrarian Take" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Contrarian Take</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+            </div>
           </div>
 
           <div>

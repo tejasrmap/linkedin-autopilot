@@ -26,23 +26,44 @@ import {
 } from 'lucide-react';
 
 export default function DashboardPage() {
-  const [metrics, setMetrics] = useState<any>({
-    totalPosts: 0,
-    publishedCount: 0,
-    scheduledCount: 0,
-    draftCount: 0,
-    failedCount: 0,
-    accountsConnected: 0,
-    engagement: {
-      impressions: null,
-      reactions: null,
-      comments: null,
-      reposts: null,
-      notice: null,
-    },
+  const [metrics, setMetrics] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_metrics');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return {
+      totalPosts: 0,
+      publishedCount: 0,
+      scheduledCount: 0,
+      draftCount: 0,
+      failedCount: 0,
+      accountsConnected: 0,
+      engagement: {
+        impressions: null,
+        reactions: null,
+        comments: null,
+        reposts: null,
+        notice: null,
+      },
+    };
   });
-  const [recentPosts, setRecentPosts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [recentPosts, setRecentPosts] = useState<any[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_recent_posts');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !sessionStorage.getItem('autopilot_metrics');
+    }
+    return true;
+  });
 
   useEffect(() => {
     loadDashboardData();
@@ -50,7 +71,6 @@ export default function DashboardPage() {
 
   const loadDashboardData = async () => {
     try {
-      setLoading(true);
       const [analyticsRes, postsRes] = await Promise.all([
         fetch('/api/analytics/overview'),
         fetch('/api/posts'),
@@ -59,11 +79,18 @@ export default function DashboardPage() {
       if (analyticsRes.ok) {
         const aData = await analyticsRes.json();
         setMetrics(aData.metrics);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('autopilot_metrics', JSON.stringify(aData.metrics));
+        }
       }
 
       if (postsRes.ok) {
         const pData = await postsRes.json();
-        setRecentPosts(pData.posts || []);
+        const posts = pData.posts || [];
+        setRecentPosts(posts);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('autopilot_recent_posts', JSON.stringify(posts));
+        }
       }
     } catch (e) {
       console.error('Failed to load dashboard:', e);

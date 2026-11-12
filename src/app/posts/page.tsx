@@ -25,6 +25,7 @@ import {
   Check,
   ExternalLink,
   Filter,
+  ChevronDown,
 } from 'lucide-react';
 import { Post } from '@/types';
 
@@ -224,12 +225,13 @@ function PostsContent() {
             <select
               value={destinationFilter}
               onChange={(e) => setDestinationFilter(e.target.value as any)}
-              className="text-xs rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 px-3 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+              className="appearance-none text-xs rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/95 dark:bg-[#0f172a] pl-3 pr-8 py-1.5 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-medium cursor-pointer shadow-sm transition-all"
             >
-              <option value="all">All Destinations</option>
-              <option value="member">Personal Profiles</option>
-              <option value="organization">Company Pages</option>
+              <option value="all" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">All Destinations</option>
+              <option value="member" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Personal Profiles</option>
+              <option value="organization" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Company Pages</option>
             </select>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
           </div>
 
           {/* Search Input */}

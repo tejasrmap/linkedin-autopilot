@@ -15,6 +15,7 @@ import {
   Check,
   Loader2,
   FileText,
+  ChevronDown,
 } from 'lucide-react';
 
 export default function AIStudioPage() {
@@ -351,15 +352,18 @@ export default function AIStudioPage() {
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Post Length
                 </label>
-                <select
-                  value={postLength}
-                  onChange={(e) => setPostLength(e.target.value as any)}
-                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
-                >
-                  <option value="short">Short (&lt; 500 chars)</option>
-                  <option value="medium">Medium (600 - 1200 chars)</option>
-                  <option value="long">Long In-Depth (1200+ chars)</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={postLength}
+                    onChange={(e) => setPostLength(e.target.value as any)}
+                    className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer transition-all shadow-sm"
+                  >
+                    <option value="short" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Short (&lt; 500 chars)</option>
+                    <option value="medium" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Medium (600 - 1200 chars)</option>
+                    <option value="long" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Long In-Depth (1200+ chars)</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                </div>
               </div>
 
               <div>
@@ -454,18 +458,21 @@ export default function AIStudioPage() {
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 Target Tone
               </label>
-              <select
-                value={rewriteTone}
-                onChange={(e) => setRewriteTone(e.target.value as any)}
-                className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
-              >
-                <option value="storytelling">Storytelling & Emotional Hook</option>
-                <option value="professional">Professional & Executive</option>
-                <option value="conversational">Conversational & Friendly</option>
-                <option value="technical">Technical Breakdown & In-Depth</option>
-                <option value="educational">Educational & Actionable Tips</option>
-                <option value="persuasive">Persuasive & High-Converting</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={rewriteTone}
+                  onChange={(e) => setRewriteTone(e.target.value as any)}
+                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer transition-all shadow-sm"
+                >
+                  <option value="storytelling" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Storytelling &amp; Emotional Hook</option>
+                  <option value="professional" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Professional &amp; Executive</option>
+                  <option value="conversational" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Conversational &amp; Friendly</option>
+                  <option value="technical" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Technical Breakdown &amp; In-Depth</option>
+                  <option value="educational" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Educational &amp; Actionable Tips</option>
+                  <option value="persuasive" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Persuasive &amp; High-Converting</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
             </div>
 
             <button

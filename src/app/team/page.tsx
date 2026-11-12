@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Users, ShieldCheck, Mail, Plus, UserCheck, Shield, Sparkles, Building, Check, Trash2, Key } from 'lucide-react';
+import { Users, ShieldCheck, Mail, Plus, UserCheck, Shield, Sparkles, Building, Check, Trash2, Key, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
 
@@ -229,16 +229,19 @@ export default function TeamPage() {
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Assigned Role & Permissions
             </label>
-            <select
-              value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as any)}
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Admin">Admin (Full Workspace Management)</option>
-              <option value="Editor">Editor (Author & Schedule Posts)</option>
-              <option value="Approver">Approver (Review & Approve Posts)</option>
-              <option value="Viewer">Viewer (Read-only Access)</option>
-            </select>
+            <div className="relative">
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as any)}
+                className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-sm"
+              >
+                <option value="Admin" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Admin (Full Workspace Management)</option>
+                <option value="Editor" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Editor (Author &amp; Schedule Posts)</option>
+                <option value="Approver" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Approver (Review &amp; Approve Posts)</option>
+                <option value="Viewer" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Viewer (Read-only Access)</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
