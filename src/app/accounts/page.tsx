@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
+import { Modal } from '@/components/ui/modal';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Linkedin,
   CheckCircle2,
@@ -13,6 +16,11 @@ import {
   Unlink,
   Loader2,
   ExternalLink,
+  Copy,
+  Check,
+  KeyRound,
+  ShieldCheck,
+  ChevronDown,
 } from 'lucide-react';
 import { SocialAccount } from '@/types';
 
@@ -20,6 +28,7 @@ function AccountsContent() {
   const searchParams = useSearchParams();
   const connectedParam = searchParams.get('connected');
   const errorParam = searchParams.get('error');
+  const toast = useToast();
 
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,12 +38,18 @@ function AccountsContent() {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [connectUrl, setConnectUrl] = useState('');
   const [currentOrigin, setCurrentOrigin] = useState('');
+
+  // Modals & Dialogs
   const [showOrgModal, setShowOrgModal] = useState(false);
   const [orgIdInput, setOrgIdInput] = useState('');
   const [orgNameInput, setOrgNameInput] = useState('');
   const [orgVanityInput, setOrgVanityInput] = useState('');
   const [linkingOrg, setLinkingOrg] = useState(false);
-  const [orgStatusNote, setOrgStatusNote] = useState<string | null>(null);
+
+  const [disconnectAccountId, setDisconnectAccountId] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const [copiedUrnId, setCopiedUrnId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -44,13 +59,56 @@ function AccountsContent() {
     fetchConnectUrl();
   }, [requestOrg]);
 
+  const fetchAccounts = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/linkedin/accounts');
+      if (res.ok) {
+        const data = await res.json();
+        setAccounts(data.accounts || []);
+      }
+    } catch (e: any) {
+      toast.error('Failed to load accounts: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchConnectUrl = async () => {
+    try {
+      const res = await fetch(`/api/linkedin/connect?org=${requestOrg}`);
+      if (res.ok) {
+        const data = await res.json();
+        setConnectUrl(data.url || '');
+      }
+    } catch {
+      // Non-blocking
+    }
+  };
+
+  const handleConnect = async () => {
+    try {
+      setConnecting(true);
+      const url = `/api/linkedin/connect?org=${requestOrg}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error(data.error || 'Failed to start LinkedIn OAuth flow');
+        setConnecting(false);
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+      setConnecting(false);
+    }
+  };
+
   const handleLinkCompanyPage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!orgIdInput.trim() || !orgNameInput.trim()) return;
 
     setLinkingOrg(true);
-    setOrgStatusNote(null);
-
     try {
       const res = await fetch('/api/linkedin/organizations', {
         method: 'POST',
@@ -67,29 +125,54 @@ function AccountsContent() {
         throw new Error(data.error || 'Failed to link company page');
       }
 
-      setOrgStatusNote(`Company Page "${orgNameInput}" successfully linked! (Author URN: ${data.authorUrn})`);
+      toast.success(`Company Page "${orgNameInput}" linked! (URN: ${data.authorUrn})`);
       setOrgIdInput('');
       setOrgNameInput('');
       setOrgVanityInput('');
       setShowOrgModal(false);
       await fetchAccounts();
     } catch (err: any) {
-      setOrgStatusNote(`Error: ${err.message}`);
+      toast.error(err.message);
     } finally {
       setLinkingOrg(false);
     }
   };
 
-  const fetchConnectUrl = async () => {
+  const handleConfirmDisconnect = async () => {
+    if (!disconnectAccountId) return;
+    setDisconnecting(true);
     try {
-      const res = await fetch(`/api/linkedin/connect?org=${requestOrg}`);
+      const res = await fetch('/api/linkedin/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: disconnectAccountId }),
+      });
       if (res.ok) {
+        toast.success('LinkedIn account disconnected successfully');
+        await fetchAccounts();
+      } else {
         const data = await res.json();
-        setConnectUrl(data.url || '');
+        toast.error(data.error || 'Failed to disconnect account');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setDisconnecting(false);
+      setDisconnectAccountId(null);
     }
+  };
+
+  const handleCopyLink = () => {
+    if (!connectUrl) return;
+    navigator.clipboard.writeText(connectUrl);
+    toast.success('Authorization link copied to clipboard!');
+  };
+
+  const handleCopyUrn = (urn: string, id: string) => {
+    navigator.clipboard.writeText(urn);
+    setCopiedUrnId(id);
+    toast.info(`Copied ${urn} to clipboard`);
+    setTimeout(() => setCopiedUrnId(null), 2000);
   };
 
   const handleManualCodeExchange = async (e: React.FormEvent) => {
@@ -98,7 +181,6 @@ function AccountsContent() {
 
     setManualSubmitting(true);
     try {
-      // If user pasted full callback URL, extract code and state
       let code = manualCode.trim();
       let state = '';
 
@@ -111,237 +193,266 @@ function AccountsContent() {
       const callbackUrl = `/api/linkedin/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
       window.location.href = callbackUrl;
     } catch (err: any) {
-      alert(`Invalid URL or code: ${err.message}`);
+      toast.error(`Invalid URL or code: ${err.message}`);
       setManualSubmitting(false);
-    }
-  };
-
-  const fetchAccounts = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch('/api/linkedin/accounts');
-      if (res.ok) {
-        const data = await res.json();
-        setAccounts(data.accounts || []);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConnect = async () => {
-    try {
-      setConnecting(true);
-      const url = `/api/linkedin/connect?org=${requestOrg}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        alert(data.error || 'Failed to start LinkedIn OAuth flow');
-        setConnecting(false);
-      }
-    } catch (e: any) {
-      alert(e.message);
-      setConnecting(false);
-    }
-  };
-
-  const handleDisconnect = async (accountId: string) => {
-    if (!confirm('Are you sure you want to disconnect this LinkedIn account?')) return;
-    try {
-      const res = await fetch('/api/linkedin/disconnect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId }),
-      });
-      if (res.ok) {
-        await fetchAccounts();
-      }
-    } catch (e) {
-      console.error(e);
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Linkedin className="w-5 h-5 text-blue-600" />
-            LinkedIn Accounts
+            LinkedIn Destinations
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Manage authorized LinkedIn personal profiles and company pages.
+            Manage authorized LinkedIn personal profiles and organization company pages for your workspace.
           </p>
         </div>
 
-        {/* Connect Action */}
-        <div className="flex items-center gap-3">
+        {/* Action Controls */}
+        <div className="flex items-center gap-2.5">
           <button
-            onClick={() => setShowOrgModal(!showOrgModal)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-all"
+            onClick={() => setShowOrgModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-indigo-200 dark:border-indigo-800/80 text-indigo-700 dark:text-indigo-300 bg-indigo-50/50 dark:bg-indigo-950/30 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/40 transition-all shadow-sm"
           >
-            <Building className="w-4 h-4 text-indigo-500" />
-            Link Company Page
+            <Building className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Link Company Page</span>
           </button>
 
           <button
             onClick={handleConnect}
             disabled={connecting}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
           >
-            {connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Connect LinkedIn Profile
+            {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+            <span>Connect Personal Profile</span>
           </button>
         </div>
       </div>
 
-      {/* Manual Company Page Link Card (Phase 1 & 2) */}
-      {showOrgModal && (
-        <form onSubmit={handleLinkCompanyPage} className="p-5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-3 text-xs animate-in fade-in duration-150">
-          <div className="font-bold text-sm text-indigo-950 dark:text-indigo-100 flex items-center gap-2">
-            <Building className="w-4 h-4 text-indigo-600" />
-            Link LinkedIn Company Page Destination
-          </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Connect an authorized LinkedIn Organization Page to publish posts with <code className="bg-white dark:bg-slate-900 px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono">urn:li:organization:&lt;id&gt;</code>.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Organization ID (digits) *
-              </label>
-              <input
-                type="text"
-                value={orgIdInput}
-                onChange={(e) => setOrgIdInput(e.target.value)}
-                placeholder="e.g. 10594382"
-                required
-                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Company Page Name *
-              </label>
-              <input
-                type="text"
-                value={orgNameInput}
-                onChange={(e) => setOrgNameInput(e.target.value)}
-                placeholder="e.g. GT InnoX LLP"
-                required
-                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Vanity Name (optional)
-              </label>
-              <input
-                type="text"
-                value={orgVanityInput}
-                onChange={(e) => setOrgVanityInput(e.target.value)}
-                placeholder="e.g. gt-innox"
-                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 text-xs"
-              />
+      {/* Connection notification banners if returning from OAuth */}
+      {connectedParam && (
+        <div className="p-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-3 backdrop-blur-sm">
+          <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-500" />
+          <div>
+            <div className="font-bold">LinkedIn Authentication Complete 🎉</div>
+            <div className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">
+              Your LinkedIn account was verified and securely encrypted. You can now schedule and publish posts.
             </div>
           </div>
-
-          <div className="flex items-center gap-2 justify-end pt-2">
-            <button
-              type="button"
-              onClick={() => setShowOrgModal(false)}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={linkingOrg}
-              className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center gap-1.5 disabled:opacity-50"
-            >
-              {linkingOrg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              Save &amp; Link Company Page
-            </button>
-          </div>
-        </form>
-      )}
-
-      {orgStatusNote && (
-        <div className="p-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-800 dark:text-indigo-300 text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          {orgStatusNote}
         </div>
       )}
 
-      {/* Dual Destination Status Card */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-        <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <User className="w-4 h-4 text-blue-600" />
-              Personal Profile Publishing
+      {errorParam && (
+        <div className="p-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 text-rose-800 dark:text-rose-300 text-xs flex items-center gap-3 backdrop-blur-sm">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-500" />
+          <div>
+            <div className="font-bold">OAuth Connection Notice</div>
+            <div className="text-[11px] text-rose-700 dark:text-rose-400 mt-0.5">
+              {decodeURIComponent(errorParam)}
             </div>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+          </div>
+        </div>
+      )}
+
+      {/* Dual Destination Status Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+        <div className="p-4 rounded-2xl border border-emerald-200/80 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 backdrop-blur-sm space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <User className="w-4 h-4" />
+              </div>
+              <span>Personal Profile Publishing</span>
+            </div>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
               Verified &amp; Active
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            Publishing to personal member feeds uses official scope <code className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">w_member_social</code> and author URN <code className="font-mono text-slate-700 dark:text-slate-300">urn:li:person:&lt;id&gt;</code>. Verified live with HTTP 201 Created.
+          <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+            Personal feed publishing uses official scope <code className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">w_member_social</code> and author URN <code className="font-mono text-slate-700 dark:text-slate-300">urn:li:person:&lt;id&gt;</code>. Verified live with HTTP 201 Created.
           </p>
         </div>
 
-        <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/20 space-y-2">
+        <div className="p-4 rounded-2xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/20 backdrop-blur-sm space-y-2.5">
           <div className="flex items-center justify-between">
-            <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <Building className="w-4 h-4 text-indigo-600" />
-              Company Page Publishing
+            <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <Building className="w-4 h-4" />
+              </div>
+              <span>Company Page Publishing</span>
             </div>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
               Awaiting Community Mgmt API
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
             Requires LinkedIn <strong>Community Management API</strong> product on Developer App (Client ID: 86pecf126iu1v4). Dual-destination architecture and author URNs (<code className="font-mono text-slate-700 dark:text-slate-300">urn:li:organization:&lt;id&gt;</code>) are fully implemented.
           </p>
         </div>
       </div>
 
+      {/* Connected Account Cards */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Active Workspace Destinations ({accounts.length})
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {loading ? (
+            <div className="col-span-full py-16 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              <span>Loading connected destinations...</span>
+            </div>
+          ) : accounts.length === 0 ? (
+            <div className="col-span-full p-12 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-[#0f172a]/50 text-xs text-slate-400 space-y-3">
+              <Linkedin className="w-8 h-8 text-blue-500 mx-auto opacity-50" />
+              <div className="font-semibold text-slate-700 dark:text-slate-300">No destinations connected yet</div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                Authorize your LinkedIn personal profile or link your company page using official OAuth 2.0 to begin publishing.
+              </p>
+            </div>
+          ) : (
+            accounts.map((acc) => {
+              const isOrg = acc.account_type === 'organization';
+              const authorUrn = isOrg
+                ? `urn:li:organization:${acc.provider_account_id}`
+                : `urn:li:person:${acc.provider_account_id}`;
+              const isCopied = copiedUrnId === acc.id;
+
+              return (
+                <div
+                  key={acc.id}
+                  className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-4 hover:shadow-md transition-all group"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-12 h-12 flex items-center justify-center text-white font-bold text-base flex-shrink-0 shadow-sm ${
+                          isOrg
+                            ? 'rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600'
+                            : 'rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600'
+                        }`}
+                      >
+                        {acc.profile_image_url ? (
+                          <img
+                            src={acc.profile_image_url}
+                            alt=""
+                            className={`w-12 h-12 object-cover ${isOrg ? 'rounded-xl' : 'rounded-full'}`}
+                          />
+                        ) : isOrg ? (
+                          <Building className="w-6 h-6 text-white" />
+                        ) : (
+                          acc.account_name[0]
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
+                            {acc.account_name}
+                          </h3>
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          {isOrg ? (
+                            <>
+                              <Building className="w-3 h-3 text-indigo-500" />
+                              <span className="font-medium text-indigo-600 dark:text-indigo-400">Company Page Destination</span>
+                            </>
+                          ) : (
+                            <>
+                              <User className="w-3 h-3 text-blue-500" />
+                              <span className="font-medium text-blue-600 dark:text-blue-400">Personal Member Profile</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full flex-shrink-0 ${
+                        acc.connection_status === 'active'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                          : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                      }`}
+                    >
+                      {acc.connection_status}
+                    </span>
+                  </div>
+
+                  {/* URN Chip */}
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0 font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                      <KeyRound className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                      <span className="truncate">{authorUrn}</span>
+                    </div>
+                    <button
+                      onClick={() => handleCopyUrn(authorUrn, acc.id)}
+                      className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors flex-shrink-0 ml-2"
+                      title="Copy Author URN"
+                    >
+                      {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+
+                  {/* Permissions & Disconnect */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Encrypted AES-256</span>
+                    </div>
+
+                    <button
+                      onClick={() => setDisconnectAccountId(acc.id)}
+                      className="flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 font-semibold transition-colors"
+                    >
+                      <Unlink className="w-3.5 h-3.5" />
+                      <span>Disconnect</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
       {/* Step-by-Step Authorization Instructions Card */}
-      <div className="p-5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20 space-y-4 text-xs">
+      <div className="p-5 rounded-2xl border border-blue-200/80 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-950/20 backdrop-blur-sm space-y-4 text-xs">
         <div className="flex items-center justify-between">
           <div className="font-bold text-sm text-blue-950 dark:text-blue-100 flex items-center gap-2">
             <Linkedin className="w-4 h-4 text-blue-600" />
             Live LinkedIn Member Authorization Instructions (Phase 3.1)
           </div>
-          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
             Client ID: 86pecf126iu1v4
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-slate-700 dark:text-slate-300">
-          <div className="p-3 rounded-lg border border-slate-200/60 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 space-y-1">
+          <div className="p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 space-y-1">
             <div className="font-bold text-blue-600 dark:text-blue-400">Step 1: Check Redirect URI</div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              In the LinkedIn Developer Portal under <strong className="text-slate-700 dark:text-slate-300">Auth &gt; Authorized redirect URLs</strong>, confirm that <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-blue-600 dark:text-blue-400 font-mono text-[10px] break-all">{currentOrigin ? `${currentOrigin}/api/linkedin/callback` : 'https://autopilot.apecpowersolutions.com/api/linkedin/callback'}</code> is added.
+              In LinkedIn Developer Portal under <strong className="text-slate-700 dark:text-slate-300">Auth &gt; Authorized redirect URLs</strong>, confirm that <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-blue-600 dark:text-blue-400 font-mono text-[10px] break-all">{currentOrigin ? `${currentOrigin}/api/linkedin/callback` : 'https://autopilot.apecpowersolutions.com/api/linkedin/callback'}</code> is added.
             </p>
           </div>
 
-          <div className="p-3 rounded-lg border border-slate-200/60 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 space-y-1">
+          <div className="p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 space-y-1">
             <div className="font-bold text-blue-600 dark:text-blue-400">Step 2: Scopes &amp; Permissions</div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              The authorization requests <strong className="text-slate-700 dark:text-slate-300">openid, profile, email, w_member_social</strong> to publish posts and display your profile name and picture.
+              Requests <strong className="text-slate-700 dark:text-slate-300">openid, profile, email, w_member_social</strong> to publish posts and display member profile name and avatar.
             </p>
           </div>
 
-          <div className="p-3 rounded-lg border border-slate-200/60 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 space-y-1">
+          <div className="p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 space-y-1">
             <div className="font-bold text-blue-600 dark:text-blue-400">Step 3: Click Connect</div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              Click <strong className="text-slate-700 dark:text-slate-300">Authorize LinkedIn Account</strong> below to open the official LinkedIn permission prompt.
+              Click <strong className="text-slate-700 dark:text-slate-300">Authorize LinkedIn Account</strong> below to open the official LinkedIn permission consent dialog.
             </p>
           </div>
         </div>
@@ -352,20 +463,16 @@ function AccountsContent() {
             <button
               onClick={handleConnect}
               disabled={connecting || !connectUrl}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-500/25 transition-all disabled:opacity-50 text-xs"
             >
               {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
-              Authorize LinkedIn Account
+              <span>Authorize LinkedIn Account</span>
             </button>
 
             {connectUrl && (
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(connectUrl);
-                  alert('Authorization URL copied to clipboard!');
-                }}
-                className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300 transition-colors"
-                title="Copy Authorization URL"
+                onClick={handleCopyLink}
+                className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300 transition-colors text-xs"
               >
                 Copy Auth Link
               </button>
@@ -379,12 +486,12 @@ function AccountsContent() {
               value={manualCode}
               onChange={(e) => setManualCode(e.target.value)}
               placeholder="Paste redirect URL or authorization code here..."
-              className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 text-xs"
+              className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <button
               type="submit"
               disabled={manualSubmitting || !manualCode.trim()}
-              className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-50 flex-shrink-0"
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-50 flex-shrink-0 text-xs shadow-sm transition-all"
             >
               {manualSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Submit'}
             </button>
@@ -392,112 +499,88 @@ function AccountsContent() {
         </div>
       </div>
 
-      {/* Connection notification */}
-      {connectedParam && (
-        <div className="p-3.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          LinkedIn account successfully authenticated and ready for automated publishing!
-        </div>
-      )}
-
-      {errorParam && (
-        <div className="p-3.5 rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 text-xs flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          LinkedIn Connection Note: {decodeURIComponent(errorParam)}
-        </div>
-      )}
-
-      {/* Account Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {loading ? (
-          <div className="col-span-full py-12 flex justify-center text-slate-400">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-          </div>
-        ) : accounts.length === 0 ? (
-          <div className="col-span-full p-12 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400 space-y-3">
-            <Linkedin className="w-8 h-8 text-blue-500 mx-auto opacity-60" />
-            <p>No LinkedIn accounts connected yet.</p>
-            <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
-              Connect your LinkedIn profile or company page using official OAuth 2.0 to begin publishing.
-            </p>
-          </div>
-        ) : (
-          accounts.map((acc) => (
-            <div
-              key={acc.id}
-              className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] shadow-sm space-y-4"
+      {/* Link Company Page Modal */}
+      <Modal
+        isOpen={showOrgModal}
+        onClose={() => setShowOrgModal(false)}
+        title="Link LinkedIn Company Page"
+        description="Add your LinkedIn Company Page with its Organization ID to enable company feed publishing."
+        icon={<Building className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowOrgModal(false)}
+              className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-base flex-shrink-0">
-                    {acc.profile_image_url ? (
-                      <img
-                        src={acc.profile_image_url}
-                        alt=""
-                        className="w-12 h-12 rounded-full object-cover"
-                      />
-                    ) : (
-                      acc.account_name[0]
-                    )}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                      {acc.account_name}
-                    </h3>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                      {acc.account_type === 'organization' ? (
-                        <>
-                          <Building className="w-3 h-3 text-indigo-500" /> Company Page
-                        </>
-                      ) : (
-                        <>
-                          <User className="w-3 h-3 text-blue-500" /> Member Profile
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
+              Cancel
+            </button>
+            <button
+              onClick={handleLinkCompanyPage}
+              disabled={linkingOrg || !orgIdInput.trim() || !orgNameInput.trim()}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm shadow-indigo-500/25 transition-all disabled:opacity-50"
+            >
+              {linkingOrg && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Save &amp; Link Page
+            </button>
+          </>
+        }
+      >
+        <form onSubmit={handleLinkCompanyPage} className="space-y-3.5">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Organization Numeric ID *
+            </label>
+            <input
+              type="text"
+              value={orgIdInput}
+              onChange={(e) => setOrgIdInput(e.target.value)}
+              placeholder="e.g. 10594382 (found in your LinkedIn page admin URL)"
+              required
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-xs"
+            />
+          </div>
 
-                <span
-                  className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
-                    acc.connection_status === 'active'
-                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                      : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-                  }`}
-                >
-                  {acc.connection_status}
-                </span>
-              </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Company Page Name *
+            </label>
+            <input
+              type="text"
+              value={orgNameInput}
+              onChange={(e) => setOrgNameInput(e.target.value)}
+              placeholder="e.g. GT InnoX LLP, APEC Power..."
+              required
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-xs"
+            />
+          </div>
 
-              {/* Scopes & Details */}
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs">
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Granted Permissions:</span>
-                  <span className="font-mono text-[10px] text-slate-700 dark:text-slate-300">
-                    {(acc.scopes || []).slice(0, 3).join(', ')}
-                    {acc.scopes && acc.scopes.length > 3 ? ` +${acc.scopes.length - 3}` : ''}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Connected On:</span>
-                  <span>{new Date(acc.created_at).toLocaleDateString()}</span>
-                </div>
-              </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Vanity Name (optional)
+            </label>
+            <input
+              type="text"
+              value={orgVanityInput}
+              onChange={(e) => setOrgVanityInput(e.target.value)}
+              placeholder="e.g. gt-innox"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-xs"
+            />
+          </div>
+        </form>
+      </Modal>
 
-              {/* Disconnect Action */}
-              <div className="pt-2 flex justify-end">
-                <button
-                  onClick={() => handleDisconnect(acc.id)}
-                  className="flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 font-semibold transition-colors"
-                >
-                  <Unlink className="w-3.5 h-3.5" />
-                  Disconnect
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      {/* Disconnect Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!disconnectAccountId}
+        onClose={() => setDisconnectAccountId(null)}
+        onConfirm={handleConfirmDisconnect}
+        title="Disconnect LinkedIn Destination"
+        message="Are you sure you want to disconnect this LinkedIn destination? Any scheduled posts assigned to this account will fail until an active account is linked."
+        confirmText="Disconnect Account"
+        variant="danger"
+        loading={disconnecting}
+      />
     </div>
   );
 }

@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 import {
   Send,
   Calendar,
   Save,
-  Image,
+  Image as ImageIcon,
   Video,
   FileText,
   Sparkles,
@@ -22,6 +23,10 @@ import {
   Building,
   User,
   Plus,
+  Clock,
+  Sparkle,
+  Eye,
+  Check,
 } from 'lucide-react';
 import { SocialAccount } from '@/types';
 
@@ -29,6 +34,7 @@ function ComposerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialContent = searchParams.get('content') || '';
+  const toast = useToast();
 
   const [content, setContent] = useState(initialContent);
   const [postType, setPostType] = useState<'text' | 'image' | 'video' | 'document'>('text');
@@ -42,7 +48,6 @@ function ComposerContent() {
   const [scheduledTime, setScheduledTime] = useState('');
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const [submitting, setSubmitting] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     fetchAccounts();
@@ -69,8 +74,8 @@ function ComposerContent() {
           setDestinationType(firstMember.account_type);
         }
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error('Failed to load LinkedIn accounts: ' + e.message);
     }
   };
 
@@ -89,7 +94,6 @@ function ComposerContent() {
     if (!files || files.length === 0) return;
 
     setUploadingMedia(true);
-    setStatusMessage(null);
 
     try {
       const file = files[0];
@@ -113,8 +117,10 @@ function ComposerContent() {
       if (file.type.startsWith('image/')) setPostType('image');
       else if (file.type.startsWith('video/')) setPostType('video');
       else setPostType('document');
+
+      toast.success(`Media attached: ${file.name}`);
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message });
+      toast.error(err.message);
     } finally {
       setUploadingMedia(false);
     }
@@ -123,32 +129,42 @@ function ComposerContent() {
   const removeMedia = () => {
     setMediaAssets([]);
     setPostType('text');
+    toast.info('Media attachment removed');
+  };
+
+  const applySchedulePreset = (hoursFromNow: number) => {
+    const target = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
+    setScheduledDate(target.toISOString().split('T')[0]);
+    const hours = String(target.getHours()).padStart(2, '0');
+    const minutes = String(target.getMinutes()).padStart(2, '0');
+    setScheduledTime(`${hours}:${minutes}`);
+    setScheduleMode(true);
+    toast.info(`Scheduled for ${target.toLocaleDateString()} at ${hours}:${minutes}`);
   };
 
   const handleSavePost = async (publishNow = false, asDraft = false) => {
     if (!content.trim()) {
-      setStatusMessage({ type: 'error', text: 'Please enter post content.' });
+      toast.error('Please enter post content.');
       return;
     }
 
     if (!selectedAccount && !asDraft) {
-      setStatusMessage({ type: 'error', text: 'Please select a LinkedIn account before publishing or scheduling.' });
+      toast.error('Please select a LinkedIn destination before publishing.');
       return;
     }
 
     setSubmitting(true);
-    setStatusMessage(null);
 
     let finalScheduledAt: string | null = null;
     if (scheduleMode && !publishNow && !asDraft) {
       if (!scheduledDate || !scheduledTime) {
-        setStatusMessage({ type: 'error', text: 'Please select both date and time for scheduling.' });
+        toast.error('Please select both date and time for scheduling.');
         setSubmitting(false);
         return;
       }
       const combined = new Date(`${scheduledDate}T${scheduledTime}:00`);
       if (combined.getTime() <= Date.now()) {
-        setStatusMessage({ type: 'error', text: 'Scheduled time must be in the future.' });
+        toast.error('Scheduled time must be in the future.');
         setSubmitting(false);
         return;
       }
@@ -180,18 +196,18 @@ function ComposerContent() {
       }
 
       if (publishNow) {
-        setStatusMessage({ type: 'success', text: 'Post published successfully to LinkedIn!' });
+        toast.success('Post published successfully to LinkedIn! 🎉');
       } else if (scheduleMode) {
-        setStatusMessage({ type: 'success', text: 'Post scheduled successfully in queue!' });
+        toast.success('Post scheduled in queue! 🚀');
       } else {
-        setStatusMessage({ type: 'success', text: 'Draft saved successfully.' });
+        toast.success('Draft saved successfully.');
       }
 
       setTimeout(() => {
         router.push(publishNow ? '/posts?tab=published' : scheduleMode ? '/posts?tab=scheduled' : '/posts?tab=draft');
-      }, 1200);
+      }, 1000);
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message });
+      toast.error(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -199,17 +215,19 @@ function ComposerContent() {
 
   const charCount = content.length;
   const maxChars = 3000;
+  const charPercentage = Math.min(100, Math.round((charCount / maxChars) * 100));
   const selectedAccObj = accounts.find((a) => a.id === selectedAccount);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+      {/* Top Header & Actions Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            Post Composer
+            Post Studio &amp; Composer
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Create, preview, schedule, and publish rich LinkedIn content.
+            Author, preview, schedule, and publish rich multi-format LinkedIn content.
           </p>
         </div>
 
@@ -218,72 +236,58 @@ function ComposerContent() {
           <button
             onClick={() => handleSavePost(false, true)}
             disabled={submitting}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
           >
             <Save className="w-3.5 h-3.5" />
-            Save Draft
+            <span>Save Draft</span>
           </button>
 
           <button
             onClick={() => setScheduleMode(!scheduleMode)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
               scheduleMode
-                ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300'
-                : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                ? 'bg-blue-50/80 border-blue-300 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 shadow-sm'
+                : 'border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            {scheduleMode ? 'Schedule Enabled' : 'Schedule'}
+            <span>{scheduleMode ? 'Schedule Active' : 'Schedule'}</span>
           </button>
 
           {scheduleMode ? (
             <button
               onClick={() => handleSavePost(false, false)}
               disabled={submitting}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
             >
-              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
-              Schedule Post
+              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+              <span>Schedule Post</span>
             </button>
           ) : (
             <button
               onClick={() => handleSavePost(true, false)}
               disabled={submitting}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              Publish Now
+              <span>Publish Now</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Status Alert Banner */}
-      {statusMessage && (
-        <div
-          className={`p-3 rounded-lg text-xs flex items-center gap-2 border ${
-            statusMessage.type === 'success'
-              ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-              : 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
-          }`}
-        >
-          {statusMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-          {statusMessage.text}
-        </div>
-      )}
-
-      {/* Main Composer Layout: 2 Columns (Editor vs Live LinkedIn Preview) */}
+      {/* Main Composer Layout: 2 Columns */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Editor & Settings */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Dual Destination Selector */}
-          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-3">
+          {/* Dual Destination Selector Card */}
+          <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-3">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                 Publishing Destination
               </label>
-              <span className="text-[10px] text-slate-400">
-                {destinationType === 'member' ? 'Personal Member Profile' : 'LinkedIn Company Page'}
+              <span className="text-[11px] text-slate-400 font-mono">
+                {destinationType === 'member' ? 'Member Profile' : 'Company Page'}
               </span>
             </div>
 
@@ -329,34 +333,34 @@ function ComposerContent() {
             {/* Destination Specific Selector / Status */}
             {destinationType === 'member' ? (
               memberAccounts.length === 0 ? (
-                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex items-center justify-between">
                   <span>No personal profile connected.</span>
                   <a href="/accounts" className="text-blue-600 hover:underline font-semibold flex items-center gap-1">
                     Connect Profile <Plus className="w-3 h-3" />
                   </a>
                 </div>
               ) : (
-                <div className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs">
+                <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold flex items-center justify-center text-xs shadow-sm">
                       {memberAccounts[0].profile_image_url ? (
-                        <img src={memberAccounts[0].profile_image_url} alt="" className="w-7 h-7 rounded-full object-cover" />
+                        <img src={memberAccounts[0].profile_image_url} alt="" className="w-8 h-8 rounded-full object-cover" />
                       ) : (
                         memberAccounts[0].account_name[0]
                       )}
                     </div>
                     <div>
-                      <div className="font-semibold text-xs text-slate-800 dark:text-slate-200">{memberAccounts[0].account_name}</div>
+                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{memberAccounts[0].account_name}</div>
                       <div className="text-[10px] text-slate-400 font-mono">Author URN: urn:li:person:{memberAccounts[0].provider_account_id}</div>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                     Active
                   </span>
                 </div>
               )
             ) : orgAccounts.length === 0 ? (
-              <div className="p-3 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-xs text-amber-800 dark:text-amber-300 space-y-2">
+              <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 text-xs text-amber-800 dark:text-amber-300 space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-0.5">
                     <div className="font-semibold flex items-center gap-1.5">
@@ -368,7 +372,7 @@ function ComposerContent() {
                   </div>
                   <a
                     href="/accounts"
-                    className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] flex-shrink-0"
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] flex-shrink-0 shadow-sm"
                   >
                     Authorize Page
                   </a>
@@ -378,7 +382,7 @@ function ComposerContent() {
               <select
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
-                className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 {orgAccounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
@@ -391,11 +395,31 @@ function ComposerContent() {
 
           {/* Scheduling Details Card */}
           {scheduleMode && (
-            <div className="p-4 rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-950/20 space-y-3">
-              <div className="text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-blue-500" />
-                Schedule Date & Time
+            <div className="p-4 rounded-2xl border border-blue-200/80 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-950/20 backdrop-blur-sm space-y-3.5 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-blue-950 dark:text-blue-100 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Scheduled Publication Window</span>
+                </div>
+                {/* Presets */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => applySchedulePreset(1)}
+                    className="px-2 py-0.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-white/60 dark:bg-slate-900/60 text-[10px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100/60 transition-colors"
+                  >
+                    In 1 hr
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applySchedulePreset(24)}
+                    className="px-2 py-0.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-white/60 dark:bg-slate-900/60 text-[10px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100/60 transition-colors"
+                  >
+                    Tomorrow
+                  </button>
+                </div>
               </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
@@ -405,7 +429,7 @@ function ComposerContent() {
                     type="date"
                     value={scheduledDate}
                     onChange={(e) => setScheduledDate(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
                 <div>
@@ -416,23 +440,24 @@ function ComposerContent() {
                     type="time"
                     value={scheduledTime}
                     onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
+
               <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                Timezone: <span className="font-semibold">{timezone}</span> (Jobs are stored in UTC and dispatched by BullMQ worker).
+                Timezone: <span className="font-semibold text-slate-700 dark:text-slate-300">{timezone}</span> (Jobs are executed automatically by the background runner).
               </div>
             </div>
           )}
 
-          {/* Text Area Card */}
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] overflow-hidden flex flex-col">
+          {/* Post Content Box */}
+          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500/50 transition-all">
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="What do you want to talk about? Write your LinkedIn post here..."
-              rows={10}
+              placeholder="What do you want to talk about? Share an insight, story, or project update..."
+              rows={9}
               maxLength={maxChars}
               className="w-full p-4 text-sm bg-transparent resize-y border-none focus:outline-none text-slate-900 dark:text-slate-100 placeholder-slate-400 leading-relaxed"
             />
@@ -440,18 +465,24 @@ function ComposerContent() {
             {/* Media Preview Attachment in Editor */}
             {mediaAssets.length > 0 && (
               <div className="px-4 pb-3">
-                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 truncate">
-                    {postType === 'image' && <Image className="w-4 h-4 text-blue-500 flex-shrink-0" />}
+                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2.5 truncate">
+                    {postType === 'image' && <ImageIcon className="w-4 h-4 text-blue-500 flex-shrink-0" />}
                     {postType === 'video' && <Video className="w-4 h-4 text-purple-500 flex-shrink-0" />}
                     {postType === 'document' && <FileText className="w-4 h-4 text-emerald-500 flex-shrink-0" />}
-                    <span className="truncate text-slate-800 dark:text-slate-200 font-medium">
-                      {mediaAssets[0].file_name}
-                    </span>
+                    <div className="truncate min-w-0">
+                      <div className="truncate text-slate-900 dark:text-slate-100 font-semibold">
+                        {mediaAssets[0].file_name}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {mediaAssets[0].file_size ? `${Math.round(mediaAssets[0].file_size / 1024)} KB • ` : ''}
+                        Attached to post
+                      </div>
+                    </div>
                   </div>
                   <button
                     onClick={removeMedia}
-                    className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                    className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -460,10 +491,10 @@ function ComposerContent() {
             )}
 
             {/* Editor Bottom Bar */}
-            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
+            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <label className="cursor-pointer p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
-                  <Image className="w-4 h-4" />
+                <label className="cursor-pointer p-2 rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors" title="Attach Media">
+                  <ImageIcon className="w-4 h-4" />
                   <input
                     type="file"
                     accept="image/*,video/*,application/pdf"
@@ -474,7 +505,7 @@ function ComposerContent() {
                 <button
                   type="button"
                   onClick={() => router.push('/ai-studio')}
-                  className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-indigo-500 transition-colors"
+                  className="p-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 transition-colors"
                   title="Enhance with AI Studio"
                 >
                   <Sparkles className="w-4 h-4" />
@@ -486,42 +517,54 @@ function ComposerContent() {
                 )}
               </div>
 
-              {/* Character Counter */}
-              <div className="text-xs font-mono text-slate-400">
+              {/* Character Counter Progress */}
+              <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+                <div className="w-16 h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden hidden sm:block">
+                  <div
+                    className={`h-full transition-all ${
+                      charPercentage > 90 ? 'bg-rose-500' : charPercentage > 75 ? 'bg-amber-500' : 'bg-blue-500'
+                    }`}
+                    style={{ width: `${charPercentage}%` }}
+                  />
+                </div>
                 <span className={charCount > 2800 ? 'text-amber-500 font-bold' : ''}>{charCount}</span> / {maxChars}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Live LinkedIn Preview Card */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            Live Feed Preview
+        {/* Right Column: Realistic Live LinkedIn Preview Card */}
+        <div className="lg:col-span-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5 text-blue-500" />
+              Live Feed Preview
+            </span>
+            <span className="text-[10px] text-slate-400">Matches LinkedIn Web App</span>
           </div>
 
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] shadow-sm overflow-hidden text-slate-900 dark:text-slate-100">
+          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-md overflow-hidden text-slate-900 dark:text-slate-100 transition-all">
             {/* LinkedIn Card Header */}
             <div className="p-4 flex items-start gap-3">
               {destinationType === 'organization' || selectedAccObj?.account_type === 'organization' ? (
-                <div className="w-10 h-10 rounded-md bg-gradient-to-tr from-indigo-600 to-blue-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
                   {selectedAccObj?.profile_image_url ? (
                     <img
                       src={selectedAccObj.profile_image_url}
                       alt=""
-                      className="w-10 h-10 rounded-md object-cover"
+                      className="w-11 h-11 rounded-xl object-cover"
                     />
                   ) : (
                     <Building className="w-5 h-5 text-white" />
                   )}
                 </div>
               ) : (
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
                   {selectedAccObj?.profile_image_url ? (
                     <img
                       src={selectedAccObj.profile_image_url}
                       alt=""
-                      className="w-10 h-10 rounded-full object-cover"
+                      className="w-11 h-11 rounded-full object-cover"
                     />
                   ) : (
                     selectedAccObj?.account_name?.[0] || 'T'
@@ -531,11 +574,11 @@ function ComposerContent() {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-1">
-                  <div className="font-semibold text-xs truncate">
+                  <div className="font-bold text-xs truncate">
                     {selectedAccObj?.account_name || (destinationType === 'organization' ? 'Company Page' : 'Personal Member')}
                   </div>
                   {destinationType === 'organization' && (
-                    <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800 flex items-center gap-0.5">
+                    <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800 flex items-center gap-0.5">
                       + Follow
                     </span>
                   )}
@@ -556,12 +599,12 @@ function ComposerContent() {
 
             {/* LinkedIn Card Body */}
             <div className="px-4 pb-3 text-xs leading-relaxed whitespace-pre-wrap font-normal">
-              {content || <span className="text-slate-400 italic">Your post content will appear here in real-time...</span>}
+              {content || <span className="text-slate-400 italic">Your post commentary will appear here in real-time...</span>}
             </div>
 
             {/* Media Attachment Preview */}
             {mediaAssets.length > 0 && mediaAssets[0].url && (
-              <div className="border-t border-b border-slate-100 dark:border-slate-800 bg-slate-900 max-h-80 overflow-hidden flex items-center justify-center">
+              <div className="border-t border-b border-slate-100 dark:border-slate-800/80 bg-slate-900 max-h-80 overflow-hidden flex items-center justify-center">
                 {postType === 'image' && (
                   <img
                     src={mediaAssets[0].url}
@@ -577,27 +620,67 @@ function ComposerContent() {
                   />
                 )}
                 {postType === 'document' && (
-                  <div className="p-8 text-center text-xs text-white flex flex-col items-center gap-2">
-                    <FileText className="w-8 h-8 text-blue-400" />
-                    <span>{mediaAssets[0].file_name}</span>
+                  <div className="p-8 text-center text-white space-y-2">
+                    <FileText className="w-12 h-12 mx-auto text-emerald-400 opacity-80" />
+                    <div className="font-semibold text-xs">{mediaAssets[0].file_name}</div>
+                    <div className="text-[10px] text-slate-400">PDF Document Carousel</div>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Mock LinkedIn Interaction Bar */}
-            <div className="p-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 px-4">
-              <button className="flex items-center gap-1.5 py-1 hover:text-blue-600 transition-colors">
-                <ThumbsUp className="w-3.5 h-3.5" /> Like
+            {/* LinkedIn Reactions Summary Bar */}
+            <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
+              <div className="flex items-center gap-1">
+                <div className="flex -space-x-1">
+                  <div className="w-4 h-4 rounded-full bg-blue-500 text-white flex items-center justify-center text-[8px]">
+                    👍
+                  </div>
+                  <div className="w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px]">
+                    ❤️
+                  </div>
+                  <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[8px]">
+                    💡
+                  </div>
+                </div>
+                <span className="ml-1">42 reactions</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>8 comments</span>
+                <span>•</span>
+                <span>3 reposts</span>
+              </div>
+            </div>
+
+            {/* LinkedIn Card Action Buttons */}
+            <div className="px-2 py-1.5 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-4 gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 select-none">
+              <button
+                type="button"
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <ThumbsUp className="w-3.5 h-3.5" />
+                <span>Like</span>
               </button>
-              <button className="flex items-center gap-1.5 py-1 hover:text-blue-600 transition-colors">
-                <MessageSquare className="w-3.5 h-3.5" /> Comment
+              <button
+                type="button"
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>Comment</span>
               </button>
-              <button className="flex items-center gap-1.5 py-1 hover:text-blue-600 transition-colors">
-                <Share2 className="w-3.5 h-3.5" /> Repost
+              <button
+                type="button"
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Repost</span>
               </button>
-              <button className="flex items-center gap-1.5 py-1 hover:text-blue-600 transition-colors">
-                <Send className="w-3.5 h-3.5" /> Send
+              <button
+                type="button"
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Send</span>
               </button>
             </div>
           </div>

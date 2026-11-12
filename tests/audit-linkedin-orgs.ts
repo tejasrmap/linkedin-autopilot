@@ -72,3 +72,4 @@ async function auditLinkedInPermissions() {
 }
 
 auditLinkedInPermissions().catch(console.error);
+

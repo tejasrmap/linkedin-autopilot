@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 import {
   Sparkles,
   RefreshCw,
@@ -18,6 +19,7 @@ import {
 
 export default function AIStudioPage() {
   const router = useRouter();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<'generate' | 'rewrite' | 'hashtags' | 'ideas' | 'calendar' | 'brand'>('generate');
 
   // Generate State
@@ -88,9 +90,12 @@ export default function AIStudioPage() {
       const data = await res.json();
       if (res.ok) {
         setGeneratedPost(data.content);
+        toast.success('Generated high-retention post draft!');
+      } else {
+        toast.error(data.error || 'Failed to generate post');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error(e.message || 'Error communicating with AI service');
     } finally {
       setLoadingGenerate(false);
     }
@@ -112,9 +117,12 @@ export default function AIStudioPage() {
       const data = await res.json();
       if (res.ok) {
         setRewrittenPost(data.content);
+        toast.success(`Rewritten post in ${rewriteTone} voice!`);
+      } else {
+        toast.error(data.error || 'Failed to rewrite post');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error(e.message || 'Error communicating with AI service');
     } finally {
       setLoadingRewrite(false);
     }
@@ -133,9 +141,12 @@ export default function AIStudioPage() {
       const data = await res.json();
       if (res.ok) {
         setHashtags(data.hashtags || []);
+        toast.success(`Discovered ${data.hashtags?.length || 0} optimized hashtags!`);
+      } else {
+        toast.error(data.error || 'Failed to generate hashtags');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error(e.message || 'Error communicating with AI service');
     } finally {
       setLoadingHashtags(false);
     }
@@ -154,9 +165,12 @@ export default function AIStudioPage() {
       const data = await res.json();
       if (res.ok) {
         setIdeas(data.ideas || []);
+        toast.success(`Generated ${data.ideas?.length || 0} viral hook ideas!`);
+      } else {
+        toast.error(data.error || 'Failed to generate ideas');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error(e.message || 'Error communicating with AI service');
     } finally {
       setLoadingIdeas(false);
     }

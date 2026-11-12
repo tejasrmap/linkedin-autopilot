@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { CreditCard, Check, Zap, Building2, Crown, Shield } from 'lucide-react';
+import { useToast } from '@/components/ui/toast';
 
 const plans = [
   {
@@ -60,6 +61,7 @@ const plans = [
 ];
 
 export default function BillingPage() {
+  const toast = useToast();
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       <div>
@@ -118,6 +120,11 @@ export default function BillingPage() {
             <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
                 disabled={p.current}
+                onClick={() => {
+                  if (!p.current) {
+                    toast.info(`Billing gateway redirecting to ${p.name} tier checkout...`);
+                  }
+                }}
                 className={`w-full py-2 rounded-lg text-xs font-semibold transition-all ${
                   p.current
                     ? 'border border-slate-200 dark:border-slate-800 text-slate-400 cursor-default'

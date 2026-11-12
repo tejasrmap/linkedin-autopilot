@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { useToast } from '@/components/ui/toast';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Clock,
   CheckCircle2,
@@ -18,17 +20,32 @@ import {
   Globe,
   Building,
   User,
+  Search,
+  Copy,
+  Check,
+  ExternalLink,
+  Filter,
 } from 'lucide-react';
 import { Post } from '@/types';
 
 function PostsContent() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') || 'all';
+  const toast = useToast();
 
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Filters & Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [destinationFilter, setDestinationFilter] = useState<'all' | 'member' | 'organization'>('all');
+
+  // Delete Confirm Dialog
+  const [deletePostId, setDeletePostId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -47,8 +64,8 @@ function PostsContent() {
         const data = await res.json();
         setPosts(data.posts || []);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error('Failed to load posts: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -58,14 +75,15 @@ function PostsContent() {
     setActionLoading(postId);
     try {
       const res = await fetch(`/api/posts/${postId}/publish`, { method: 'POST' });
+      const data = await res.json();
       if (res.ok) {
+        toast.success('Post published live to LinkedIn! 🎉');
         await loadPosts();
       } else {
-        const data = await res.json();
-        alert(data.error || 'Publish failed');
+        toast.error(data.error || 'Publish failed');
       }
     } catch (e: any) {
-      alert(e.message);
+      toast.error(e.message);
     } finally {
       setActionLoading(null);
     }
@@ -76,134 +94,198 @@ function PostsContent() {
     try {
       const res = await fetch(`/api/posts/${postId}/cancel`, { method: 'POST' });
       if (res.ok) {
+        toast.info('Scheduled post cancelled');
         await loadPosts();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Cancel failed');
       }
     } catch (e: any) {
-      console.error(e);
+      toast.error(e.message);
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleDelete = async (postId: string) => {
-    if (!confirm('Are you sure you want to delete this post?')) return;
-    setActionLoading(postId);
+  const handleConfirmDelete = async () => {
+    if (!deletePostId) return;
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/posts/${postId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/posts/${deletePostId}`, { method: 'DELETE' });
       if (res.ok) {
-        setPosts((prev) => prev.filter((p) => p.id !== postId));
+        setPosts((prev) => prev.filter((p) => p.id !== deletePostId));
+        toast.success('Post removed from queue');
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to delete post');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      toast.error(e.message);
     } finally {
-      setActionLoading(null);
+      setDeleting(false);
+      setDeletePostId(null);
     }
   };
+
+  const handleCopyContent = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedPostId(id);
+    toast.info('Post content copied to clipboard');
+    setTimeout(() => setCopiedPostId(null), 2000);
+  };
+
+  const filteredPosts = useMemo(() => {
+    return posts.filter((p) => {
+      // Search filter
+      const matchesSearch =
+        !searchQuery.trim() ||
+        p.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.social_account?.account_name?.toLowerCase().includes(searchQuery.toLowerCase());
+
+      // Destination filter
+      const matchesDestination =
+        destinationFilter === 'all' ||
+        (destinationFilter === 'member' && p.social_account?.account_type === 'member') ||
+        (destinationFilter === 'organization' && p.social_account?.account_type === 'organization');
+
+      return matchesSearch && matchesDestination;
+    });
+  }, [posts, searchQuery, destinationFilter]);
+
+  const tabs = [
+    { id: 'all', name: 'All Posts', icon: FileText },
+    { id: 'scheduled', name: 'Scheduled', icon: Clock },
+    { id: 'published', name: 'Published', icon: CheckCircle2 },
+    { id: 'draft', name: 'Drafts', icon: PlusCircle },
+    { id: 'failed', name: 'Failed Attempts', icon: AlertOctagon },
+  ];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            Posts & Content Queue
+            Publishing Queue &amp; History
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Monitor, publish, reschedule, and manage all LinkedIn posts.
+            Monitor, edit, and audit personal and company page publications across workspaces.
           </p>
         </div>
-        <Link
-          href="/composer"
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all self-start"
-        >
-          <PlusCircle className="w-4 h-4" />
-          Create Post
-        </Link>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={loadPosts}
+            disabled={loading}
+            className="w-9 h-9 rounded-xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm"
+            title="Refresh Posts"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+
+          <Link
+            href="/composer"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>Create New Post</span>
+          </Link>
+        </div>
       </div>
 
-      {/* Status Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-1 text-xs font-semibold overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('all')}
-          className={`px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'all'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          All Posts
-        </button>
+      {/* Filter & Search Bar */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-1 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 overflow-x-auto">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{tab.name}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        <button
-          onClick={() => setActiveTab('scheduled')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'scheduled'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5" />
-          Scheduled Queue
-        </button>
+        {/* Right Search & Destination Filter */}
+        <div className="flex items-center gap-2.5">
+          {/* Destination Filter */}
+          <div className="relative">
+            <select
+              value={destinationFilter}
+              onChange={(e) => setDestinationFilter(e.target.value as any)}
+              className="text-xs rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 px-3 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+            >
+              <option value="all">All Destinations</option>
+              <option value="member">Personal Profiles</option>
+              <option value="organization">Company Pages</option>
+            </select>
+          </div>
 
-        <button
-          onClick={() => setActiveTab('draft')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'draft'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          Drafts
-        </button>
-
-        <button
-          onClick={() => setActiveTab('published')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'published'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          Published
-        </button>
-
-        <button
-          onClick={() => setActiveTab('failed')}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'failed'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <AlertOctagon className="w-3.5 h-3.5" />
-          Failed
-        </button>
+          {/* Search Input */}
+          <div className="relative flex-1 sm:w-64">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search content..."
+              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-400"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Posts List */}
-      <div className="space-y-4">
+      <div className="space-y-3.5">
         {loading ? (
-          <div className="py-12 flex justify-center text-slate-400">
+          <div className="py-20 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs">
             <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+            <span>Loading publications...</span>
           </div>
-        ) : posts.length === 0 ? (
-          <div className="p-12 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400">
-            No posts found in this view.
+        ) : filteredPosts.length === 0 ? (
+          <div className="p-16 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-[#0f172a]/50 text-xs text-slate-400 space-y-3">
+            <FileText className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto" />
+            <div className="font-semibold text-slate-700 dark:text-slate-300">No posts found</div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+              {searchQuery
+                ? 'No posts match your search query. Try clearing the search filter.'
+                : 'There are no posts in this category yet. Create your first post to get started.'}
+            </p>
+            <Link
+              href="/composer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-all"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>Create Post</span>
+            </Link>
           </div>
         ) : (
-          posts.map((post) => {
+          filteredPosts.map((post) => {
             const isLoadingThis = actionLoading === post.id;
+            const isOrg = post.social_account?.account_type === 'organization';
+            const isCopied = copiedPostId === post.id;
+
             return (
               <div
                 key={post.id}
-                className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] shadow-sm flex flex-col md:flex-row items-start justify-between gap-4 text-xs"
+                className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm flex flex-col md:flex-row items-start justify-between gap-4 text-xs hover:shadow-md transition-all group"
               >
-                <div className="flex-1 space-y-2">
+                <div className="flex-1 space-y-3 min-w-0">
+                  {/* Meta Bar */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <span
-                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                      className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full ${
                         post.status === 'published'
                           ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                           : post.status === 'scheduled'
@@ -211,73 +293,89 @@ function PostsContent() {
                           : post.status === 'failed'
                           ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
                           : post.status === 'processing'
-                          ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20'
+                          ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 animate-pulse'
                           : 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20'
                       }`}
                     >
                       {post.status}
                     </span>
 
-                    <span className="text-slate-400">
-                      Type: <span className="font-semibold capitalize">{post.post_type}</span>
+                    <span className="text-slate-400 text-[11px]">
+                      Format: <span className="font-semibold capitalize text-slate-600 dark:text-slate-300">{post.post_type}</span>
                     </span>
 
+                    {/* Destination Pill */}
                     {post.social_account && (
-                      <span className="text-slate-400 flex items-center gap-1">
-                        • Destination:{' '}
-                        <span className="font-semibold text-slate-700 dark:text-slate-300 inline-flex items-center gap-1">
-                          {post.social_account.account_type === 'organization' ? (
-                            <>
-                              <Building className="w-3 h-3 text-indigo-500" />
-                              {post.social_account.account_name} (Company Page)
-                            </>
-                          ) : (
-                            <>
-                              <User className="w-3 h-3 text-blue-500" />
-                              {post.social_account.account_name} (Personal)
-                            </>
-                          )}
-                        </span>
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                        {isOrg ? (
+                          <>
+                            <Building className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                            <span className="truncate max-w-[140px]">{post.social_account.account_name}</span>
+                            <span className="text-[9px] uppercase px-1 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">Page</span>
+                          </>
+                        ) : (
+                          <>
+                            <User className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                            <span className="truncate max-w-[140px]">{post.social_account.account_name}</span>
+                            <span className="text-[9px] uppercase px-1 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">Profile</span>
+                          </>
+                        )}
                       </span>
                     )}
 
                     {post.scheduled_at && (
-                      <span className="text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1">
-                        • <Calendar className="w-3 h-3" />
-                        {new Date(post.scheduled_at).toLocaleString()}
+                      <span className="text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1 text-[11px]">
+                        <Calendar className="w-3 h-3" />
+                        {new Date(post.scheduled_at).toLocaleString([], {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </span>
                     )}
                   </div>
 
-                  <p className="text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
+                  {/* Post Content */}
+                  <p className="text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap line-clamp-3">
                     {post.content}
                   </p>
 
+                  {/* Error Banner if failed */}
                   {post.error_message && (
-                    <div className="p-2 rounded bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 text-[11px]">
-                      Error: {post.error_message}
+                    <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 text-[11px] leading-relaxed">
+                      <strong>Failure Note:</strong> {post.error_message}
                     </div>
                   )}
 
+                  {/* LinkedIn Provider Post ID */}
                   {post.provider_post_id && (
-                    <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <div className="text-[10px] text-slate-400 flex items-center gap-1.5 font-mono">
                       <Globe className="w-3 h-3 text-blue-500" />
-                      LinkedIn ID: <span className="font-mono">{post.provider_post_id}</span>
+                      <span>{post.provider_post_id}</span>
                     </div>
                   )}
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 self-end md:self-center flex-shrink-0">
+                {/* Actions Bar */}
+                <div className="flex items-center gap-1.5 self-end md:self-center flex-shrink-0 pt-2 md:pt-0">
+                  <button
+                    onClick={() => handleCopyContent(post.content, post.id)}
+                    className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                    title="Copy Content"
+                  >
+                    {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+
                   {post.status !== 'published' && (
                     <button
                       onClick={() => handlePublishNow(post.id)}
-                      disabled={isLoadingThis}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
-                      title="Publish to LinkedIn Now"
+                      disabled={isLoadingThis || post.status === 'processing'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-500/20 transition-all disabled:opacity-50"
+                      title="Publish Now"
                     >
-                      {isLoadingThis ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                      Publish Now
+                      {isLoadingThis ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      <span>Publish</span>
                     </button>
                   )}
 
@@ -285,28 +383,19 @@ function PostsContent() {
                     <button
                       onClick={() => handleCancel(post.id)}
                       disabled={isLoadingThis}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-300"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold transition-colors disabled:opacity-50"
+                      title="Cancel Schedule"
                     >
-                      <XCircle className="w-3 h-3" />
-                      Cancel
-                    </button>
-                  )}
-
-                  {post.status === 'failed' && (
-                    <button
-                      onClick={() => handlePublishNow(post.id)}
-                      disabled={isLoadingThis}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700 transition-colors"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      Retry
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>Cancel</span>
                     </button>
                   )}
 
                   <button
-                    onClick={() => handleDelete(post.id)}
+                    onClick={() => setDeletePostId(post.id)}
                     disabled={isLoadingThis}
-                    className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                    className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors disabled:opacity-50"
+                    title="Delete Post"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -316,6 +405,18 @@ function PostsContent() {
           })
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!deletePostId}
+        onClose={() => setDeletePostId(null)}
+        onConfirm={handleConfirmDelete}
+        title="Delete Publication"
+        message="Are you sure you want to delete this publication? This action removes the post from your queue and cannot be undone."
+        confirmText="Delete Post"
+        variant="danger"
+        loading={deleting}
+      />
     </div>
   );
 }
