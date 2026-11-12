@@ -1,0 +1,67 @@
+# ==============================================================
+# LINKEDIN AUTOPILOT - PRODUCTION DOCKER COMPOSE
+# BY GT INNOX LLP
+# ==============================================================
+
+version: '3.8'
+
+services:
+  # Next.js Web Application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: linkedin-autopilot-web
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://app.gtinnox.com}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
+      - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
+      - LINKEDIN_REDIRECT_URI=${LINKEDIN_REDIRECT_URI}
+      - LINKEDIN_API_VERSION=${LINKEDIN_API_VERSION:-202610}
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  # Persistent Background Publishing Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: linkedin-autopilot-worker
+    restart: always
+    command: ["npx", "tsx", "src/worker/index.ts"]
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
+      - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
+      - LINKEDIN_API_VERSION=${LINKEDIN_API_VERSION:-202610}
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  # Production Redis Queue
+  redis:
+    image: redis:7-alpine
+    container_name: linkedin-autopilot-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+volumes:
+  redis_data:
+    driver: local
+

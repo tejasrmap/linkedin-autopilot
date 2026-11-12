@@ -1,0 +1,341 @@
+// ==============================================================
+// LINKEDIN AUTOPILOT - PUBLISHING & QUEUE SCHEDULER ENGINE
+// BY GT INNOX LLP
+// ==============================================================
+
+import { Queue } from 'bullmq';
+import { getRedisConnection } from './redis';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { linkedInClient } from '@/lib/linkedin/client';
+import { Post, SocialAccount } from '@/types';
+
+export const LINKEDIN_PUBLISH_QUEUE_NAME = 'linkedin-publish-queue';
+
+export interface PublishJobData {
+  postId: string;
+  workspaceId: string;
+  attemptNumber: number;
+}
+
+let publishQueue: Queue<PublishJobData> | null = null;
+
+export function getPublishQueue(): Queue<PublishJobData> | null {
+  try {
+    if (!publishQueue) {
+      const connection = getRedisConnection();
+      publishQueue = new Queue<PublishJobData>(LINKEDIN_PUBLISH_QUEUE_NAME, {
+        connection: connection as any,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        },
+      });
+    }
+    return publishQueue;
+  } catch (err) {
+    console.warn('[Queue] Redis connection not available, queue offline:', err);
+    return null;
+  }
+}
+
+/**
+ * Enqueues or schedules a post for publishing
+ */
+export async function schedulePostPublishJob(
+  postId: string,
+  workspaceId: string,
+  scheduledAt: Date | null
+): Promise<{ queueJobId: string | null; success: boolean; error?: string }> {
+  const supabase = createAdminClient();
+  const queue = getPublishQueue();
+
+  const now = Date.now();
+  const targetTime = scheduledAt ? scheduledAt.getTime() : now;
+  const delayMs = Math.max(0, targetTime - now);
+
+  const jobId = `post-${postId}-${Date.now()}`;
+
+  // Update post status in database
+  const targetStatus = delayMs > 0 ? 'scheduled' : 'processing';
+  const { error: updateErr } = await supabase
+    .from('posts')
+    .update({
+      status: targetStatus,
+      scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', postId);
+
+  if (updateErr) {
+    return { queueJobId: null, success: false, error: updateErr.message };
+  }
+
+  // Create or update scheduled_jobs record
+  await supabase.from('scheduled_jobs').insert({
+    post_id: postId,
+    queue_job_id: jobId,
+    scheduled_at: scheduledAt ? scheduledAt.toISOString() : new Date().toISOString(),
+    status: delayMs > 0 ? 'scheduled' : 'queued',
+    attempts: 0,
+  });
+
+  // If BullMQ / Redis is enabled, add job to Redis queue
+  if (process.env.REDIS_URL) {
+    try {
+      const queue = getPublishQueue();
+      if (queue) {
+        const job = await queue.add(
+          'publish-linkedin-post',
+          { postId, workspaceId, attemptNumber: 1 },
+          {
+            jobId,
+            delay: delayMs,
+          }
+        );
+        return { queueJobId: job.id ?? jobId, success: true };
+      }
+    } catch (err: any) {
+      console.warn('[Queue] Failed to enqueue to Redis, fallback directly:', err.message);
+    }
+  }
+
+  // If immediate publish and queue is offline, execute in-process
+  if (delayMs <= 0) {
+    const res = await executePublishPipeline(postId);
+    return { queueJobId: jobId, success: res.success, error: res.error };
+  }
+
+  return { queueJobId: jobId, success: true };
+}
+
+/**
+ * Cancels a scheduled publishing job
+ */
+export async function cancelScheduledJob(postId: string): Promise<boolean> {
+  const supabase = createAdminClient();
+
+  // Update post status
+  await supabase
+    .from('posts')
+    .update({
+      status: 'draft',
+      scheduled_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', postId);
+
+  // Update scheduled_jobs table
+  await supabase
+    .from('scheduled_jobs')
+    .update({
+      status: 'cancelled',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('post_id', postId)
+    .eq('status', 'scheduled');
+
+  const queue = getPublishQueue();
+  if (queue) {
+    try {
+      // Find and remove job from queue
+      const delayed = await queue.getDelayed();
+      for (const j of delayed) {
+        if (j.data?.postId === postId) {
+          await j.remove();
+        }
+      }
+    } catch (e) {
+      console.warn('[Queue] Cancel in Redis error:', e);
+    }
+  }
+
+  return true;
+}
+
+/**
+ * The core publishing pipeline that executes the actual LinkedIn post creation
+ */
+export async function executePublishPipeline(postId: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = createAdminClient();
+
+  // 1. Atomic Compare-And-Swap (CAS) Concurrency Lock
+  // Only transitions if status is scheduled, approved, or draft (prevents concurrent duplicate runs)
+  const { data: post, error: lockErr } = await supabase
+    .from('posts')
+    .update({ status: 'processing', updated_at: new Date().toISOString() })
+    .eq('id', postId)
+    .in('status', ['scheduled', 'approved', 'draft'])
+    .select('*, social_account:social_accounts(*)')
+    .single();
+
+  if (lockErr || !post) {
+    return { success: false, error: 'Post is already processing or has already been published.' };
+  }
+
+  // 3. Count attempt number
+  const { count } = await supabase
+    .from('post_publish_attempts')
+    .select('*', { count: 'exact', head: true })
+    .eq('post_id', postId);
+
+  const attemptNumber = (count || 0) + 1;
+
+  // Insert initial attempt row
+  await supabase.from('post_publish_attempts').insert({
+    post_id: postId,
+    attempt_number: attemptNumber,
+    status: 'started',
+  });
+
+  // 4. Verify social account
+  const socialAccount = post.social_account as SocialAccount | null;
+  if (!socialAccount) {
+    const errorMsg = 'No LinkedIn account linked to this post. Please select an active account.';
+    await markPostFailed(supabase, post, errorMsg, attemptNumber);
+    return { success: false, error: errorMsg };
+  }
+
+  if (socialAccount.connection_status !== 'active') {
+    const errorMsg = `LinkedIn account "${socialAccount.account_name}" is currently ${socialAccount.connection_status}. Please reconnect.`;
+    await markPostFailed(supabase, post, errorMsg, attemptNumber);
+    return { success: false, error: errorMsg };
+  }
+
+  // 5. Construct author URN
+  const authorUrn =
+    socialAccount.account_type === 'organization'
+      ? `urn:li:organization:${socialAccount.provider_account_id}`
+      : `urn:li:person:${socialAccount.provider_account_id}`;
+
+  // 6. Call LinkedIn REST API
+  const publishResult = await linkedInClient.publishPost({
+    encryptedAccessToken: (socialAccount as any).encrypted_access_token,
+    authorUrn,
+    content: post.content,
+    postType: post.post_type,
+    mediaAssets: post.media_assets,
+  });
+
+  // 7. Handle response
+  if (publishResult.success && publishResult.providerPostId) {
+    const nowIso = new Date().toISOString();
+
+    // Update post to published
+    await supabase
+      .from('posts')
+      .update({
+        status: 'published',
+        published_at: nowIso,
+        provider_post_id: publishResult.providerPostId,
+        error_message: null,
+        updated_at: nowIso,
+      })
+      .eq('id', postId);
+
+    // Update scheduled job record if any
+    await supabase
+      .from('scheduled_jobs')
+      .update({
+        status: 'completed',
+        updated_at: nowIso,
+      })
+      .eq('post_id', postId);
+
+    // Record succeeded attempt
+    await supabase.from('post_publish_attempts').insert({
+      post_id: postId,
+      attempt_number: attemptNumber,
+      status: 'succeeded',
+      provider_response: publishResult.rawResponse || { providerPostId: publishResult.providerPostId },
+    });
+
+    // Notify user
+    await supabase.from('notifications').insert({
+      workspace_id: post.workspace_id,
+      user_id: post.created_by,
+      title: 'Post Published Successfully! 🚀',
+      message: `Your post "${post.content.slice(0, 50)}..." was published to LinkedIn (${socialAccount.account_name}).`,
+      type: 'success',
+    });
+
+    return { success: true };
+  } else {
+    const errorMsg = publishResult.error || 'LinkedIn API returned an unhandled error.';
+
+    // Graceful handling of revoked or expired tokens:
+    if (
+      errorMsg.includes('401') ||
+      errorMsg.toLowerCase().includes('revoked') ||
+      errorMsg.toLowerCase().includes('expired') ||
+      errorMsg.toLowerCase().includes('empty_access_token') ||
+      errorMsg.toLowerCase().includes('invalid access token')
+    ) {
+      await supabase
+        .from('social_accounts')
+        .update({ connection_status: 'revoked', updated_at: new Date().toISOString() })
+        .eq('id', socialAccount.id);
+
+      await supabase.from('notifications').insert({
+        workspace_id: post.workspace_id,
+        user_id: post.created_by,
+        title: 'Action Required: LinkedIn Token Expired or Revoked ⚠️',
+        message: `Your connected account "${socialAccount.account_name}" has an invalid or expired token. Please reconnect in LinkedIn Accounts.`,
+        type: 'warning',
+      });
+    }
+
+    await markPostFailed(supabase, post, errorMsg, attemptNumber, publishResult.rawResponse);
+    return { success: false, error: errorMsg };
+  }
+}
+
+async function markPostFailed(
+  supabase: any,
+  post: any,
+  errorMsg: string,
+  attemptNumber: number,
+  rawResponse?: any
+) {
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from('posts')
+    .update({
+      status: 'failed',
+      error_message: errorMsg,
+      updated_at: nowIso,
+    })
+    .eq('id', post.id);
+
+  await supabase
+    .from('scheduled_jobs')
+    .update({
+      status: 'failed',
+      last_error: errorMsg,
+      updated_at: nowIso,
+    })
+    .eq('post_id', post.id);
+
+  await supabase.from('post_publish_attempts').insert({
+    post_id: post.id,
+    attempt_number: attemptNumber,
+    status: 'failed',
+    error_message: errorMsg,
+    provider_response: rawResponse || {},
+  });
+
+  await supabase.from('notifications').insert({
+    workspace_id: post.workspace_id,
+    user_id: post.created_by,
+    title: 'LinkedIn Publishing Failed ⚠️',
+    message: `Failed to publish post: ${errorMsg}`,
+    type: 'error',
+  });
+}
+
