@@ -34,6 +34,16 @@ export interface LinkedInOrganization {
   name: string;
   vanityName?: string;
   logoUrl?: string;
+  role?: string;
+  status?: 'active' | 'awaiting_authorization';
+}
+
+export interface LinkedInOrgPermissionStatus {
+  hasOrganizationSocialScope: boolean;
+  communityManagementActive: boolean;
+  status: 'authorized' | 'awaiting_authorization';
+  message: string;
+  organizations: LinkedInOrganization[];
 }
 
 export interface LinkedInPublishResult {
@@ -131,16 +141,30 @@ export class LinkedInClient {
   }
 
   /**
-   * Retrieves organizations where the member has administrative rights
+   * Retrieves organizations where the member has administrative rights, resolving real names & logos
    */
   async getOrganizations(accessToken: string): Promise<LinkedInOrganization[]> {
+    const orgs: LinkedInOrganization[] = [];
+
     try {
-      const response = await fetch('https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee', {
+      // 1. Try modern REST organizationAcls endpoint
+      let response = await fetch('https://api.linkedin.com/rest/organizationAcls?q=roleAssignee', {
         headers: {
           Authorization: `Bearer ${accessToken}`,
+          'LinkedIn-Version': this.apiVersion,
           'X-Restli-Protocol-Version': '2.0.0',
         },
       });
+
+      // 2. Fallback to v2 organizationalEntityAcls if needed
+      if (!response.ok) {
+        response = await fetch('https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'X-Restli-Protocol-Version': '2.0.0',
+          },
+        });
+      }
 
       if (!response.ok) {
         return [];
@@ -148,16 +172,45 @@ export class LinkedInClient {
 
       const data = await response.json();
       const elements = data.elements || [];
-      const orgs: LinkedInOrganization[] = [];
 
       for (const el of elements) {
-        const orgUrn = el.organizationalTarget;
+        const orgUrn = el.organization || el.organizationalTarget;
+        const role = el.role || 'ADMINISTRATOR';
+        const state = el.state || 'APPROVED';
+
         if (orgUrn && orgUrn.startsWith('urn:li:organization:')) {
           const orgId = orgUrn.split(':').pop();
+          let orgName = `Organization (${orgId})`;
+          let vanityName: string | undefined;
+          let logoUrl: string | undefined;
+
+          // Attempt to fetch detailed organization info (name, vanityName, logo)
+          try {
+            const detailRes = await fetch(`https://api.linkedin.com/rest/organizations/${orgId}`, {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'LinkedIn-Version': this.apiVersion,
+                'X-Restli-Protocol-Version': '2.0.0',
+              },
+            });
+
+            if (detailRes.ok) {
+              const detailData = await detailRes.json();
+              orgName = detailData.localizedName || detailData.name?.localized?.en_US || orgName;
+              vanityName = detailData.vanityName;
+            }
+          } catch {
+            // Non-blocking detail enrichment
+          }
+
           orgs.push({
-            id: orgId,
+            id: orgId!,
             urn: orgUrn,
-            name: `Organization (${orgId})`,
+            name: orgName,
+            vanityName,
+            logoUrl,
+            role,
+            status: state === 'APPROVED' ? 'active' : 'awaiting_authorization',
           });
         }
       }
@@ -165,6 +218,63 @@ export class LinkedInClient {
       return orgs;
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Inspects organization authorization status & Community Management API availability
+   */
+  async checkOrganizationPermissions(accessToken: string): Promise<LinkedInOrgPermissionStatus> {
+    try {
+      // Test REST organizationAcls endpoint
+      const response = await fetch('https://api.linkedin.com/rest/organizationAcls?q=roleAssignee', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'LinkedIn-Version': this.apiVersion,
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+      });
+
+      if (response.ok) {
+        const orgs = await this.getOrganizations(accessToken);
+        return {
+          hasOrganizationSocialScope: true,
+          communityManagementActive: true,
+          status: 'authorized',
+          message: 'LinkedIn Company Page publishing is fully authorized and available.',
+          organizations: orgs,
+        };
+      }
+
+      if (response.status === 403) {
+        const errorText = await response.text();
+        return {
+          hasOrganizationSocialScope: false,
+          communityManagementActive: false,
+          status: 'awaiting_authorization',
+          message:
+            'Company Page publishing requires the "Community Management API" product to be requested and approved in the LinkedIn Developer Portal for your Developer Application (Client ID: ' +
+            this.clientId +
+            '). Personal profile publishing is fully operational.',
+          organizations: [],
+        };
+      }
+
+      return {
+        hasOrganizationSocialScope: false,
+        communityManagementActive: false,
+        status: 'awaiting_authorization',
+        message: `LinkedIn returned status ${response.status} when checking organization permissions.`,
+        organizations: [],
+      };
+    } catch (e: any) {
+      return {
+        hasOrganizationSocialScope: false,
+        communityManagementActive: false,
+        status: 'awaiting_authorization',
+        message: `Network check failed: ${e.message}`,
+        organizations: [],
+      };
     }
   }
 
@@ -460,11 +570,18 @@ export class LinkedInClient {
         // text only
       }
 
-      const errorMsg =
+      let errorMsg =
         errorJson?.message ||
         errorJson?.errorDetails?.description ||
         errorJson?.error_description ||
         `LinkedIn API Error (${response.status}): ${errorText}`;
+
+      if (
+        params.authorUrn.startsWith('urn:li:organization:') &&
+        (response.status === 403 || errorMsg.includes('permission') || errorMsg.includes('ACCESS_DENIED'))
+      ) {
+        errorMsg = `[LinkedIn Company Page Permission Note]: ${errorMsg}. Publishing to a Company Page requires the LinkedIn "Community Management API" product approved on Developer App (${this.clientId}) and authorized organization administrator rights.`;
+      }
 
       return {
         success: false,

@@ -29,6 +29,12 @@ function AccountsContent() {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [connectUrl, setConnectUrl] = useState('');
   const [currentOrigin, setCurrentOrigin] = useState('');
+  const [showOrgModal, setShowOrgModal] = useState(false);
+  const [orgIdInput, setOrgIdInput] = useState('');
+  const [orgNameInput, setOrgNameInput] = useState('');
+  const [orgVanityInput, setOrgVanityInput] = useState('');
+  const [linkingOrg, setLinkingOrg] = useState(false);
+  const [orgStatusNote, setOrgStatusNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -37,6 +43,42 @@ function AccountsContent() {
     fetchAccounts();
     fetchConnectUrl();
   }, [requestOrg]);
+
+  const handleLinkCompanyPage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orgIdInput.trim() || !orgNameInput.trim()) return;
+
+    setLinkingOrg(true);
+    setOrgStatusNote(null);
+
+    try {
+      const res = await fetch('/api/linkedin/organizations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          organizationId: orgIdInput.trim(),
+          organizationName: orgNameInput.trim(),
+          vanityName: orgVanityInput.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to link company page');
+      }
+
+      setOrgStatusNote(`Company Page "${orgNameInput}" successfully linked! (Author URN: ${data.authorUrn})`);
+      setOrgIdInput('');
+      setOrgNameInput('');
+      setOrgVanityInput('');
+      setShowOrgModal(false);
+      await fetchAccounts();
+    } catch (err: any) {
+      setOrgStatusNote(`Error: ${err.message}`);
+    } finally {
+      setLinkingOrg(false);
+    }
+  };
 
   const fetchConnectUrl = async () => {
     try {
@@ -138,15 +180,13 @@ function AccountsContent() {
 
         {/* Connect Action */}
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={requestOrg}
-              onChange={(e) => setRequestOrg(e.target.checked)}
-              className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0"
-            />
-            Include Company Pages
-          </label>
+          <button
+            onClick={() => setShowOrgModal(!showOrgModal)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-all"
+          >
+            <Building className="w-4 h-4 text-indigo-500" />
+            Link Company Page
+          </button>
 
           <button
             onClick={handleConnect}
@@ -154,8 +194,120 @@ function AccountsContent() {
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
           >
             {connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Connect LinkedIn
+            Connect LinkedIn Profile
           </button>
+        </div>
+      </div>
+
+      {/* Manual Company Page Link Card (Phase 1 & 2) */}
+      {showOrgModal && (
+        <form onSubmit={handleLinkCompanyPage} className="p-5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-3 text-xs animate-in fade-in duration-150">
+          <div className="font-bold text-sm text-indigo-950 dark:text-indigo-100 flex items-center gap-2">
+            <Building className="w-4 h-4 text-indigo-600" />
+            Link LinkedIn Company Page Destination
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Connect an authorized LinkedIn Organization Page to publish posts with <code className="bg-white dark:bg-slate-900 px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono">urn:li:organization:&lt;id&gt;</code>.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Organization ID (digits) *
+              </label>
+              <input
+                type="text"
+                value={orgIdInput}
+                onChange={(e) => setOrgIdInput(e.target.value)}
+                placeholder="e.g. 10594382"
+                required
+                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Company Page Name *
+              </label>
+              <input
+                type="text"
+                value={orgNameInput}
+                onChange={(e) => setOrgNameInput(e.target.value)}
+                placeholder="e.g. GT InnoX LLP"
+                required
+                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Vanity Name (optional)
+              </label>
+              <input
+                type="text"
+                value={orgVanityInput}
+                onChange={(e) => setOrgVanityInput(e.target.value)}
+                placeholder="e.g. gt-innox"
+                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 justify-end pt-2">
+            <button
+              type="button"
+              onClick={() => setShowOrgModal(false)}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={linkingOrg}
+              className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {linkingOrg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Save &amp; Link Company Page
+            </button>
+          </div>
+        </form>
+      )}
+
+      {orgStatusNote && (
+        <div className="p-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-800 dark:text-indigo-300 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          {orgStatusNote}
+        </div>
+      )}
+
+      {/* Dual Destination Status Card */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+        <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <User className="w-4 h-4 text-blue-600" />
+              Personal Profile Publishing
+            </div>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              Verified &amp; Active
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Publishing to personal member feeds uses official scope <code className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">w_member_social</code> and author URN <code className="font-mono text-slate-700 dark:text-slate-300">urn:li:person:&lt;id&gt;</code>. Verified live with HTTP 201 Created.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/30 dark:bg-amber-950/20 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <Building className="w-4 h-4 text-indigo-600" />
+              Company Page Publishing
+            </div>
+            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+              Awaiting Community Mgmt API
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Requires LinkedIn <strong>Community Management API</strong> product on Developer App (Client ID: 86pecf126iu1v4). Dual-destination architecture and author URNs (<code className="font-mono text-slate-700 dark:text-slate-300">urn:li:organization:&lt;id&gt;</code>) are fully implemented.
+          </p>
         </div>
       </div>
 

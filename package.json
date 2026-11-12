@@ -10,6 +10,7 @@
     "test": "tsx tests/suite.test.ts",
     "test:e2e": "tsx tests/e2e-integration.test.ts",
     "test:phase3": "tsx tests/phase3-e2e.test.ts",
+    "test:dual": "tsx tests/dual-destination.test.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {

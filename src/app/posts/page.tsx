@@ -16,6 +16,8 @@ import {
   RefreshCw,
   Loader2,
   Globe,
+  Building,
+  User,
 } from 'lucide-react';
 import { Post } from '@/types';
 
@@ -222,9 +224,19 @@ function PostsContent() {
 
                     {post.social_account && (
                       <span className="text-slate-400 flex items-center gap-1">
-                        • Account:{' '}
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {post.social_account.account_name}
+                        • Destination:{' '}
+                        <span className="font-semibold text-slate-700 dark:text-slate-300 inline-flex items-center gap-1">
+                          {post.social_account.account_type === 'organization' ? (
+                            <>
+                              <Building className="w-3 h-3 text-indigo-500" />
+                              {post.social_account.account_name} (Company Page)
+                            </>
+                          ) : (
+                            <>
+                              <User className="w-3 h-3 text-blue-500" />
+                              {post.social_account.account_name} (Personal)
+                            </>
+                          )}
                         </span>
                       </span>
                     )}
