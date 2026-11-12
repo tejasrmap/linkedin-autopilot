@@ -48,7 +48,7 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
     devWsId = devWsId || '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
 
     return {
-      user: { id: devUserId, email: 'dev.lead.gtinnox@gmail.com', full_name: 'Lead Developer (GT InnoX)' },
+      user: { id: devUserId, email: 'tejag.vijay@gmail.com', full_name: 'Teja Ganugula' },
       workspaceId: devWsId,
       role: 'owner',
     };
