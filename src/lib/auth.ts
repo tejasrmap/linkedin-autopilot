@@ -25,33 +25,36 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user || !user.id) {
-    // If no active cookie session, check for dev mode or auto-resolve default workspace
-    const admin = createAdminClient();
-    let devWsId = requestWorkspaceId;
-    let devUserId = '3f722c4d-c224-4431-a0dc-28249bd79c37';
+    // Only allow dev fallback in local development when ALLOW_DEV_AUTH is explicitly set
+    if (process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH === 'true') {
+      const admin = createAdminClient();
+      let devWsId = requestWorkspaceId;
+      let devUserId = '3f722c4d-c224-4431-a0dc-28249bd79c37';
 
-    try {
-      if (!devWsId) {
-        const { data: firstWs } = await admin.from('workspaces').select('id, owner_id').limit(1).single();
-        if (firstWs) {
-          devWsId = firstWs.id;
-          if (firstWs.owner_id) devUserId = firstWs.owner_id;
+      try {
+        if (!devWsId) {
+          const { data: firstWs } = await admin.from('workspaces').select('id, owner_id').limit(1).single();
+          if (firstWs) {
+            devWsId = firstWs.id;
+            if (firstWs.owner_id) devUserId = firstWs.owner_id;
+          }
+        } else {
+          const { data: ws } = await admin.from('workspaces').select('owner_id').eq('id', devWsId).single();
+          if (ws?.owner_id) devUserId = ws.owner_id;
         }
-      } else {
-        const { data: ws } = await admin.from('workspaces').select('owner_id').eq('id', devWsId).single();
-        if (ws?.owner_id) devUserId = ws.owner_id;
+      } catch (e) {
+        // Fallback
       }
-    } catch (e) {
-      // Fallback
+
+      devWsId = devWsId || '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
+
+      return {
+        user: { id: devUserId, email: 'tejag.vijay@gmail.com', full_name: 'Teja Ganugula' },
+        workspaceId: devWsId,
+        role: 'owner',
+      };
     }
-
-    devWsId = devWsId || '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
-
-    return {
-      user: { id: devUserId, email: 'tejag.vijay@gmail.com', full_name: 'Teja Ganugula' },
-      workspaceId: devWsId,
-      role: 'owner',
-    };
+    return null;
   }
 
   const admin = createAdminClient();

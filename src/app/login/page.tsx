@@ -30,6 +30,7 @@ export default function LoginPage() {
       }
 
       router.push('/dashboard');
+      router.refresh();
     } catch (err: any) {
       setErrorMsg(err.message || 'Login failed. Please check credentials.');
     } finally {

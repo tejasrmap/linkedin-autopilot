@@ -28,8 +28,12 @@ function AccountsContent() {
   const [manualCode, setManualCode] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [connectUrl, setConnectUrl] = useState('');
+  const [currentOrigin, setCurrentOrigin] = useState('');
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setCurrentOrigin(window.location.origin);
+    }
     fetchAccounts();
     fetchConnectUrl();
   }, [requestOrg]);
@@ -171,7 +175,7 @@ function AccountsContent() {
           <div className="p-3 rounded-lg border border-slate-200/60 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 space-y-1">
             <div className="font-bold text-blue-600 dark:text-blue-400">Step 1: Check Redirect URI</div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              In the LinkedIn Developer Portal under <strong className="text-slate-700 dark:text-slate-300">Auth &gt; Authorized redirect URLs</strong>, confirm that <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">http://localhost:3000/api/linkedin/callback</code> is added.
+              In the LinkedIn Developer Portal under <strong className="text-slate-700 dark:text-slate-300">Auth &gt; Authorized redirect URLs</strong>, confirm that <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-blue-600 dark:text-blue-400 font-mono text-[10px] break-all">{currentOrigin ? `${currentOrigin}/api/linkedin/callback` : 'https://autopilot.apecpowersolutions.com/api/linkedin/callback'}</code> is added.
             </p>
           </div>
 
