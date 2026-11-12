@@ -47,8 +47,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Exchange code for access token
-    const tokenData = await linkedInClient.exchangeCodeForToken(code);
+    // 1. Exchange code for access token using request origin redirect URI
+    const callbackRedirectUri = `${origin}/api/linkedin/callback`;
+    const tokenData = await linkedInClient.exchangeCodeForToken(code, callbackRedirectUri);
 
     // 2. Fetch authenticated member's profile
     const userInfo = await linkedInClient.getUserInfo(tokenData.access_token);

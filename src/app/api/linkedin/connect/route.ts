@@ -3,7 +3,7 @@ import { linkedInClient } from '@/lib/linkedin/client';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+  const { searchParams, origin } = new URL(request.url);
   const workspaceId = searchParams.get('workspaceId');
   const orgAccess = searchParams.get('org') === 'true';
 
@@ -21,8 +21,9 @@ export async function GET(request: Request) {
   };
 
   const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
-  const authUrl = linkedInClient.getAuthorizationUrl(state, orgAccess);
+  const dynamicRedirectUri = `${origin}/api/linkedin/callback`;
+  const authUrl = linkedInClient.getAuthorizationUrl(state, orgAccess, dynamicRedirectUri);
 
-  return NextResponse.json({ url: authUrl });
+  return NextResponse.json({ url: authUrl, redirectUri: dynamicRedirectUri });
 }
 

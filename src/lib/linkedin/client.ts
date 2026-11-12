@@ -60,7 +60,7 @@ export class LinkedInClient {
   /**
    * Generates official LinkedIn OAuth 2.0 authorization URL
    */
-  getAuthorizationUrl(state: string, requestOrgAccess = false): string {
+  getAuthorizationUrl(state: string, requestOrgAccess = false, overrideRedirectUri?: string): string {
     const base = 'https://www.linkedin.com/oauth/v2/authorization';
     const scopes = ['openid', 'profile', 'email', 'w_member_social'];
 
@@ -68,10 +68,12 @@ export class LinkedInClient {
       scopes.push('w_organization_social', 'rw_organization_admin');
     }
 
+    const redirectUri = overrideRedirectUri || this.redirectUri;
+
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: this.clientId,
-      redirect_uri: this.redirectUri,
+      redirect_uri: redirectUri,
       state: state,
       scope: scopes.join(' '),
     });
@@ -82,12 +84,13 @@ export class LinkedInClient {
   /**
    * Exchanges authorization code for an OAuth 2.0 access token
    */
-  async exchangeCodeForToken(code: string): Promise<LinkedInTokenResponse> {
+  async exchangeCodeForToken(code: string, overrideRedirectUri?: string): Promise<LinkedInTokenResponse> {
     const url = 'https://www.linkedin.com/oauth/v2/accessToken';
+    const redirectUri = overrideRedirectUri || this.redirectUri;
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
       code: code,
-      redirect_uri: this.redirectUri,
+      redirect_uri: redirectUri,
       client_id: this.clientId,
       client_secret: this.clientSecret,
     });
