@@ -74,14 +74,17 @@ export default function AIStudioPage() {
 
   // 1. Generate Post
   const handleGenerate = async () => {
-    if (!topic.trim()) return;
+    const activeTopic = topic.trim() || 'Why most B2B founders struggle with enterprise sales in their first year';
+    if (!topic.trim()) {
+      setTopic(activeTopic);
+    }
     setLoadingGenerate(true);
     try {
       const res = await fetch('/api/ai/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          topic,
+          topic: activeTopic,
           targetAudience: audience,
           tone,
           length: postLength,
@@ -321,6 +324,28 @@ export default function AIStudioPage() {
               />
             </div>
 
+            {/* Quick-Start Prompt Starters */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-semibold text-slate-400">Quick Prompt Starters:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'Why most B2B founders struggle with enterprise sales in year one',
+                  '3 non-negotiable rules we use to eliminate meeting fatigue',
+                  'The uncomfortable truth about premature software optimization',
+                  'How consistent weekly LinkedIn posting beats erratic daily noise',
+                ].map((starter, sIdx) => (
+                  <button
+                    key={sIdx}
+                    type="button"
+                    onClick={() => setTopic(starter)}
+                    className="text-[10px] px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-900/60 hover:border-blue-500/50 hover:text-blue-500 text-slate-600 dark:text-slate-300 transition-colors truncate max-w-full text-left"
+                  >
+                    💡 {starter}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -381,7 +406,7 @@ export default function AIStudioPage() {
 
             <button
               onClick={handleGenerate}
-              disabled={loadingGenerate || !topic.trim()}
+              disabled={loadingGenerate}
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
             >
               {loadingGenerate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
