@@ -79,3 +79,43 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  const auth = await getAuthContext();
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (auth.role !== 'owner' && auth.role !== 'admin') {
+    return NextResponse.json(
+      { error: 'Forbidden: Only workspace Owners and Admins can update settings.' },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const { name } = await request.json();
+    if (!name || name.trim().length === 0) {
+      return NextResponse.json({ error: 'Workspace name is required' }, { status: 400 });
+    }
+
+    const admin = createAdminClient();
+    const { data: updated, error } = await admin
+      .from('workspaces')
+      .update({
+        name: name.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', auth.workspaceId)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, workspace: updated });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+

@@ -266,6 +266,54 @@ export async function executePublishPipeline(postId: string): Promise<{ success:
 
     return { success: true };
   } else {
+    // 7b. Check for ambiguous publishing outcome (network timeout after transmission)
+    if (publishResult.isAmbiguous) {
+      console.warn(`[Publisher] Ambiguous timeout for post ${postId}. Initiating live author reconciliation...`);
+      const recon = await linkedInClient.reconcileRecentAuthorPost({
+        encryptedAccessToken: (socialAccount as any).encrypted_access_token,
+        authorUrn,
+        expectedCommentarySnippet: post.content,
+      });
+
+      if (recon.reconciled && recon.providerPostId) {
+        console.log(`[Publisher] Post ${postId} successfully reconciled with live LinkedIn post ${recon.providerPostId}!`);
+        const nowIso = new Date().toISOString();
+
+        await supabase
+          .from('posts')
+          .update({
+            status: 'published',
+            published_at: nowIso,
+            provider_post_id: recon.providerPostId,
+            error_message: null,
+            updated_at: nowIso,
+          })
+          .eq('id', postId);
+
+        await supabase
+          .from('scheduled_jobs')
+          .update({ status: 'completed', updated_at: nowIso })
+          .eq('post_id', postId);
+
+        await supabase.from('post_publish_attempts').insert({
+          post_id: postId,
+          attempt_number: attemptNumber,
+          status: 'succeeded',
+          provider_response: { reconciled: true, providerPostId: recon.providerPostId },
+        });
+
+        await supabase.from('notifications').insert({
+          workspace_id: post.workspace_id,
+          user_id: post.created_by,
+          title: 'Post Published (Reconciled After Timeout) 🚀',
+          message: `Your post "${post.content.slice(0, 50)}..." was confirmed live on LinkedIn via automated reconciliation.`,
+          type: 'success',
+        });
+
+        return { success: true };
+      }
+    }
+
     const errorMsg = publishResult.error || 'LinkedIn API returned an unhandled error.';
 
     // Graceful handling of revoked or expired tokens:

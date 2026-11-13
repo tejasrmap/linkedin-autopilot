@@ -1,6 +1,7 @@
 import { getAuthContext } from '@/lib/auth';
 import { aiService } from '@/lib/ai/gemini';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -18,6 +19,18 @@ export async function POST(request: Request) {
     const auth = await getAuthContext();
     if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const rateCheck = checkRateLimit(`ai:${auth.workspaceId}`, { limit: 30, windowMs: 60000 });
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: `AI Studio rate limit exceeded. Please wait ${Math.ceil(
+            rateCheck.resetMs / 1000
+          )}s before requesting new post rewrites.`,
+        },
+        { status: 429 }
+      );
     }
 
     const customKey = request.headers.get('x-gemini-key') || undefined;

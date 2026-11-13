@@ -52,6 +52,8 @@ export interface LinkedInPublishResult {
   urn?: string;
   error?: string;
   rawResponse?: any;
+  isAmbiguous?: boolean;
+  isReconciled?: boolean;
 }
 
 export class LinkedInClient {
@@ -540,11 +542,17 @@ export class LinkedInClient {
     }
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s durable publishing timeout
+
       const response = await fetch('https://api.linkedin.com/rest/posts', {
         method: 'POST',
         headers,
         body: JSON.stringify(postPayload),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       // LinkedIn REST posts endpoint returns 201 Created with x-restli-id or x-linkedin-id header
       if (response.status === 201) {
@@ -589,10 +597,65 @@ export class LinkedInClient {
         rawResponse: errorJson || errorText,
       };
     } catch (err: any) {
+      const isTimeout =
+        err.name === 'AbortError' ||
+        err.message?.toLowerCase().includes('timeout') ||
+        err.message?.includes('ETIMEDOUT') ||
+        err.message?.includes('ECONNRESET');
+
       return {
         success: false,
-        error: `Network error reaching LinkedIn API: ${err.message}`,
+        isAmbiguous: isTimeout,
+        error: isTimeout
+          ? `Ambiguous Outcome: Network timeout during post transmission to LinkedIn (${err.message}). Reconciliation required before re-attempting.`
+          : `Network error reaching LinkedIn API: ${err.message}`,
       };
+    }
+  }
+
+  /**
+   * Reconciles recent posts published by an author to resolve ambiguous network timeouts
+   */
+  async reconcileRecentAuthorPost(params: {
+    encryptedAccessToken: string;
+    authorUrn: string;
+    expectedCommentarySnippet: string;
+  }): Promise<{ reconciled: boolean; providerPostId?: string }> {
+    try {
+      const accessToken = decryptToken(params.encryptedAccessToken);
+      if (!accessToken) return { reconciled: false };
+
+      const encodedAuthor = encodeURIComponent(params.authorUrn);
+      const res = await fetch(
+        `https://api.linkedin.com/rest/posts?author=${encodedAuthor}&count=5&sortBy=LAST_MODIFIED`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'LinkedIn-Version': this.apiVersion,
+            'X-Restli-Protocol-Version': '2.0.0',
+          },
+        }
+      );
+
+      if (!res.ok) return { reconciled: false };
+      const data = await res.json();
+      const elements = data.elements || [];
+
+      // Check if any recent post commentary matches the first 60 characters
+      const targetSnippet = params.expectedCommentarySnippet.trim().slice(0, 60).toLowerCase();
+      for (const p of elements) {
+        const commentary = (p.commentary || '').toLowerCase();
+        if (commentary.includes(targetSnippet)) {
+          return {
+            reconciled: true,
+            providerPostId: p.id || p.urn,
+          };
+        }
+      }
+      return { reconciled: false };
+    } catch (e) {
+      console.warn('[Reconciliation] Error inspecting recent author posts:', e);
+      return { reconciled: false };
     }
   }
 

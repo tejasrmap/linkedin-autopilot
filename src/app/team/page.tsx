@@ -1,34 +1,74 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Users, ShieldCheck, Mail, Plus, UserCheck, Shield, Sparkles, Building, Check, Trash2, Key, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Users,
+  ShieldCheck,
+  Mail,
+  Plus,
+  UserCheck,
+  Shield,
+  Sparkles,
+  Building,
+  Check,
+  Trash2,
+  Key,
+  ChevronDown,
+  Loader2,
+  AlertCircle,
+} from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface TeamMember {
   id: string;
+  userId: string;
   name: string;
   email: string;
-  role: 'Owner' | 'Admin' | 'Editor' | 'Approver' | 'Viewer';
-  status: 'Active' | 'Pending';
-  avatar?: string;
+  role: 'owner' | 'admin' | 'editor' | 'approver' | 'viewer';
+  avatarUrl?: string;
+  createdAt: string;
+  isCurrent?: boolean;
 }
 
 export default function TeamPage() {
   const toast = useToast();
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [currentRole, setCurrentRole] = useState<string>('viewer');
+  const [loading, setLoading] = useState(true);
+
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
-  const [inviteRole, setInviteRole] = useState<'Admin' | 'Editor' | 'Approver' | 'Viewer'>('Editor');
+  const [inviteRole, setInviteRole] = useState<'admin' | 'editor' | 'approver' | 'viewer'>('editor');
   const [sending, setSending] = useState(false);
 
-  const [members, setMembers] = useState<TeamMember[]>([
-    { id: '1', name: 'Teja Ganugula (You)', email: 'tejag.vijay@gmail.com', role: 'Owner', status: 'Active' },
-    { id: '2', name: 'Growth Team Lead', email: 'growth@gtinnox.com', role: 'Admin', status: 'Active' },
-    { id: '3', name: 'Content Strategist', email: 'editorial@gtinnox.com', role: 'Editor', status: 'Pending' },
-  ]);
+  const [deleteMemberId, setDeleteMemberId] = useState<string | null>(null);
+  const [deleteMemberName, setDeleteMemberName] = useState<string>('');
+  const [deleting, setDeleting] = useState(false);
 
-  const handleSendInvite = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchMembers();
+  }, []);
+
+  const fetchMembers = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/workspaces/members');
+      if (res.ok) {
+        const data = await res.json();
+        setMembers(data.members || []);
+        setCurrentRole(data.currentRole || 'viewer');
+      }
+    } catch (e: any) {
+      toast.error('Failed to load workspace members: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) {
       toast.error('Please specify a valid email address.');
@@ -36,37 +76,71 @@ export default function TeamPage() {
     }
 
     setSending(true);
-    setTimeout(() => {
-      const newMember: TeamMember = {
-        id: Math.random().toString(36).substring(7),
-        name: inviteName.trim() || inviteEmail.split('@')[0],
-        email: inviteEmail.trim(),
-        role: inviteRole,
-        status: 'Pending',
-      };
-      setMembers([...members, newMember]);
-      setSending(false);
+    try {
+      const res = await fetch('/api/workspaces/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: inviteRole,
+          fullName: inviteName.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to send invitation');
+      }
+
+      toast.success(data.message || `Member added with ${inviteRole} role!`);
       setShowInviteModal(false);
       setInviteEmail('');
       setInviteName('');
-      toast.success(`Invitation sent to ${newMember.email} as ${newMember.role}!`);
-    }, 600);
+      await fetchMembers();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteMemberId) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/workspaces/members?id=${deleteMemberId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove member');
+
+      toast.success(`Removed ${deleteMemberName} from workspace`);
+      setMembers((prev) => prev.filter((m) => m.id !== deleteMemberId));
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setDeleting(false);
+      setDeleteMemberId(null);
+    }
   };
 
   const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'Owner':
+    const r = role.toLowerCase();
+    switch (r) {
+      case 'owner':
         return 'bg-purple-100 text-purple-700 dark:bg-purple-950/70 dark:text-purple-300 border-purple-200 dark:border-purple-800';
-      case 'Admin':
+      case 'admin':
         return 'bg-blue-100 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border-blue-200 dark:border-blue-800';
-      case 'Editor':
+      case 'editor':
         return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
-      case 'Approver':
+      case 'approver':
         return 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border-amber-200 dark:border-amber-800';
       default:
         return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700';
     }
   };
+
+  const canManage = currentRole === 'owner' || currentRole === 'admin';
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
@@ -81,13 +155,15 @@ export default function TeamPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowInviteModal(true)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 shadow-sm transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Invite Member
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setShowInviteModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 shadow-sm transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Invite Member
+          </button>
+        )}
       </div>
 
       {/* Role explanation cards */}
@@ -98,7 +174,7 @@ export default function TeamPage() {
             Owner & Admin
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Full workspace governance, LinkedIn token management, member invitations, and billing.
+            Full workspace governance, LinkedIn account OAuth connection, and billing control.
           </p>
         </div>
 
@@ -108,7 +184,7 @@ export default function TeamPage() {
             Editor
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Drafts posts, designs templates, generates AI copy, and uploads media assets.
+            Create, draft, and schedule posts for BullMQ queue dispatch.
           </p>
         </div>
 
@@ -118,25 +194,25 @@ export default function TeamPage() {
             Approver
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Reviews pending drafts and authorizes immediate or scheduled BullMQ publishing.
+            Mandatory content gateway: reviews and approves high-visibility corporate posts.
           </p>
         </div>
 
         <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827]">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200">
-            <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+            <span className="w-2 h-2 rounded-full bg-slate-500"></span>
             Viewer
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Read-only access to calendar, analytics metrics, and published LinkedIn feed history.
+            Read-only access to calendar, live analytics, and published history.
           </p>
         </div>
       </div>
 
-      {/* Members table */}
+      {/* Members List Table Card */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-          <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
             Active Team Members ({members.length})
           </h2>
@@ -145,49 +221,63 @@ export default function TeamPage() {
           </span>
         </div>
 
-        <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
-          {members.map((member) => (
-            <div key={member.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-white text-xs shadow-sm">
-                  {member.name.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                    {member.name}
-                    {member.status === 'Pending' && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-                        Invite Pending
-                      </span>
-                    )}
+        {loading ? (
+          <div className="p-8 flex items-center justify-center text-xs text-slate-400 gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+            <span>Loading workspace members...</span>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+            {members.map((member) => (
+              <div
+                key={member.id}
+                className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-white text-xs shadow-sm">
+                    {member.name.charAt(0).toUpperCase()}
                   </div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                    {member.email}
+                  <div>
+                    <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      {member.name}
+                      {member.isCurrent && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                          You
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                      {member.email}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-3">
-                <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${getRoleBadge(member.role)}`}>
-                  {member.role}
-                </span>
-
-                {member.role !== 'Owner' && (
-                  <button
-                    onClick={() => {
-                      setMembers(members.filter((m) => m.id !== member.id));
-                      toast.info(`Removed ${member.name} from workspace`);
-                    }}
-                    title="Remove member"
-                    className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-[11px] font-semibold uppercase px-2.5 py-1 rounded-full border ${getRoleBadge(
+                      member.role
+                    )}`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                    {member.role}
+                  </span>
+
+                  {canManage && member.role !== 'owner' && !member.isCurrent && (
+                    <button
+                      onClick={() => {
+                        setDeleteMemberId(member.id);
+                        setDeleteMemberName(member.name);
+                      }}
+                      title="Remove member"
+                      className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Invite Member Modal */}
@@ -219,7 +309,7 @@ export default function TeamPage() {
               type="email"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="sarah@gtinnox.com"
+              placeholder="sarah@company.com"
               required
               className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -227,42 +317,57 @@ export default function TeamPage() {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Assigned Role & Permissions
+              Role & Permissions
             </label>
-            <div className="relative">
-              <select
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as any)}
-                className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-sm"
-              >
-                <option value="Admin" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Admin (Full Workspace Management)</option>
-                <option value="Editor" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Editor (Author &amp; Schedule Posts)</option>
-                <option value="Approver" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Approver (Review &amp; Approve Posts)</option>
-                <option value="Viewer" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Viewer (Read-only Access)</option>
-              </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
-            </div>
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as any)}
+              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="editor">Editor — Can author, draft, and schedule posts</option>
+              <option value="approver">Approver — Can review and approve scheduled posts</option>
+              <option value="admin">Admin — Can manage members, settings, and accounts</option>
+              <option value="viewer">Viewer — Read-only visibility to calendar & analytics</option>
+            </select>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
               onClick={() => setShowInviteModal(false)}
-              className="px-3.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="px-3.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={sending}
-              className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              className="px-4 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 shadow-sm flex items-center gap-1.5"
             >
-              <Mail className="w-3.5 h-3.5" />
-              {sending ? 'Sending Invite...' : 'Send Invitation'}
+              {sending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Inviting...</span>
+                </>
+              ) : (
+                <span>Send Invitation</span>
+              )}
             </button>
           </div>
         </form>
       </Modal>
+
+      {/* Confirm Delete Modal */}
+      <ConfirmDialog
+        isOpen={!!deleteMemberId}
+        onClose={() => setDeleteMemberId(null)}
+        onConfirm={handleConfirmDelete}
+        title="Remove Team Member"
+        message={`Are you sure you want to remove ${deleteMemberName} from this workspace? They will immediately lose access to all posts, connected accounts, and analytics.`}
+        confirmText="Remove Member"
+        loading={deleting}
+        variant="danger"
+      />
     </div>
   );
 }

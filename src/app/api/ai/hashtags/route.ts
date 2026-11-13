@@ -1,5 +1,7 @@
 import { getAuthContext } from '@/lib/auth';
 import { aiService } from '@/lib/ai/gemini';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -18,11 +20,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const rateCheck = checkRateLimit(`ai:${auth.workspaceId}`, { limit: 30, windowMs: 60000 });
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: `AI Studio rate limit exceeded. Please wait ${Math.ceil(
+            rateCheck.resetMs / 1000
+          )}s before requesting new hashtags.`,
+        },
+        { status: 429 }
+      );
+    }
+
     const customKey = request.headers.get('x-gemini-key') || undefined;
     const hashtags = await aiService.generateHashtags(topic, count, customKey);
+
+    const admin = createAdminClient();
+    await admin.from('ai_generations').insert({
+      workspace_id: auth.workspaceId,
+      user_id: auth.user.id,
+      prompt: `Hashtags: ${topic}`,
+      generated_content: JSON.stringify(hashtags),
+      generation_type: 'hashtags',
+    });
+
     return NextResponse.json({ hashtags });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-

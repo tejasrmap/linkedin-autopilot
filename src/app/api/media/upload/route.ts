@@ -16,6 +16,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
+    // Strict MIME type whitelist
+    const ALLOWED_MIME_TYPES = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'video/mp4',
+      'video/quicktime',
+      'application/pdf',
+    ];
+
+    if (!ALLOWED_MIME_TYPES.includes(file.type.toLowerCase())) {
+      return NextResponse.json(
+        {
+          error: `Unsupported file format "${file.type}". Supported formats: JPEG, PNG, GIF, WebP, MP4, MOV, and PDF.`,
+        },
+        { status: 400 }
+      );
+    }
+
     // Validate size (max 50MB for video/document, 10MB for images)
     const maxSizeBytes = 50 * 1024 * 1024;
     if (file.size > maxSizeBytes) {
