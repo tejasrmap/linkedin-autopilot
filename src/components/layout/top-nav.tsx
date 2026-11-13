@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
+import { SupportModal } from '@/components/support/support-modal';
 import {
   Bell,
   Sun,
@@ -24,6 +25,7 @@ import {
   CreditCard,
   Loader2,
   Sparkles,
+  HelpCircle,
 } from 'lucide-react';
 import { AppNotification } from '@/types';
 
@@ -55,6 +57,7 @@ export function TopNav() {
   });
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showCreateWsModal, setShowCreateWsModal] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
   const [newWsName, setNewWsName] = useState('');
   const [creatingWs, setCreatingWs] = useState(false);
 
@@ -300,6 +303,21 @@ export function TopNav() {
           {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
         </button>
 
+        {/* Support & Feedback Trigger */}
+        <button
+          onClick={() => {
+            setShowSupport(true);
+            setShowNotifications(false);
+            setShowWorkspaceMenu(false);
+            setShowUserMenu(false);
+          }}
+          aria-label="Help & Support"
+          title="Customer Support & Feedback"
+          className="w-9 h-9 rounded-xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors"
+        >
+          <HelpCircle className="w-4 h-4" />
+        </button>
+
         {/* Notifications Popover Toggle */}
         <button
           onClick={() => {
@@ -540,6 +558,8 @@ export function TopNav() {
           </div>
         </form>
       </Modal>
+
+      <SupportModal isOpen={showSupport} onClose={() => setShowSupport(false)} />
     </header>
   );
 }

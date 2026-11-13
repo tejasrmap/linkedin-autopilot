@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { OnboardingCard } from '@/components/dashboard/onboarding-card';
 import {
   CheckCircle2,
   Clock,
@@ -147,6 +148,9 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Interactive Onboarding Checklist */}
+      <OnboardingCard accountsConnected={metrics.accountsConnected} totalPosts={metrics.totalPosts} />
 
       {/* Onboarding Banner if no accounts are connected */}
       {metrics.accountsConnected === 0 && !loading && (

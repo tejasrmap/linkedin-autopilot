@@ -179,6 +179,12 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 npm run worker
 ```
 
+### 10. Commercial Billing & Operational Admin
+- **Stripe Checkout & Webhooks**: Live subscription processing for Pro ($29/mo) and Agency ($199/mo) tiers.
+- **Support & Ticket System**: In-app ticketing system with real-time status resolution at `/admin`.
+- **Interactive Onboarding**: 5-step guided onboarding checklist on `/dashboard`.
+- **Legal Compliance**: Full Terms of Service (`/terms`) and Privacy Policy (`/privacy`).
+
 ---
 
 ## 🚢 Production Deployment Guide

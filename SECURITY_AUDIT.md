@@ -37,3 +37,4 @@
 - **GDPR & Privacy:** LinkedIn member identifiers (URNs) are isolated strictly to authorized workspace members and deleted upon account disconnection.
 - **Official LinkedIn Developer Policy Compliance:** Zero screen scraping, zero unofficial private APIs. Dual-destination architecture respects member and company API scopes (`w_member_social`, `w_organization_social`).
 - **Conclusion:** No critical or high-severity vulnerabilities remain. Approved for controlled commercial launch.
+

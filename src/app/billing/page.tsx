@@ -57,6 +57,31 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+
+  const handleProceedToCheckout = async () => {
+    if (!selectedPlan) return;
+    try {
+      setCheckingOut(true);
+      toast.info('Connecting to Stripe checkout session...');
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: selectedPlan.tier }),
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.info(data.message || 'Stripe merchant keys required in Vercel to process live cards.');
+        setShowCheckoutModal(false);
+      }
+    } catch (e: any) {
+      toast.error('Failed to initiate checkout.');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
 
   useEffect(() => {
     fetchSubscription();
@@ -273,15 +298,11 @@ export default function BillingPage() {
               Close
             </button>
             <button
-              onClick={() => {
-                toast.info('Connecting to Stripe checkout session...');
-                setTimeout(() => {
-                  toast.success('Live checkout endpoint initialized. In production, this redirects to Stripe Checkout.');
-                  setShowCheckoutModal(false);
-                }, 800);
-              }}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold shadow-md transition-all"
+              onClick={handleProceedToCheckout}
+              disabled={checkingOut}
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
             >
+              {checkingOut && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               Proceed to Secure Checkout →
             </button>
           </div>
