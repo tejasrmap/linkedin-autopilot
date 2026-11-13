@@ -1274,7 +1274,7 @@ export default function AIStudioPage() {
         onClose={() => setShowBulkScheduleModal(false)}
         title="Schedule All 7 LinkedIn Posts"
         description="Automate delivery of your 7-day strategic calendar to your connected LinkedIn destination in the selected order and timeframe."
-        maxWidth="xl"
+        maxWidth="2xl"
         footer={
           <div className="flex items-center justify-between w-full">
             <div className="text-[11px] text-slate-400">
@@ -1285,7 +1285,7 @@ export default function AIStudioPage() {
                 type="button"
                 onClick={() => setShowBulkScheduleModal(false)}
                 disabled={schedulingBulk}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors disabled:opacity-50"
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1317,84 +1317,84 @@ export default function AIStudioPage() {
                 <select
                   value={selectedAccountId}
                   onChange={(e) => setSelectedAccountId(e.target.value)}
-                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm transition-all"
+                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] pl-3 pr-8 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm transition-all"
                 >
                   {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">
+                    <option key={acc.id} value={acc.id} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-2">
                       {acc.account_name} ({acc.account_type === 'organization' ? 'LinkedIn Company Page' : 'Personal Profile'})
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3.5 pointer-events-none" />
               </div>
             )}
           </div>
 
           {/* Schedule Week & Timing Configuration */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
             {/* Week Choice */}
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
                 Target Week
               </label>
               <div className="relative">
                 <select
                   value={scheduleWeekChoice}
                   onChange={(e) => setScheduleWeekChoice(e.target.value as any)}
-                  className="w-full appearance-none rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 pl-2.5 pr-7 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
+                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm transition-all"
                 >
-                  <option value="next_week">Next Week (Starting Mon)</option>
-                  <option value="current_week">Starting Tomorrow</option>
-                  <option value="custom">Custom Start Date</option>
+                  <option value="next_week" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Next Week</option>
+                  <option value="current_week" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Tomorrow</option>
+                  <option value="custom" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Custom Date</option>
                 </select>
-                <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-2 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
               </div>
             </div>
 
             {/* Cadence */}
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
                 Posting Cadence
               </label>
               <div className="relative">
                 <select
                   value={scheduleCadence}
                   onChange={(e) => setScheduleCadence(e.target.value as any)}
-                  className="w-full appearance-none rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 pl-2.5 pr-7 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
+                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm transition-all"
                 >
-                  <option value="daily">Daily (Mon-Sun, 7 days)</option>
-                  <option value="weekdays">Weekdays Only (Mon-Fri)</option>
-                  <option value="two_weeks">Spread Over 2 Weeks (Every 2 days)</option>
+                  <option value="daily" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Daily (7 Days)</option>
+                  <option value="weekdays" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Weekdays (Mon-Fri)</option>
+                  <option value="two_weeks" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Every 2 Days (2 Wks)</option>
                 </select>
-                <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-2 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
               </div>
             </div>
 
             {/* Time */}
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
                 Preferred Time
               </label>
               <input
                 type="time"
                 value={scheduleTime}
                 onChange={(e) => setScheduleTime(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] px-3 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
               />
             </div>
           </div>
 
           {/* Custom Date Input if selected */}
           {scheduleWeekChoice === 'custom' && (
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+            <div className="animate-in fade-in duration-150">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
                 Select Custom Start Date
               </label>
               <input
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="w-full text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                className="w-full text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] px-3 py-2 text-slate-800 dark:text-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
               />
             </div>
           )}
@@ -1406,22 +1406,22 @@ export default function AIStudioPage() {
               <span className="text-[10px] text-slate-400">Order preserved as arranged</span>
             </div>
 
-            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
               {computedSlots.map((slot) => (
                 <div
                   key={slot.index}
-                  className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-xs"
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-bold text-blue-600 dark:text-blue-400 text-[11px] w-14 flex-shrink-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="font-bold text-blue-600 dark:text-blue-400 text-[11px] w-20 flex-shrink-0">
                       {slot.day}
                     </span>
-                    <span className="truncate text-slate-700 dark:text-slate-300 font-medium max-w-xs text-[11px]">
+                    <span className="truncate text-slate-700 dark:text-slate-300 font-medium max-w-sm text-[11px]">
                       {slot.hook}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 flex-shrink-0 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
                     <Clock className="w-3 h-3" />
                     <span>{slot.dateString} at {slot.timeString}</span>
                   </div>
