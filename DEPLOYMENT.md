@@ -44,6 +44,9 @@ CRON_SECRET=your_secure_cron_secret
 GEMINI_API_KEY=your_gemini_api_key
 
 # Commercial Billing (Stripe)
+# FAIL-SAFE: Defaults to false when unset. Only explicit 'true' activates live billing.
+BILLING_ENABLED=false
+NEXT_PUBLIC_BILLING_ENABLED=false
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...

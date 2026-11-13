@@ -1,26 +1,23 @@
 // ==============================================================
 // LINKEDIN AUTOPILOT - REVERSIBLE BILLING FEATURE FLAG
-// CONTROLLED STRIPE SUSPENSION & REACTIVATION
+// FAIL-SAFE STRIPE SUSPENSION & CONTROLLED REACTIVATION
 // BY GT INNOX LLP
 // ==============================================================
 
 /**
  * Returns whether Stripe billing, checkout, and portal features are enabled.
- * Controlled via the server-side environment flag: BILLING_ENABLED
- *
- * - When BILLING_ENABLED === 'false' -> returns false (Temporarily Disabled)
- * - When BILLING_ENABLED === 'true' (or unset) -> returns true (Enabled)
- *
- * Reversible at any time by updating BILLING_ENABLED in environment.
+ * FAIL-SAFE ARCHITECTURE:
+ * - Defaults to `false` when BILLING_ENABLED is unset, empty, or undefined.
+ * - Only an explicit 'true' value enables billing.
+ * - Authoritative server-side evaluation: Never relies on NEXT_PUBLIC_ flags
+ *   for server-side security decisions.
  */
 export function isBillingEnabled(): boolean {
-  if (process.env.BILLING_ENABLED === 'false') {
-    return false;
+  const envVal = process.env.BILLING_ENABLED;
+  if (!envVal) {
+    return false; // Fail-safe default
   }
-  if (process.env.NEXT_PUBLIC_BILLING_ENABLED === 'false') {
-    return false;
-  }
-  return true;
+  return envVal.trim().toLowerCase() === 'true';
 }
 
 export const BILLING_DISABLED_MESSAGE = 'Billing is temporarily unavailable.';
@@ -33,4 +30,3 @@ export const BILLING_DISABLED_RESPONSE = {
   message:
     'All billing, checkout sessions, and portal access are temporarily suspended by platform administration. Existing plan limits, scheduled posts, and workspace capabilities remain fully active.',
 };
-

@@ -49,25 +49,62 @@ export async function POST(req: NextRequest) {
   // Webhooks are verified & recorded without mutating subscriptions
   // -------------------------------------------------------------
   if (!isBillingEnabled()) {
-    // Record the verified event in stripe_events ledger to preserve audit trail
-    // and avoid repeated processing loops
-    await admin.from('stripe_events').insert({
+    // 1. Idempotency Check: Has this event already been registered?
+    const { data: existingEvent } = await admin
+      .from('stripe_events')
+      .select('id, status, created_at')
+      .eq('event_id', event.id)
+      .maybeSingle();
+
+    if (existingEvent) {
+      return NextResponse.json({
+        received: true,
+        deduplicated: true,
+        billing_enabled: false,
+        status: existingEvent.status,
+      });
+    }
+
+    // 2. Insert event with distinct 'ignored_billing_disabled' status (Never 'processed')
+    const { error: insertErr } = await admin.from('stripe_events').insert({
       event_id: event.id,
       event_type: event.type,
-      status: 'processed',
+      status: 'ignored_billing_disabled',
       payload: {
         id: event.id,
         type: event.type,
         created: event.created,
         billing_disabled: true,
+        action: 'ignored_unapplied',
         note: 'Acknowledged without subscription mutation because BILLING_ENABLED=false',
       },
-    }).select().maybeSingle();
+    });
+
+    if (insertErr) {
+      console.warn('[Stripe-Webhook] Database insert note:', insertErr.message);
+      // Fallback for legacy DB schema constraint: mark as failed, NEVER processed
+      if (insertErr.message?.includes('check') || (insertErr as any).code === '23514') {
+        await admin.from('stripe_events').insert({
+          event_id: event.id,
+          event_type: event.type,
+          status: 'failed',
+          error_message: 'ignored_billing_disabled: unapplied event while BILLING_ENABLED=false',
+          payload: {
+            id: event.id,
+            type: event.type,
+            created: event.created,
+            billing_disabled: true,
+            action: 'ignored_unapplied',
+          },
+        });
+      }
+    }
 
     return NextResponse.json({
       received: true,
       billing_enabled: false,
-      message: 'Billing is temporarily disabled. Verified event acknowledged without subscription mutation.',
+      status: 'ignored_billing_disabled',
+      message: 'Verified event recorded as ignored_billing_disabled. No subscription mutations applied.',
     });
   }
 
