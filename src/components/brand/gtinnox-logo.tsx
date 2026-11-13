@@ -123,3 +123,4 @@ export function GTInnoXLogo({ className = 'w-9 h-9', size, showWordmark = false 
     </svg>
   );
 }
+

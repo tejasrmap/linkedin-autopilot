@@ -29,6 +29,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [registered, setRegistered] = useState(false);
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,13 +38,14 @@ export default function RegisterPage() {
 
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
           data: {
             full_name: fullName.trim(),
           },
+          emailRedirectTo: `${window.location.origin}/login?confirmed=true`,
         },
       });
 
@@ -51,10 +53,15 @@ export default function RegisterPage() {
         throw error;
       }
 
-      setRegistered(true);
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1500);
+      if (data?.session) {
+        setRegistered(true);
+        setTimeout(() => {
+          router.push('/dashboard');
+        }, 1500);
+      } else {
+        // Email confirmation required
+        setNeedsConfirmation(true);
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Registration failed.');
     } finally {
@@ -198,14 +205,37 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              {errorMsg && (
-                <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-start gap-2 animate-in fade-in duration-200">
-                  <div className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 flex-shrink-0" />
-                  <span className="leading-relaxed">{errorMsg}</span>
+              {needsConfirmation ? (
+                <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-200 text-xs space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-start gap-2.5">
+                    <Mail className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-white text-sm">Verify your email</p>
+                      <p className="text-slate-300 mt-1 leading-relaxed">
+                        We sent an activation link to <span className="font-semibold text-white">{email}</span>. Please click the link in your email to confirm your account and sign in.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-blue-500/20 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">Already verified?</span>
+                    <Link
+                      href="/login"
+                      className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-md transition-colors"
+                    >
+                      Go to Sign In →
+                    </Link>
+                  </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  {errorMsg && (
+                    <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-start gap-2 animate-in fade-in duration-200">
+                      <div className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 flex-shrink-0" />
+                      <span className="leading-relaxed">{errorMsg}</span>
+                    </div>
+                  )}
 
-              <form onSubmit={handleRegister} className="space-y-3">
+                  <form onSubmit={handleRegister} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Full Name
@@ -286,6 +316,8 @@ export default function RegisterPage() {
                   )}
                 </button>
               </form>
+              </>
+              )}
 
               <div className="text-center text-xs text-slate-400 pt-2 border-t border-slate-800/60">
                 Already have an account?{' '}

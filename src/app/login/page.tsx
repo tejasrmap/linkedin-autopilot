@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -16,6 +16,10 @@ import {
   Sparkles,
   Building2,
   Zap,
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  X,
 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -26,6 +30,55 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'warning'; text: string } | null>(null);
+  const [resending, setResending] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotStatus, setForgotStatus] = useState<{ sent?: boolean; error?: string }>({});
+
+  useEffect(() => {
+    // 1. Check if user already has an active session
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session) {
+        router.push('/dashboard');
+      }
+    });
+
+    // 2. Check hash or query params
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      const search = new URLSearchParams(window.location.search);
+
+      if (hash) {
+        const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
+        const errorCode = hashParams.get('error_code');
+        const errorDesc = hashParams.get('error_description');
+
+        if (errorCode === 'otp_expired' || errorDesc?.toLowerCase().includes('expired')) {
+          setNotice({
+            type: 'info',
+            text: 'Your email verification link was already used or has expired. If you recently registered, your account is verified and ready! Please sign in with your password below.',
+          });
+        } else if (hashParams.get('access_token')) {
+          setNotice({
+            type: 'success',
+            text: 'Email verified successfully! Redirecting to your workspace...',
+          });
+          setTimeout(() => router.push('/dashboard'), 1200);
+        } else if (hashParams.get('error')) {
+          setErrorMsg(errorDesc || 'Authentication link error. Please sign in below.');
+        }
+      }
+
+      if (search.get('confirmed') === 'true') {
+        setNotice({
+          type: 'success',
+          text: 'Email verified successfully! Please enter your password to sign in.',
+        });
+      }
+    }
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +102,46 @@ export default function LoginPage() {
       setErrorMsg(err.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email.trim()) {
+      setErrorMsg('Please enter your email address to resend confirmation.');
+      return;
+    }
+    setResending(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+      });
+      if (error) throw error;
+      setNotice({
+        type: 'success',
+        text: `Fresh verification email sent to ${email.trim()}! Please check your inbox.`,
+      });
+      setErrorMsg('');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to resend confirmation email.');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) return;
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+        redirectTo: `${window.location.origin}/settings`,
+      });
+      if (error) throw error;
+      setForgotStatus({ sent: true });
+    } catch (err: any) {
+      setForgotStatus({ error: err.message || 'Failed to send password reset email.' });
     }
   };
 
@@ -182,11 +275,55 @@ export default function LoginPage() {
                 </p>
               </div>
 
+              {/* Notice Banner (e.g. Email confirmation status or OTP expired explanation) */}
+              {notice && (
+                <div
+                  className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-200 ${
+                    notice.type === 'success'
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                      : notice.type === 'info'
+                      ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                      : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                  }`}
+                >
+                  {notice.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                  ) : (
+                    <Info className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                  )}
+                  <div className="flex-1 space-y-1">
+                    <p className="leading-relaxed">{notice.text}</p>
+                    {notice.type === 'info' && (
+                      <button
+                        type="button"
+                        onClick={handleResendConfirmation}
+                        disabled={resending}
+                        className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 underline underline-offset-2 flex items-center gap-1 mt-1"
+                      >
+                        {resending ? 'Sending...' : 'Need another verification email? Click here'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Error Message */}
               {errorMsg && (
                 <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-start gap-2 animate-in fade-in duration-200">
-                  <div className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 flex-shrink-0" />
-                  <span className="leading-relaxed">{errorMsg}</span>
+                  <AlertCircle className="w-4 h-4 text-rose-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <span className="leading-relaxed">{errorMsg}</span>
+                    {errorMsg.toLowerCase().includes('confirm') && (
+                      <button
+                        type="button"
+                        onClick={handleResendConfirmation}
+                        disabled={resending}
+                        className="block mt-1 text-[11px] font-semibold text-rose-200 underline hover:text-white"
+                      >
+                        {resending ? 'Sending...' : 'Click here to resend confirmation email'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -215,9 +352,17 @@ export default function LoginPage() {
                     <label className="text-xs font-semibold text-slate-300">
                       Password
                     </label>
-                    <span className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotEmail(email);
+                        setShowForgotModal(true);
+                        setForgotStatus({});
+                      }}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 cursor-pointer transition-colors"
+                    >
                       Forgot password?
-                    </span>
+                    </button>
                   </div>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
@@ -295,6 +440,79 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgotModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-bold text-white">
+                <Lock className="w-4 h-4 text-blue-400" />
+                <span>Reset Your Password</span>
+              </div>
+              <button
+                onClick={() => setShowForgotModal(false)}
+                className="w-7 h-7 rounded-lg hover:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Enter your registered email address. We will send you an official Supabase link to securely reset your password.
+            </p>
+
+            {forgotStatus.sent ? (
+              <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Reset Link Dispatched</p>
+                  <p className="text-[11px] text-emerald-300/90 mt-0.5">
+                    Check your inbox at <span className="font-mono text-white">{forgotEmail}</span> for instructions to reset your password.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword} className="space-y-3">
+                {forgotStatus.error && (
+                  <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                    <span>{forgotStatus.error}</span>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    required
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-800 bg-slate-950/60 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotModal(false)}
+                    className="px-3.5 py-2 rounded-xl border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md transition-colors"
+                  >
+                    Send Reset Link
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
