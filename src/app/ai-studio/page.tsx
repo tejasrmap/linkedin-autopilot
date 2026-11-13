@@ -296,22 +296,59 @@ export default function AIStudioPage() {
     }
   };
 
+  // Helper to replace trailing hashtag blocks without duplicating
+  const replaceTrailingHashtags = (text: string, newHashtagsStr: string): string => {
+    const lines = text.trim().split('\n');
+
+    // Pop trailing lines from the bottom if they contain hashtags or are blank
+    while (lines.length > 0) {
+      const lastLine = lines[lines.length - 1].trim();
+      if (lastLine === '') {
+        lines.pop();
+        continue;
+      }
+      // Check if the line consists entirely of hashtags (e.g. #Tag1 #Tag2)
+      const tokens = lastLine.split(/\s+/).filter(Boolean);
+      const isHashtagLine = tokens.length > 0 && tokens.every((token) => token.startsWith('#'));
+
+      if (isHashtagLine) {
+        lines.pop();
+      } else {
+        break;
+      }
+    }
+
+    const baseText = lines.join('\n').trim();
+
+    // Normalize new hashtags: ensure each tag starts with '#'
+    const formattedTags = newHashtagsStr
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((tag) => (tag.startsWith('#') ? tag : `#${tag}`))
+      .join(' ');
+
+    if (!formattedTags) return baseText;
+    return `${baseText}\n\n${formattedTags}`;
+  };
+
   const handleApplyHashtagsToAll = () => {
     if (!bulkHashtags.trim()) {
       toast.error('Please enter at least one hashtag to apply');
       return;
     }
-    const cleanTags = bulkHashtags.trim();
+
     const updated = calendarPlan.map((item) => {
-      let draft = (item.fullDraft || item.hook || '').trim();
-      draft = draft + '\n\n' + cleanTags;
+      const currentDraft = (item.fullDraft || item.hook || '').trim();
+      const updatedDraft = replaceTrailingHashtags(currentDraft, bulkHashtags);
       return {
         ...item,
-        fullDraft: draft,
+        fullDraft: updatedDraft,
       };
     });
+
     setCalendarPlan(updated);
-    toast.success(`Applied hashtags to all ${calendarPlan.length} posts!`);
+    toast.success(`Updated hashtags across all ${calendarPlan.length} posts!`);
   };
 
   // 2. Post Editing Handlers
