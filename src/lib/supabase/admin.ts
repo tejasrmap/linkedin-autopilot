@@ -200,26 +200,21 @@ export function createAdminClient(): SupabaseClient {
                 updateFilters.push({ col, val, op: 'gt' });
                 return updateBuilder;
               },
-              select: () => ({
-                maybeSingle: async () => {
-                  const rows = testStore[table] || [];
-                  const match = rows.find(matchesFilters);
-                  if (match) {
-                    Object.assign(match, record);
-                    return { data: { ...match }, error: null };
-                  }
-                  return { data: null, error: null };
-                },
-                single: async () => {
-                  const rows = testStore[table] || [];
-                  const match = rows.find(matchesFilters);
-                  if (match) {
-                    Object.assign(match, record);
-                    return { data: { ...match }, error: null };
-                  }
-                  return { data: null, error: new Error('Not found') };
-                },
-              }),
+              select: () => {
+                const matches = executeUpdate();
+                return {
+                  ...updateBuilder,
+                  then: (resolve: any, reject: any) => {
+                    return Promise.resolve({ data: matches, error: null }).then(resolve, reject);
+                  },
+                  maybeSingle: async () => {
+                    return { data: matches[0] || null, error: null };
+                  },
+                  single: async () => {
+                    return { data: matches[0] || null, error: matches[0] ? null : new Error('Not found') };
+                  },
+                };
+              },
               then: (resolve: any, reject: any) => {
                 const matches = executeUpdate();
                 return Promise.resolve({ data: matches, error: null }).then(resolve, reject);
