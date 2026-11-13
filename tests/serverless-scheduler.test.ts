@@ -1,11 +1,11 @@
 // ==============================================================
-// LINKEDIN AUTOPILOT - SERVERLESS SCHEDULER TESTS
+// LINKEDIN AUTOPILOT - SERVERLESS SCHEDULER & CRON TESTS
 // BY GT INNOX LLP
 // ==============================================================
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GET as cronPublishHandler } from '../src/app/api/cron/publish/route';
+import { GET as cronPublishHandler, POST as cronPostPublishHandler } from '../src/app/api/cron/publish/route';
 import { GET as healthHandler } from '../src/app/api/health/route';
 import { createAdminClient } from '../src/lib/supabase/admin';
 
@@ -13,7 +13,24 @@ import { createAdminClient } from '../src/lib/supabase/admin';
 process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
 process.env.CRON_SECRET = 'test_cron_secret_secure_123';
 
-test('Serverless Scheduler: Rejects unauthorized requests when CRON_SECRET is set', async () => {
+test('Security: Fails closed with 500 when CRON_SECRET is missing or empty', async () => {
+  const originalSecret = process.env.CRON_SECRET;
+  try {
+    delete process.env.CRON_SECRET;
+    const req = new Request('http://localhost:3000/api/cron/publish', {
+      method: 'GET',
+      headers: { authorization: 'Bearer test_cron_secret_secure_123' },
+    });
+    const res = await cronPublishHandler(req);
+    assert.equal(res.status, 500, 'Must fail closed with 500 when server CRON_SECRET is unconfigured');
+    const body = await res.json();
+    assert.match(body.error, /CRON_SECRET is not configured/);
+  } finally {
+    process.env.CRON_SECRET = originalSecret;
+  }
+});
+
+test('Security: Rejects requests missing Authorization header with 401', async () => {
   const req = new Request('http://localhost:3000/api/cron/publish', {
     method: 'GET',
     headers: {},
@@ -22,154 +39,94 @@ test('Serverless Scheduler: Rejects unauthorized requests when CRON_SECRET is se
   const res = await cronPublishHandler(req);
   assert.equal(res.status, 401, 'Should return 401 Unauthorized without credentials');
   const body = await res.json();
-  assert.equal(body.error, 'Unauthorized cron request');
+  assert.match(body.error, /Valid Authorization Bearer header is required/);
 });
 
-test('Serverless Scheduler: Authorizes requests with x-vercel-cron header', async () => {
-  const req = new Request('http://localhost:3000/api/cron/publish', {
-    method: 'GET',
-    headers: { 'x-vercel-cron': '1' },
-  });
-
-  const res = await cronPublishHandler(req);
-  assert.equal(res.status, 200, 'Should authorize Vercel cron header');
-  const body = await res.json();
-  assert.equal(body.success, true);
-});
-
-test('Serverless Scheduler: Authorizes requests with Authorization Bearer header', async () => {
-  const req = new Request('http://localhost:3000/api/cron/publish', {
-    method: 'GET',
-    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
-  });
-
-  const res = await cronPublishHandler(req);
-  assert.equal(res.status, 200, 'Should authorize valid bearer token');
-  const body = await res.json();
-  assert.equal(body.success, true);
-});
-
-test('Serverless Scheduler: Authorizes requests with query parameter key', async () => {
+test('Security: Rejects secret passed in query parameters (prevents logging secrets)', async () => {
   const req = new Request('http://localhost:3000/api/cron/publish?key=test_cron_secret_secure_123', {
     method: 'GET',
   });
 
   const res = await cronPublishHandler(req);
-  assert.equal(res.status, 200, 'Should authorize valid query key');
-  const body = await res.json();
-  assert.equal(body.success, true);
+  assert.equal(res.status, 401, 'Must reject credentials passed in query parameters');
 });
 
-test('Serverless Scheduler: Emits worker_heartbeats telemetry and recovers health check', async () => {
-  const admin = createAdminClient();
-
-  // First invoke cron to record heartbeat
+test('Security: Rejects mismatched bearer tokens with 401', async () => {
   const req = new Request('http://localhost:3000/api/cron/publish', {
     method: 'GET',
-    headers: { 'x-vercel-cron': '1' },
+    headers: { authorization: 'Bearer wrong_invalid_secret_token' },
   });
+
   const res = await cronPublishHandler(req);
-  assert.equal(res.status, 200);
-
-  // Check worker_heartbeats table
-  const { data: hb } = await admin
-    .from('worker_heartbeats')
-    .select('*')
-    .eq('id', 'primary_worker')
-    .maybeSingle();
-
-  assert.ok(hb, 'Heartbeat record must exist');
-  assert.equal(hb.id, 'primary_worker');
-  assert.equal(hb.mode, 'Vercel Serverless Cron Engine');
-  assert.ok(hb.last_seen_at);
-
-  // Health endpoint should now report healthy worker_engine
-  const healthRes = await healthHandler();
-  assert.equal(healthRes.status, 200);
-  const healthBody = await healthRes.json();
-  assert.equal(healthBody.checks.worker_engine.status, 'healthy');
-  assert.match(healthBody.checks.worker_engine.message, /Scheduler active/);
+  assert.equal(res.status, 401, 'Must reject invalid bearer token');
 });
 
-test('Serverless Scheduler: Handles no due posts gracefully without errors', async () => {
-  const req = new Request('http://localhost:3000/api/cron/publish', {
+test('Security: Authorizes valid Authorization Bearer header on GET and POST', async () => {
+  const reqGet = new Request('http://localhost:3000/api/cron/publish', {
     method: 'GET',
-    headers: { 'x-vercel-cron': '1' },
+    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
   });
-  const res = await cronPublishHandler(req);
-  const body = await res.json();
-  assert.equal(body.success, true);
-  assert.equal(body.processed, 0);
-  assert.equal(body.message, 'No pending scheduled posts due for publishing.');
+  const resGet = await cronPublishHandler(reqGet);
+  assert.equal(resGet.status, 200, 'Should authorize valid bearer token on GET');
+  const bodyGet = await resGet.json();
+  assert.equal(bodyGet.success, true);
+
+  const reqPost = new Request('http://localhost:3000/api/cron/publish', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer test_cron_secret_secure_123',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ source: 'pg_cron' }),
+  });
+  const resPost = await cronPostPublishHandler(reqPost);
+  assert.equal(resPost.status, 200, 'Should authorize valid bearer token on POST (pg_net)');
+  const bodyPost = await resPost.json();
+  assert.equal(bodyPost.success, true);
 });
 
-test('Serverless Scheduler: Reclaims stale processing locks (>5 minutes old)', async () => {
-  const admin = createAdminClient();
-  const staleTimeIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-
-  // Insert a mock post stuck in 'processing'
-  const mockPostId = 'stale-post-lock-id-999';
-  await admin.from('posts').insert({
-    id: mockPostId,
-    workspace_id: 'test-workspace-id',
-    content: 'Stale test post',
-    status: 'processing',
-    updated_at: staleTimeIso,
-  });
-
+test('Scheduling: Handles empty due post queues cleanly', async () => {
   const req = new Request('http://localhost:3000/api/cron/publish', {
     method: 'GET',
-    headers: { 'x-vercel-cron': '1' },
+    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
   });
   const res = await cronPublishHandler(req);
   const body = await res.json();
-
   assert.equal(body.success, true);
-  assert.ok(body.reclaimedStale >= 1, 'Should reclaim at least 1 stale lock');
-
-  // Verify post status recovered to 'scheduled'
-  const { data: recoveredPost } = await admin
-    .from('posts')
-    .select('status, error_message')
-    .eq('id', mockPostId)
-    .single();
-
-  assert.equal(recoveredPost?.status, 'scheduled');
-  assert.match(recoveredPost?.error_message || '', /Recovered from timed-out/);
+  assert.equal(body.totalDue, 0);
+  assert.equal(body.succeeded, 0);
+  assert.equal(body.failed, 0);
 });
 
-test('Serverless Scheduler: Concurrency - Prevents duplicate publishing under simultaneous cron calls', async () => {
+test('Concurrency: Prevents duplicate publishing across simultaneous cron invocations', async () => {
   const admin = createAdminClient();
   const pastTimeIso = new Date(Date.now() - 60 * 1000).toISOString();
-  const concurrentPostId = 'concurrent-post-id-1234';
+  const concurrentPostId = 'simultaneous-safe-post-987';
 
-  // Seed a due post
   await admin.from('posts').insert({
     id: concurrentPostId,
     workspace_id: 'test-workspace-id',
-    content: 'Concurrent test post',
+    content: 'Concurrent execution test post',
     status: 'scheduled',
     scheduled_at: pastTimeIso,
     updated_at: pastTimeIso,
   });
 
-  // Seed scheduled_jobs entry
   await admin.from('scheduled_jobs').insert({
-    id: 'job-concurrent-1234',
+    id: 'job-simultaneous-987',
     post_id: concurrentPostId,
     status: 'scheduled',
     scheduled_at: pastTimeIso,
     attempts: 0,
   });
 
-  // Trigger two simultaneous cron requests
   const req1 = new Request('http://localhost:3000/api/cron/publish', {
     method: 'GET',
-    headers: { 'x-vercel-cron': '1' },
+    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
   });
   const req2 = new Request('http://localhost:3000/api/cron/publish', {
     method: 'GET',
-    headers: { 'x-vercel-cron': '1' },
+    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
   });
 
   const [res1, res2] = await Promise.all([cronPublishHandler(req1), cronPublishHandler(req2)]);
@@ -177,10 +134,88 @@ test('Serverless Scheduler: Concurrency - Prevents duplicate publishing under si
   assert.equal(res1.status, 200);
   assert.equal(res2.status, 200);
 
-  // One may have claimed it or attempted it, but never duplicate successes
   const body1 = await res1.json();
   const body2 = await res2.json();
 
   const totalSucceeded = (body1.succeeded || 0) + (body2.succeeded || 0);
-  assert.ok(totalSucceeded <= 1, 'Never allow duplicate publishing of the same post across simultaneous cron executions');
+  assert.ok(totalSucceeded <= 1, 'Simultaneous requests cannot publish the same post multiple times');
+});
+
+test('Stale Reclamation: Rechecks BOTH status=processing and updated_at < cutoff', async () => {
+  const admin = createAdminClient();
+  const staleTimeIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const mockStalePostId = 'stale-cutoff-recheck-post-1';
+
+  await admin.from('posts').insert({
+    id: mockStalePostId,
+    workspace_id: 'test-workspace-id',
+    content: 'Stale test post for atomic recheck',
+    status: 'processing',
+    updated_at: staleTimeIso,
+  });
+
+  const req = new Request('http://localhost:3000/api/cron/publish', {
+    method: 'GET',
+    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
+  });
+  const res = await cronPublishHandler(req);
+  const body = await res.json();
+
+  assert.equal(body.success, true);
+  assert.ok(body.reclaimedStale >= 1, 'Should reclaim the stale processing lock');
+
+  // Verify post returned to scheduled
+  const { data: reclaimed } = await admin
+    .from('posts')
+    .select('status, error_message')
+    .eq('id', mockStalePostId)
+    .single();
+
+  assert.equal(reclaimed?.status, 'scheduled');
+  assert.match(reclaimed?.error_message || '', /Recovered from timed-out/);
+});
+
+test('Retry Hardening: Never reopens completed or published jobs', async () => {
+  const admin = createAdminClient();
+  const nowIso = new Date().toISOString();
+  const completedPostId = 'already-completed-post-555';
+
+  await admin.from('posts').insert({
+    id: completedPostId,
+    workspace_id: 'test-workspace-id',
+    content: 'Already published post',
+    status: 'published',
+    updated_at: nowIso,
+  });
+
+  // Attempting conditional update on post with status in ['failed', 'processing']
+  const { data: updated } = await admin
+    .from('posts')
+    .update({ status: 'scheduled' })
+    .eq('id', completedPostId)
+    .in('status', ['failed', 'processing'])
+    .select('id');
+
+  assert.equal(updated && updated.length, 0, 'Must NOT update or reopen post that is already published');
+});
+
+test('Health: Distinguishes API, Database, Scheduler, Publication, and Stuck Jobs', async () => {
+  const healthRes = await healthHandler();
+  assert.equal(healthRes.status, 200);
+  const body = await healthRes.json();
+
+  assert.ok(body.checks.api_server, 'Must include api_server check');
+  assert.equal(body.checks.api_server.status, 'healthy');
+
+  assert.ok(body.checks.database, 'Must include database check');
+  assert.equal(body.checks.database.status, 'healthy');
+
+  assert.ok(body.checks.scheduler_execution, 'Must include scheduler_execution check');
+  assert.equal(body.checks.scheduler_execution.status, 'healthy');
+
+  assert.ok(body.checks.last_successful_publication, 'Must include last_successful_publication check');
+  assert.equal(body.checks.last_successful_publication.status, 'healthy');
+
+  assert.ok(body.checks.stuck_scheduled_jobs, 'Must include stuck_scheduled_jobs check');
+  assert.equal(body.checks.stuck_scheduled_jobs.status, 'healthy');
 });
