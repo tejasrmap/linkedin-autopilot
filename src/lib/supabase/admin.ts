@@ -32,6 +32,18 @@ export function createAdminClient(): SupabaseClient {
               filters.push({ col, val, op: 'lte' });
               return builder;
             },
+            lt: (col: string, val: any) => {
+              filters.push({ col, val, op: 'lt' });
+              return builder;
+            },
+            gt: (col: string, val: any) => {
+              filters.push({ col, val, op: 'gt' });
+              return builder;
+            },
+            in: (col: string, val: any[]) => {
+              filters.push({ col, val, op: 'in' });
+              return builder;
+            },
             limit: () => builder,
             order: () => builder,
             maybeSingle: async () => {
@@ -41,7 +53,10 @@ export function createAdminClient(): SupabaseClient {
               const rows = testStore[table] || [];
               const match = rows.find((r) => filters.every((f) => {
                 if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'lt') return r[f.col] < f.val;
                 if (f.op === 'gte') return r[f.col] >= f.val;
+                if (f.op === 'gt') return r[f.col] > f.val;
+                if (f.op === 'in') return Array.isArray(f.val) && f.val.includes(r[f.col]);
                 return r[f.col] === f.val;
               }));
               return { data: match || null, error: null };
@@ -53,7 +68,10 @@ export function createAdminClient(): SupabaseClient {
               const rows = testStore[table] || [];
               const match = rows.find((r) => filters.every((f) => {
                 if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'lt') return r[f.col] < f.val;
                 if (f.op === 'gte') return r[f.col] >= f.val;
+                if (f.op === 'gt') return r[f.col] > f.val;
+                if (f.op === 'in') return Array.isArray(f.val) && f.val.includes(r[f.col]);
                 return r[f.col] === f.val;
               }));
               return { data: match || null, error: match ? null : new Error('Not found') };
@@ -69,7 +87,10 @@ export function createAdminClient(): SupabaseClient {
               const rows = testStore[table] || [];
               const filtered = rows.filter((r) => filters.every((f) => {
                 if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'lt') return r[f.col] < f.val;
                 if (f.op === 'gte') return r[f.col] >= f.val;
+                if (f.op === 'gt') return r[f.col] > f.val;
+                if (f.op === 'in') return Array.isArray(f.val) && f.val.includes(r[f.col]);
                 return r[f.col] === f.val;
               }));
               return Promise.resolve({
@@ -137,11 +158,14 @@ export function createAdminClient(): SupabaseClient {
             };
           },
           update: (record: any) => {
-            const updateFilters: Array<{ col: string; val: any; op: 'eq' | 'lte' | 'gte' }> = [];
+            const updateFilters: Array<{ col: string; val: any; op: 'eq' | 'lte' | 'lt' | 'gte' | 'gt' | 'in' }> = [];
             const matchesFilters = (r: any) => {
               return updateFilters.every((f) => {
                 if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'lt') return r[f.col] < f.val;
                 if (f.op === 'gte') return r[f.col] >= f.val;
+                if (f.op === 'gt') return r[f.col] > f.val;
+                if (f.op === 'in') return Array.isArray(f.val) && f.val.includes(r[f.col]);
                 return r[f.col] === f.val;
               });
             };
@@ -156,12 +180,24 @@ export function createAdminClient(): SupabaseClient {
                 updateFilters.push({ col, val, op: 'eq' });
                 return updateBuilder;
               },
+              in: (col: string, val: any[]) => {
+                updateFilters.push({ col, val, op: 'in' });
+                return updateBuilder;
+              },
               lte: (col: string, val: any) => {
                 updateFilters.push({ col, val, op: 'lte' });
                 return updateBuilder;
               },
+              lt: (col: string, val: any) => {
+                updateFilters.push({ col, val, op: 'lt' });
+                return updateBuilder;
+              },
               gte: (col: string, val: any) => {
                 updateFilters.push({ col, val, op: 'gte' });
+                return updateBuilder;
+              },
+              gt: (col: string, val: any) => {
+                updateFilters.push({ col, val, op: 'gt' });
                 return updateBuilder;
               },
               select: () => ({

@@ -18,6 +18,7 @@
     "test:postgres": "tsx tests/staging-postgres-integration.test.ts",
     "db:verify-migrations": "tsx scripts/verify-migrations.ts",
     "test:worker": "tsx tests/worker-recovery.test.ts",
+    "test:serverless": "tsx --test tests/serverless-scheduler.test.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {

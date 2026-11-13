@@ -208,3 +208,4 @@ docker-compose up -d worker
 
 **Immediate Result:**  
 Once the persistent worker boots and executes its first pulse, `https://autopilot.gtinnox.in/api/health` will immediately report `checks.worker_engine.status: "healthy"` and overall `status: "healthy"`.
+

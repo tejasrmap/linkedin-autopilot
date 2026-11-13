@@ -47,15 +47,16 @@ export async function GET() {
   }
 
   // 3. Queue / Worker Live Heartbeat Verification
-  // Explicitly queries public.worker_heartbeats to verify background daemon pulse
+  // Explicitly queries public.worker_heartbeats to verify background daemon pulse or Vercel Cron pulse
   const workerStart = Date.now();
-  const WORKER_HEARTBEAT_THRESHOLD_SECONDS = 90; // Stale after 90s without pulse
+  // Threshold of 90 seconds (standard heartbeat freshness threshold)
+  const WORKER_HEARTBEAT_THRESHOLD_SECONDS = 90;
 
   try {
     const admin = createAdminClient();
     const { data: heartbeat, error: hbError } = await admin
       .from('worker_heartbeats')
-      .select('id, mode, last_seen_at, uptime_seconds')
+      .select('id, mode, last_seen_at, uptime_seconds, meta')
       .eq('id', 'primary_worker')
       .maybeSingle();
 
@@ -71,7 +72,7 @@ export async function GET() {
       checks.worker_engine = {
         status: 'degraded',
         latencyMs: workerLatency,
-        message: 'No worker heartbeat record found. Background worker is not registered or running.',
+        message: 'No worker heartbeat record found. Background worker or serverless cron is not registered or running.',
       };
     } else {
       const lastSeenTime = new Date(heartbeat.last_seen_at).getTime();
@@ -81,13 +82,13 @@ export async function GET() {
         checks.worker_engine = {
           status: 'degraded',
           latencyMs: workerLatency,
-          message: `Worker heartbeat is stale (${ageSeconds}s old; threshold is ${WORKER_HEARTBEAT_THRESHOLD_SECONDS}s). Worker may be stopped.`,
+          message: `Worker heartbeat is stale (${ageSeconds}s old; threshold is ${WORKER_HEARTBEAT_THRESHOLD_SECONDS}s). Scheduler may be stopped.`,
         };
       } else {
         checks.worker_engine = {
           status: 'healthy',
           latencyMs: workerLatency,
-          message: `Worker active (${heartbeat.mode || 'polling'}, last seen ${ageSeconds}s ago)`,
+          message: `Scheduler active (${heartbeat.mode || 'polling'}, last seen ${ageSeconds}s ago)`,
         };
       }
     }
@@ -97,6 +98,32 @@ export async function GET() {
       latencyMs: Date.now() - workerStart,
       message: err.message || 'Worker check failed',
     };
+  }
+
+  // 4. Stuck Jobs Health Check (Detect if any jobs are stuck in 'processing' > 10 min)
+  try {
+    const admin = createAdminClient();
+    const tenMinAgoIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: stuckPosts } = await admin
+      .from('posts')
+      .select('id')
+      .eq('status', 'processing')
+      .lt('updated_at', tenMinAgoIso)
+      .limit(5);
+
+    if (stuckPosts && stuckPosts.length > 0) {
+      checks.stuck_jobs = {
+        status: 'degraded',
+        message: `${stuckPosts.length} post(s) stuck in processing state for >10m`,
+      };
+    } else {
+      checks.stuck_jobs = {
+        status: 'healthy',
+        message: 'No stuck processing jobs detected',
+      };
+    }
+  } catch (err: any) {
+    // Non-fatal to primary checks
   }
 
   // ACCURATE HEALTH STATUS DISCRIMINATION:
@@ -127,4 +154,3 @@ export async function GET() {
     { status: isApiUnhealthy ? 503 : 200 }
   );
 }
-
