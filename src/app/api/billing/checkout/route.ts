@@ -17,12 +17,8 @@ const PLAN_PRICES: Record<string, { amount: number; name: string }> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await getAuthContext();
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // 1. REVERSIBLE BILLING SUSPENSION CHECK
+    // 1. FAIL-SAFE REVERSIBLE BILLING SUSPENSION CHECK
+    // Fast-path: When billing is disabled, immediately reject with HTTP 503
     if (!isBillingEnabled()) {
       return NextResponse.json(
         {
@@ -33,6 +29,11 @@ export async function POST(req: NextRequest) {
         },
         { status: 503 }
       );
+    }
+
+    const auth = await getAuthContext();
+    if (!auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json().catch(() => ({}));

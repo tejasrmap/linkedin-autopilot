@@ -180,7 +180,8 @@ npm run worker
 ```
 
 ### 10. Commercial Billing & Operational Admin
-- **Stripe Checkout & Webhooks**: Live subscription processing for Pro ($29/mo) and Agency ($199/mo) tiers.
+- **Stripe Billing Status**: Temporarily disabled under fail-safe `BILLING_ENABLED=false` policy. All existing customer quotas, scheduled jobs, and database schemas remain fully active. New checkouts and portal requests return HTTP 503.
+- **Authoritative Reconciliation**: Subscription states are reconciled directly with Stripe API before reactivation; stale webhook events are never blindly replayed.
 - **Support & Ticket System**: In-app ticketing system with real-time status resolution at `/admin`.
 - **Interactive Onboarding**: 5-step guided onboarding checklist on `/dashboard`.
 - **Legal Compliance**: Full Terms of Service (`/terms`) and Privacy Policy (`/privacy`).
