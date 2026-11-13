@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Modal } from '@/components/ui/modal';
 import {
   Clock,
   CheckCircle2,
@@ -26,6 +27,8 @@ import {
   ExternalLink,
   Filter,
   ChevronDown,
+  ChevronUp,
+  Eye,
 } from 'lucide-react';
 import { Post } from '@/types';
 
@@ -43,10 +46,26 @@ function PostsContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [destinationFilter, setDestinationFilter] = useState<'all' | 'member' | 'organization'>('all');
 
+  // Full Post Viewing & Inline Expansion
+  const [viewingPost, setViewingPost] = useState<Post | null>(null);
+  const [expandedPostIds, setExpandedPostIds] = useState<Set<string>>(new Set());
+
   // Delete Confirm Dialog
   const [deletePostId, setDeletePostId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
+
+  const toggleExpand = (id: string) => {
+    setExpandedPostIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -339,9 +358,47 @@ function PostsContent() {
                   </div>
 
                   {/* Post Content */}
-                  <p className="text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap line-clamp-3">
-                    {post.content}
-                  </p>
+                  {(() => {
+                    const isExpanded = expandedPostIds.has(post.id);
+                    const isLongText = (post.content || '').length > 180 || (post.content || '').includes('\n');
+
+                    return (
+                      <div className="relative">
+                        <p className={`text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap ${isExpanded ? '' : 'line-clamp-3'}`}>
+                          {post.content}
+                        </p>
+
+                        {isLongText && (
+                          <div className="flex items-center gap-3 mt-2">
+                            <button
+                              onClick={() => toggleExpand(post.id)}
+                              className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 transition-colors"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  <span>Show less</span>
+                                  <ChevronUp className="w-3 h-3" />
+                                </>
+                              ) : (
+                                <>
+                                  <span>Read entire post</span>
+                                  <ChevronDown className="w-3 h-3" />
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => setViewingPost(post)}
+                              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 transition-colors"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>View Full Post</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Error Banner if failed */}
                   {post.error_message && (
@@ -361,6 +418,14 @@ function PostsContent() {
 
                 {/* Actions Bar */}
                 <div className="flex items-center gap-1.5 self-end md:self-center flex-shrink-0 pt-2 md:pt-0">
+                  <button
+                    onClick={() => setViewingPost(post)}
+                    className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    title="View Entire Post"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+
                   <button
                     onClick={() => handleCopyContent(post.content, post.id)}
                     className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
@@ -407,6 +472,111 @@ function PostsContent() {
           })
         )}
       </div>
+
+      {/* View Entire Post Modal */}
+      {viewingPost && (
+        <Modal
+          isOpen={!!viewingPost}
+          onClose={() => setViewingPost(null)}
+          title="Publication Details"
+          description={
+            viewingPost.social_account
+              ? `Destination: ${viewingPost.social_account.account_name} (${
+                  viewingPost.social_account.account_type === 'organization' ? 'Company Page' : 'Personal Profile'
+                })`
+              : 'LinkedIn Post'
+          }
+          maxWidth="lg"
+          footer={
+            <div className="flex items-center justify-between w-full">
+              <div className="text-[11px] text-slate-400 font-mono">
+                {(viewingPost.content || '').length} / 3000 chars
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopyContent(viewingPost.content, viewingPost.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors"
+                >
+                  {copiedPostId === viewingPost.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>Copy Text</span>
+                </button>
+
+                <Link
+                  href={`/composer?content=${encodeURIComponent(viewingPost.content)}`}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-all"
+                >
+                  <span>Edit in Composer</span>
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={() => setViewingPost(null)}
+                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            {/* Meta Bar */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full ${
+                    viewingPost.status === 'published'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                      : viewingPost.status === 'scheduled'
+                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                      : viewingPost.status === 'failed'
+                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                      : 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20'
+                  }`}
+                >
+                  {viewingPost.status}
+                </span>
+                <span className="text-slate-500">
+                  Format: <strong className="capitalize text-slate-700 dark:text-slate-300">{viewingPost.post_type}</strong>
+                </span>
+              </div>
+
+              {viewingPost.scheduled_at && (
+                <span className="text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5" />
+                  {new Date(viewingPost.scheduled_at).toLocaleString([], {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              )}
+            </div>
+
+            {/* Entire Post Box */}
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 leading-relaxed whitespace-pre-wrap font-sans text-xs max-h-[50vh] overflow-y-auto selection:bg-blue-500 selection:text-white">
+              {viewingPost.content}
+            </div>
+
+            {/* Failure Info if any */}
+            {viewingPost.error_message && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 text-xs">
+                <strong>Failure Reason:</strong> {viewingPost.error_message}
+              </div>
+            )}
+
+            {/* Provider Post URN */}
+            {viewingPost.provider_post_id && (
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-500 flex items-center gap-2 font-mono">
+                <Globe className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                <span className="truncate">{viewingPost.provider_post_id}</span>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

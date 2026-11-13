@@ -16,6 +16,8 @@ import {
   Loader2,
   FileText,
   ChevronDown,
+  ChevronUp,
+  Eye,
 } from 'lucide-react';
 
 export default function AIStudioPage() {
@@ -47,11 +49,13 @@ export default function AIStudioPage() {
   const [ideasIndustry, setIdeasIndustry] = useState('B2B SaaS and AI Software');
   const [ideas, setIdeas] = useState<any[]>([]);
   const [loadingIdeas, setLoadingIdeas] = useState(false);
+  const [expandedIdeaIdx, setExpandedIdeaIdx] = useState<number | null>(null);
 
   // Calendar State
   const [calendarIndustry, setCalendarIndustry] = useState('Enterprise Technology Solutions');
   const [calendarPlan, setCalendarPlan] = useState<any[]>([]);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const [expandedCalendarDay, setExpandedCalendarDay] = useState<number | null>(null);
 
   // Brand Voice State
   const [brandName, setBrandName] = useState('GT InnoX LLP');
@@ -61,11 +65,19 @@ export default function AIStudioPage() {
 
   // Copy indicator state
   const [copied, setCopied] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<string | null>(null);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyTextWithFeedback = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIdx(id);
+    toast.success('Full post copied to clipboard!');
+    setTimeout(() => setCopiedIdx(null), 2000);
   };
 
   const sendToComposer = (text: string) => {
@@ -630,24 +642,70 @@ export default function AIStudioPage() {
                 Click Generate Ideas to get 5 viral concepts tailored for your industry.
               </div>
             ) : (
-              ideas.map((idea, idx) => (
-                <div
-                  key={idx}
-                  className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                >
-                  <div className="flex-1">
-                    <div className="font-bold text-slate-800 dark:text-slate-200">{idea.title}</div>
-                    <div className="text-blue-600 dark:text-blue-400 italic mt-0.5">&quot;{idea.hook}&quot;</div>
-                    <div className="text-slate-500 dark:text-slate-400 mt-1">{idea.outline}</div>
-                  </div>
-                  <button
-                    onClick={() => sendToComposer(`${idea.hook}\n\n`)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex-shrink-0"
+              ideas.map((idea, idx) => {
+                const isExpanded = expandedIdeaIdx === idx;
+                const fullPostText =
+                  idea.fullDraft ||
+                  `${idea.hook}\n\nKey Insights:\n${idea.outline}\n\nExecution Principles:\n• Eliminate operational drag\n• Standardize high-leverage workflows\n• Iterate based on real metrics\n\nWhat is your team's perspective on this?\n\n#Leadership #Innovation #Growth #LinkedIn`;
+
+                return (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3 text-xs"
                   >
-                    Use Hook <ArrowRight className="w-3 h-3" />
-                  </button>
-                </div>
-              ))
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="font-bold text-slate-800 dark:text-slate-100 text-sm">{idea.title}</div>
+                        <div className="text-blue-600 dark:text-blue-400 italic mt-1">&quot;{idea.hook}&quot;</div>
+                        <div className="text-slate-500 dark:text-slate-400 mt-1">{idea.outline}</div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap sm:flex-nowrap">
+                        <button
+                          onClick={() => setExpandedIdeaIdx(isExpanded ? null : idx)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>{isExpanded ? 'Hide Draft' : 'View Full Post'}</span>
+                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+
+                        <button
+                          onClick={() => copyTextWithFeedback(fullPostText, `idea-${idx}`)}
+                          className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                          title="Copy Full Post"
+                        >
+                          {copiedIdx === `idea-${idx}` ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => sendToComposer(fullPostText)}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-all shadow-sm"
+                        >
+                          <span>Open in Composer</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                          <span>FULL PUBLICATION-READY DRAFT:</span>
+                          <span className="font-mono">{fullPostText.length} characters</span>
+                        </div>
+                        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed font-sans text-xs max-h-60 overflow-y-auto selection:bg-blue-500 selection:text-white">
+                          {fullPostText}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -680,29 +738,75 @@ export default function AIStudioPage() {
                 Generate an end-to-end 7-day content schedule with strategic angles.
               </div>
             ) : (
-              calendarPlan.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-blue-600 dark:text-blue-400">{item.day}</span>
-                      <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {item.contentType || item.format}
-                      </span>
-                    </div>
-                    <div className="font-semibold text-slate-800 dark:text-slate-200 mt-1">{item.theme}</div>
-                    <div className="text-slate-500 dark:text-slate-400 mt-0.5 italic">&quot;{item.hook}&quot;</div>
-                  </div>
-                  <button
-                    onClick={() => sendToComposer(`${item.hook}\n\n`)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex-shrink-0"
+              calendarPlan.map((item, idx) => {
+                const isExpanded = expandedCalendarDay === idx;
+                const fullPostText =
+                  item.fullDraft ||
+                  `${item.hook}\n\nStrategic Perspective:\n${item.theme}\n\nKey Takeaways:\n• Standardize workflows\n• Reduce friction\n• Measure high-leverage outcomes\n\nWhat is your team's perspective?\n\n#Leadership #Innovation #Growth`;
+
+                return (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3 text-xs"
                   >
-                    Create Post <ArrowRight className="w-3 h-3" />
-                  </button>
-                </div>
-              ))
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{item.day}</span>
+                          <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            {item.contentType || item.format}
+                          </span>
+                        </div>
+                        <div className="font-semibold text-slate-800 dark:text-slate-200 mt-1">{item.theme}</div>
+                        <div className="text-slate-500 dark:text-slate-400 mt-0.5 italic">&quot;{item.hook}&quot;</div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap sm:flex-nowrap">
+                        <button
+                          onClick={() => setExpandedCalendarDay(isExpanded ? null : idx)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>{isExpanded ? 'Hide Draft' : 'View Full Post'}</span>
+                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+
+                        <button
+                          onClick={() => copyTextWithFeedback(fullPostText, `cal-${idx}`)}
+                          className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                          title="Copy Full Post"
+                        >
+                          {copiedIdx === `cal-${idx}` ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => sendToComposer(fullPostText)}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-all shadow-sm"
+                        >
+                          <span>Create Post</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                          <span>FULL PUBLICATION-READY POST ({item.day.toUpperCase()}):</span>
+                          <span className="font-mono">{fullPostText.length} characters</span>
+                        </div>
+                        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed font-sans text-xs max-h-60 overflow-y-auto selection:bg-blue-500 selection:text-white">
+                          {fullPostText}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
