@@ -51,6 +51,23 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const admin = createAdminClient();
 
+    // Verify that the updated social account belongs strictly to this workspace
+    if (validated.socialAccountId) {
+      const { data: validAccount } = await admin
+        .from('social_accounts')
+        .select('id')
+        .eq('id', validated.socialAccountId)
+        .eq('workspace_id', auth.workspaceId)
+        .maybeSingle();
+
+      if (!validAccount) {
+        return NextResponse.json(
+          { error: 'Invalid social account: Account does not belong to this workspace.' },
+          { status: 403 }
+        );
+      }
+    }
+
     const updatePayload: any = {
       ...validated,
       updated_at: new Date().toISOString(),

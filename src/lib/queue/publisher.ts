@@ -201,6 +201,13 @@ export async function executePublishPipeline(postId: string): Promise<{ success:
     return { success: false, error: errorMsg };
   }
 
+  // Multi-workspace security safeguard: strictly prevent cross-workspace publishing
+  if (socialAccount.workspace_id !== post.workspace_id) {
+    const errorMsg = 'Security violation: Assigned LinkedIn account does not belong to the post workspace.';
+    await markPostFailed(supabase, post, errorMsg, attemptNumber);
+    return { success: false, error: errorMsg };
+  }
+
   if (socialAccount.connection_status !== 'active') {
     const errorMsg = `LinkedIn account "${socialAccount.account_name}" is currently ${socialAccount.connection_status}. Please reconnect.`;
     await markPostFailed(supabase, post, errorMsg, attemptNumber);
