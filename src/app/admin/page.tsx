@@ -36,10 +36,12 @@ export default function AdminDashboardPage() {
   const loadAdminData = async () => {
     try {
       setLoading(true);
-      const [metricsRes, ticketsRes] = await Promise.all([
-        fetch('/api/admin/metrics'),
-        fetch('/api/support'),
-      ]);
+      const metricsRes = await fetch('/api/admin/metrics');
+      let ticketsRes = await fetch('/api/support?scope=all');
+      if (ticketsRes.status === 403) {
+        // Fall back to workspace tickets if caller is tenant admin rather than platform superadmin
+        ticketsRes = await fetch('/api/support');
+      }
 
       if (metricsRes.ok) {
         const mData = await metricsRes.json();
@@ -94,8 +96,16 @@ export default function AdminDashboardPage() {
               <ShieldCheck className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               GT InnoX SaaS Operations & Admin
             </h1>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              Operational
+            <span
+              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                metrics?.systemHealth === 'operational'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                  : metrics?.systemHealth === 'degraded'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+              }`}
+            >
+              {metrics?.systemHealth || 'Operational'}
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -115,7 +125,7 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* System Infrastructure Indicators */}
+      {/* System Infrastructure Indicators (Live Telemetry Probes) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-2">
           <div className="flex items-center justify-between">
@@ -123,10 +133,19 @@ export default function AdminDashboardPage() {
             <Database className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Supabase Connected
+            <span
+              className={`w-2 h-2 rounded-full ${
+                metrics?.services?.database?.status === 'operational'
+                  ? 'bg-emerald-500 animate-pulse'
+                  : 'bg-rose-500'
+              }`}
+            />
+            {metrics?.services?.database?.status === 'operational' ? 'Supabase Connected' : 'DB Degraded'}
           </div>
-          <p className="text-[10px] text-slate-400">PostgreSQL 15 · AES-256 RLS</p>
+          <p className="text-[10px] text-slate-400">
+            {metrics?.services?.database?.provider || 'PostgreSQL 15'} ·{' '}
+            {metrics?.services?.database?.latencyMs ? `${metrics.services.database.latencyMs}ms` : 'AES-256 RLS'}
+          </p>
         </div>
 
         <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-2">
@@ -135,10 +154,18 @@ export default function AdminDashboardPage() {
             <Server className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-blue-500" />
-            Cron & BullMQ Active
+            <span
+              className={`w-2 h-2 rounded-full ${
+                metrics?.services?.worker?.status === 'operational'
+                  ? 'bg-blue-500'
+                  : 'bg-amber-500'
+              }`}
+            />
+            {metrics?.services?.worker?.status === 'operational' ? 'Worker Engine Active' : 'Worker Pending'}
           </div>
-          <p className="text-[10px] text-slate-400">Dual-engine failover enabled</p>
+          <p className="text-[10px] text-slate-400">
+            {metrics?.services?.worker?.mode || 'Persistent Standalone Poller'}
+          </p>
         </div>
 
         <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-2">
@@ -147,22 +174,38 @@ export default function AdminDashboardPage() {
             <Linkedin className="w-4 h-4 text-[#0A66C2]" />
           </div>
           <div className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            OAuth 2.0 Healthy
+            <span
+              className={`w-2 h-2 rounded-full ${
+                metrics?.services?.linkedinOAuth?.status === 'operational'
+                  ? 'bg-emerald-500'
+                  : 'bg-amber-500'
+              }`}
+            />
+            {metrics?.services?.linkedinOAuth?.status === 'operational' ? 'OAuth 2.0 Configured' : 'Awaiting Config'}
           </div>
-          <p className="text-[10px] text-slate-400">Restli v2 · Token Refresh</p>
+          <p className="text-[10px] text-slate-400">
+            {metrics?.services?.linkedinOAuth?.provider || 'Restli v2'} · Official API
+          </p>
         </div>
 
         <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500">AI Content Engine</span>
+            <span className="text-[11px] font-semibold text-slate-500">Commercial & AI Engine</span>
             <Activity className="w-4 h-4 text-purple-500" />
           </div>
           <div className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-purple-500" />
-            Gemini 1.5 Pro
+            <span
+              className={`w-2 h-2 rounded-full ${
+                metrics?.services?.ai?.status === 'operational'
+                  ? 'bg-purple-500'
+                  : 'bg-amber-500'
+              }`}
+            />
+            {metrics?.services?.ai?.status === 'operational' ? 'Gemini 1.5 Pro' : 'AI Offline'}
           </div>
-          <p className="text-[10px] text-slate-400">30 req/min rate limit active</p>
+          <p className="text-[10px] text-slate-400">
+            Stripe: {metrics?.services?.billing?.status === 'operational' ? 'Active' : 'Pending Keys'}
+          </p>
         </div>
       </div>
 

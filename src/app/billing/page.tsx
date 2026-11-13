@@ -58,6 +58,25 @@ export default function BillingPage() {
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+
+  const handleOpenCustomerPortal = async () => {
+    try {
+      setOpeningPortal(true);
+      toast.info('Opening Stripe Customer Portal...');
+      const res = await fetch('/api/billing/portal', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.info(data.message || data.error || 'Configure Stripe keys to enable live Customer Portal.');
+      }
+    } catch {
+      toast.error('Network error opening customer portal');
+    } finally {
+      setOpeningPortal(false);
+    }
+  };
 
   const handleProceedToCheckout = async () => {
     if (!selectedPlan) return;
@@ -115,14 +134,25 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <CreditCard className="w-5 h-5 text-blue-500" />
-          Subscription & Billing Architecture
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Scale your content publishing capacity with flexible commercial SaaS tiers.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-blue-500" />
+            Subscription & Billing Architecture
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Scale your content publishing capacity with flexible commercial SaaS tiers.
+          </p>
+        </div>
+
+        <button
+          onClick={handleOpenCustomerPortal}
+          disabled={openingPortal}
+          className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+        >
+          {openingPortal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5 text-blue-500" />}
+          <span>Stripe Customer Portal</span>
+        </button>
       </div>
 
       {/* Real Live Usage Stats */}

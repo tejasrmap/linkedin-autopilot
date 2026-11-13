@@ -15,6 +15,20 @@ export interface AuthContext {
   };
   workspaceId: string;
   role: WorkspaceRole;
+  isPlatformAdmin?: boolean;
+}
+
+/**
+ * Checks whether an email belongs to an authorized GT InnoX platform administrator
+ */
+export function isPlatformAdmin(userEmail?: string): boolean {
+  if (!userEmail) return false;
+  const adminEmails = (
+    process.env.ADMIN_EMAILS || 'tejag.vijay@gmail.com,admin@gtinnox.in,gamermadebyindia@gmail.com'
+  )
+    .split(',')
+    .map((e) => e.trim().toLowerCase());
+  return adminEmails.includes(userEmail.toLowerCase());
 }
 
 /**
@@ -61,6 +75,7 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
         user: { id: devUserId, email: 'tejag.vijay@gmail.com', full_name: 'Teja Ganugula' },
         workspaceId: devWsId,
         role: 'owner',
+        isPlatformAdmin: true,
       };
     }
     return null;
@@ -98,6 +113,7 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
         user: { id: user.id, email: user.email!, full_name: user.user_metadata?.full_name },
         workspaceId: newWs.id,
         role: 'owner',
+        isPlatformAdmin: isPlatformAdmin(user.email),
       };
     }
 
@@ -121,6 +137,7 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
     },
     workspaceId: selectedMembership.workspace_id,
     role: selectedMembership.role as WorkspaceRole,
+    isPlatformAdmin: isPlatformAdmin(user.email),
   };
 }
 

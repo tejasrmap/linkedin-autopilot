@@ -1,5 +1,6 @@
 import { getAuthContext } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '@/lib/media-constants';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
@@ -16,17 +17,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
-    // Strict MIME type whitelist
-    const ALLOWED_MIME_TYPES = [
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-      'video/mp4',
-      'video/quicktime',
-      'application/pdf',
-    ];
-
     if (!ALLOWED_MIME_TYPES.includes(file.type.toLowerCase())) {
       return NextResponse.json(
         {
@@ -37,8 +27,7 @@ export async function POST(request: Request) {
     }
 
     // Validate size (max 50MB for video/document, 10MB for images)
-    const maxSizeBytes = 50 * 1024 * 1024;
-    if (file.size > maxSizeBytes) {
+    if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json({ error: 'File exceeds maximum limit of 50MB' }, { status: 400 });
     }
 
