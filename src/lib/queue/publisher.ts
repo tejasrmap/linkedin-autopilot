@@ -256,6 +256,35 @@ export async function executePublishPipeline(
       ? `urn:li:organization:${socialAccount.provider_account_id}`
       : `urn:li:person:${socialAccount.provider_account_id}`;
 
+  // 5b. Pre-publish reconciliation: If previous attempt had an ambiguous timeout, check LinkedIn first to prevent duplicates
+  if (post.error_message && (post.error_message.includes('Ambiguous') || post.error_message.includes('timeout'))) {
+    console.info(`[Publisher] Post ${postId} previously had an ambiguous timeout. Checking if already live on LinkedIn...`);
+    try {
+      const preRecon = await linkedInClient.reconcileRecentAuthorPost({
+        encryptedAccessToken: (socialAccount as any).encrypted_access_token,
+        authorUrn,
+        expectedCommentarySnippet: post.content,
+      });
+
+      if (preRecon.reconciled && preRecon.providerPostId) {
+        console.info(`[Publisher] Post ${postId} was already published during ambiguous timeout (id: ${preRecon.providerPostId}). Finalizing without re-publishing.`);
+        return await finalizePublishSuccess(
+          supabase,
+          postId,
+          claimToken,
+          preRecon.providerPostId,
+          { reconciledPriorToRetry: true, providerPostId: preRecon.providerPostId },
+          post,
+          socialAccount,
+          attemptNumber,
+          true
+        );
+      }
+    } catch (reconErr) {
+      console.warn(`[Publisher] Pre-retry reconciliation check failed for post ${postId}:`, reconErr);
+    }
+  }
+
   // 6. Call LinkedIn REST API
   const publishResult = await linkedInClient.publishPost({
     encryptedAccessToken: (socialAccount as any).encrypted_access_token,
@@ -267,52 +296,17 @@ export async function executePublishPipeline(
 
   // 7. Handle response
   if (publishResult.success && publishResult.providerPostId) {
-    const publishTs = new Date().toISOString();
-
-    // Update post to published, validating claim_token ownership
-    await supabase
-      .from('posts')
-      .update({
-        status: 'published',
-        published_at: publishTs,
-        provider_post_id: publishResult.providerPostId,
-        claim_token: null,
-        lease_expires_at: null,
-        error_message: null,
-        updated_at: publishTs,
-      })
-      .eq('id', postId)
-      .eq('claim_token', claimToken);
-
-    // Update scheduled job record if any
-    await supabase
-      .from('scheduled_jobs')
-      .update({
-        status: 'completed',
-        claim_token: null,
-        lease_expires_at: null,
-        updated_at: publishTs,
-      })
-      .eq('post_id', postId);
-
-    // Record succeeded attempt
-    await supabase.from('post_publish_attempts').insert({
-      post_id: postId,
-      attempt_number: attemptNumber,
-      status: 'succeeded',
-      provider_response: publishResult.rawResponse || { providerPostId: publishResult.providerPostId },
-    });
-
-    // Notify user
-    await supabase.from('notifications').insert({
-      workspace_id: post.workspace_id,
-      user_id: post.created_by,
-      title: 'Post Published Successfully! 🚀',
-      message: `Your post "${post.content.slice(0, 50)}..." was published to LinkedIn (${socialAccount.account_name}).`,
-      type: 'success',
-    });
-
-    return { success: true };
+    return await finalizePublishSuccess(
+      supabase,
+      postId,
+      claimToken,
+      publishResult.providerPostId,
+      publishResult.rawResponse || { providerPostId: publishResult.providerPostId },
+      post,
+      socialAccount,
+      attemptNumber,
+      false
+    );
   } else {
     // 7b. Check for ambiguous publishing outcome (network timeout after transmission)
     if (publishResult.isAmbiguous) {
@@ -325,48 +319,17 @@ export async function executePublishPipeline(
 
       if (recon.reconciled && recon.providerPostId) {
         console.log(`[Publisher] Post ${postId} successfully reconciled with live LinkedIn post ${recon.providerPostId}!`);
-        const reconTs = new Date().toISOString();
-
-        await supabase
-          .from('posts')
-          .update({
-            status: 'published',
-            published_at: reconTs,
-            provider_post_id: recon.providerPostId,
-            claim_token: null,
-            lease_expires_at: null,
-            error_message: null,
-            updated_at: reconTs,
-          })
-          .eq('id', postId)
-          .eq('claim_token', claimToken);
-
-        await supabase
-          .from('scheduled_jobs')
-          .update({
-            status: 'completed',
-            claim_token: null,
-            lease_expires_at: null,
-            updated_at: reconTs,
-          })
-          .eq('post_id', postId);
-
-        await supabase.from('post_publish_attempts').insert({
-          post_id: postId,
-          attempt_number: attemptNumber,
-          status: 'succeeded',
-          provider_response: { reconciled: true, providerPostId: recon.providerPostId },
-        });
-
-        await supabase.from('notifications').insert({
-          workspace_id: post.workspace_id,
-          user_id: post.created_by,
-          title: 'Post Published (Reconciled After Timeout) 🚀',
-          message: `Your post "${post.content.slice(0, 50)}..." was confirmed live on LinkedIn via automated reconciliation.`,
-          type: 'success',
-        });
-
-        return { success: true };
+        return await finalizePublishSuccess(
+          supabase,
+          postId,
+          claimToken,
+          recon.providerPostId,
+          { reconciled: true, providerPostId: recon.providerPostId },
+          post,
+          socialAccount,
+          attemptNumber,
+          true
+        );
       }
     }
 
@@ -399,6 +362,92 @@ export async function executePublishPipeline(
   }
 }
 
+/**
+ * Atomically finalizes a successfully published post via PostgreSQL RPC or strict CAS fallback
+ */
+async function finalizePublishSuccess(
+  supabase: any,
+  postId: string,
+  claimToken: string,
+  providerPostId: string,
+  rawResponse: any,
+  post: any,
+  socialAccount: SocialAccount,
+  attemptNumber: number,
+  isReconciled: boolean
+): Promise<{ success: boolean; error?: string }> {
+  const publishTs = new Date().toISOString();
+
+  // Try atomic finalize RPC first
+  const { data: finalizeData, error: finalizeErr } = await supabase.rpc('finalize_post_publishing', {
+    target_post_id: postId,
+    expected_claim_token: claimToken,
+    provider_post_id: providerPostId,
+    raw_response: rawResponse || null,
+  });
+
+  if (!finalizeErr && finalizeData) {
+    if (!finalizeData.success) {
+      console.warn(`[Publisher] Finalization rejected for post ${postId}: ${finalizeData.reason}`);
+      return { success: false, error: `Publish finalization rejected: ${finalizeData.reason}` };
+    }
+  } else {
+    // Fallback only if RPC function does not exist: CAS update validating claim_token ownership
+    const { data: updatedPost, error: postUpdateErr } = await supabase
+      .from('posts')
+      .update({
+        status: 'published',
+        published_at: publishTs,
+        provider_post_id: providerPostId,
+        claim_token: null,
+        lease_expires_at: null,
+        error_message: null,
+        updated_at: publishTs,
+      })
+      .eq('id', postId)
+      .eq('claim_token', claimToken)
+      .select('id');
+
+    if (postUpdateErr || !updatedPost || updatedPost.length === 0) {
+      console.warn(`[Publisher] Fallback finalization failed for post ${postId}: lease ownership lost`);
+      return { success: false, error: 'Publish finalization failed: lease ownership lost' };
+    }
+
+    // Synchronize scheduled_jobs conditionally
+    await supabase
+      .from('scheduled_jobs')
+      .update({
+        status: 'completed',
+        claim_token: null,
+        lease_expires_at: null,
+        updated_at: publishTs,
+      })
+      .eq('post_id', postId)
+      .in('status', ['processing', 'scheduled', 'queued']);
+  }
+
+  // Record succeeded attempt
+  await supabase.from('post_publish_attempts').insert({
+    post_id: postId,
+    attempt_number: attemptNumber,
+    status: 'succeeded',
+    provider_response: rawResponse || { providerPostId },
+  });
+
+  // Notify user
+  await supabase.from('notifications').insert({
+    workspace_id: post.workspace_id,
+    user_id: post.created_by,
+    title: isReconciled ? 'Post Published (Reconciled After Timeout) 🚀' : 'Post Published Successfully! 🚀',
+    message: isReconciled
+      ? `Your post "${post.content.slice(0, 50)}..." was confirmed live on LinkedIn via automated reconciliation.`
+      : `Your post "${post.content.slice(0, 50)}..." was published to LinkedIn (${socialAccount.account_name}).`,
+    type: 'success',
+  });
+
+  return { success: true };
+}
+
 async function markPostFailed(
   supabase: any,
   post: any,
@@ -407,19 +456,33 @@ async function markPostFailed(
   rawResponse?: any,
   claimToken?: string
 ) {
+  const activeClaimToken = claimToken || post.claim_token;
+  if (!activeClaimToken) {
+    console.warn(`[Publisher] Cannot fail/retry post ${post.id}: missing claim token (unowned post)`);
+    return;
+  }
+
   const nowIso = new Date().toISOString();
 
   // Atomic retry state transition via PostgreSQL RPC
   const { data: retryData, error: rpcErr } = await supabase.rpc('handle_publishing_failure_and_retry', {
     target_post_id: post.id,
-    expected_claim_token: claimToken || post.claim_token || null,
+    expected_claim_token: activeClaimToken,
     error_message: errorMsg,
     max_attempts: 3,
   });
 
-  if (rpcErr || !retryData?.success) {
-    // Fallback: conditional CAS updates
-    await supabase
+  if (!rpcErr && retryData) {
+    if (!retryData.success) {
+      console.warn(`[Publisher] Retry RPC rejected for post ${post.id}: ${retryData.reason}`);
+      // Lease was lost, expired, or post was already published!
+      // Do NOT mutate post or scheduled_jobs - the winning worker or final state owns the row!
+      return;
+    }
+  } else {
+    // Fallback ONLY IF RPC does not exist (rpcErr)
+    // Even in fallback, STRICTLY enforce claim_token match to prevent overwriting winning worker!
+    const { data: updatedPost } = await supabase
       .from('posts')
       .update({
         status: 'failed',
@@ -428,7 +491,14 @@ async function markPostFailed(
         error_message: errorMsg,
         updated_at: nowIso,
       })
-      .eq('id', post.id);
+      .eq('id', post.id)
+      .eq('claim_token', activeClaimToken)
+      .select('id');
+
+    if (!updatedPost || updatedPost.length === 0) {
+      console.warn(`[Publisher] Fallback markPostFailed aborted: claim token lost for post ${post.id}`);
+      return;
+    }
 
     await supabase
       .from('scheduled_jobs')
@@ -439,7 +509,8 @@ async function markPostFailed(
         last_error: errorMsg,
         updated_at: nowIso,
       })
-      .eq('post_id', post.id);
+      .eq('post_id', post.id)
+      .eq('claim_token', activeClaimToken);
   }
 
   await supabase.from('post_publish_attempts').insert({

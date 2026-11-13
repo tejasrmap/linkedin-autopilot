@@ -334,3 +334,262 @@ test('Health: Reports degraded status when latest scheduler execution log record
   assert.equal(body.status, 'degraded');
 });
 
+test('Lease Ownership: Rejects NULL or empty expected claim token in retry and finalize', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'null-token-test-post-101';
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'test-ws',
+    content: 'Null token rejection test',
+    status: 'processing',
+    claim_token: 'valid-claim-token-123',
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+
+  // Null expected token in retry RPC
+  const { data: retryNull } = await admin.rpc('handle_publishing_failure_and_retry', {
+    target_post_id: testPostId,
+    expected_claim_token: null as any,
+    error_message: 'Some error',
+  });
+  assert.equal(retryNull.success, false);
+  assert.equal(retryNull.reason, 'expected_claim_token_required');
+
+  // Null expected token in finalize RPC
+  const { data: finalizeNull } = await admin.rpc('finalize_post_publishing', {
+    target_post_id: testPostId,
+    expected_claim_token: null as any,
+    provider_post_id: 'urn:li:share:123',
+  });
+  assert.equal(finalizeNull.success, false);
+  assert.equal(finalizeNull.reason, 'expected_claim_token_required');
+});
+
+test('Lease Ownership: Rejects operations when stored claim token is NULL (unowned post)', async () => {
+  const admin = createAdminClient();
+  const unownedPostId = 'unowned-post-102';
+
+  await admin.from('posts').insert({
+    id: unownedPostId,
+    workspace_id: 'test-ws',
+    content: 'Unowned post test',
+    status: 'processing',
+    claim_token: null,
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+
+  const { data: retryRes } = await admin.rpc('handle_publishing_failure_and_retry', {
+    target_post_id: unownedPostId,
+    expected_claim_token: 'worker-token-xyz',
+    error_message: 'Some error',
+  });
+  assert.equal(retryRes.success, false);
+  assert.equal(retryRes.reason, 'claim_token_missing_unowned');
+
+  const { data: finalizeRes } = await admin.rpc('finalize_post_publishing', {
+    target_post_id: unownedPostId,
+    expected_claim_token: 'worker-token-xyz',
+    provider_post_id: 'urn:li:share:102',
+  });
+  assert.equal(finalizeRes.success, false);
+  assert.equal(finalizeRes.reason, 'claim_token_missing_unowned');
+});
+
+test('Lease Ownership: Rejects operations when claim token does not match (losing worker)', async () => {
+  const admin = createAdminClient();
+  const postMismatchId = 'mismatch-post-103';
+  const winningToken = 'winning-worker-token-aaa';
+  const losingToken = 'losing-worker-token-bbb';
+
+  await admin.from('posts').insert({
+    id: postMismatchId,
+    workspace_id: 'test-ws',
+    content: 'Mismatch test post',
+    status: 'processing',
+    claim_token: winningToken,
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+
+  // Losing worker tries to fail/retry
+  const { data: retryRes } = await admin.rpc('handle_publishing_failure_and_retry', {
+    target_post_id: postMismatchId,
+    expected_claim_token: losingToken,
+    error_message: 'Losing worker error',
+  });
+  assert.equal(retryRes.success, false);
+  assert.equal(retryRes.reason, 'claim_token_mismatch_lease_lost');
+
+  // Losing worker tries to finalize
+  const { data: finalizeRes } = await admin.rpc('finalize_post_publishing', {
+    target_post_id: postMismatchId,
+    expected_claim_token: losingToken,
+    provider_post_id: 'urn:li:share:103',
+  });
+  assert.equal(finalizeRes.success, false);
+  assert.equal(finalizeRes.reason, 'claim_token_mismatch_lease_lost');
+
+  // Verify winning token remains completely intact
+  const { data: postCheck } = await admin.from('posts').select('claim_token, status').eq('id', postMismatchId).single();
+  assert.ok(postCheck);
+  assert.equal(postCheck.claim_token, winningToken);
+  assert.equal(postCheck.status, 'processing');
+});
+
+test('Lease Ownership: Rejects operations when lease has expired', async () => {
+  const admin = createAdminClient();
+  const expiredPostId = 'expired-lease-post-104';
+  const workerToken = 'token-expired-worker';
+  const pastIso = new Date(Date.now() - 60000).toISOString();
+
+  await admin.from('posts').insert({
+    id: expiredPostId,
+    workspace_id: 'test-ws',
+    content: 'Expired lease post',
+    status: 'processing',
+    claim_token: workerToken,
+    lease_expires_at: pastIso,
+  });
+
+  const { data: retryRes } = await admin.rpc('handle_publishing_failure_and_retry', {
+    target_post_id: expiredPostId,
+    expected_claim_token: workerToken,
+    error_message: 'Timed out call',
+  });
+  assert.equal(retryRes.success, false);
+  assert.equal(retryRes.reason, 'lease_expired');
+
+  const { data: finalizeRes } = await admin.rpc('finalize_post_publishing', {
+    target_post_id: expiredPostId,
+    expected_claim_token: workerToken,
+    provider_post_id: 'urn:li:share:104',
+  });
+  assert.equal(finalizeRes.success, false);
+  assert.equal(finalizeRes.reason, 'lease_expired');
+});
+
+test('Lease Ownership: Missing scheduled_jobs record is inserted during failure retry, preventing orphaned post', async () => {
+  const admin = createAdminClient();
+  const orphanPostId = 'orphan-post-without-job-105';
+  const workerToken = 'token-orphan-worker';
+
+  await admin.from('posts').insert({
+    id: orphanPostId,
+    workspace_id: 'test-ws',
+    content: 'Orphan post without scheduled job',
+    status: 'processing',
+    claim_token: workerToken,
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+
+  // No scheduled_jobs row exists for orphanPostId
+  const { data: retryRes } = await admin.rpc('handle_publishing_failure_and_retry', {
+    target_post_id: orphanPostId,
+    expected_claim_token: workerToken,
+    error_message: 'Initial failure on missing job post',
+    max_attempts: 3,
+  });
+
+  assert.equal(retryRes.success, true);
+  assert.equal(retryRes.action, 'scheduled_retry');
+
+  // Verify scheduled_jobs row was created
+  const { data: jobs } = await admin.from('scheduled_jobs').select('*').eq('post_id', orphanPostId);
+  assert.ok(jobs && jobs.length === 1, 'Must insert a missing scheduled_jobs row');
+  assert.equal(jobs[0].status, 'scheduled');
+  assert.equal(jobs[0].attempts, 1);
+});
+
+test('Lease Ownership: Duplicate scheduled_jobs records are cancelled deterministically', async () => {
+  const admin = createAdminClient();
+  const dupPostId = 'dup-jobs-post-106';
+  const workerToken = 'token-dup-worker';
+
+  await admin.from('posts').insert({
+    id: dupPostId,
+    workspace_id: 'test-ws',
+    content: 'Post with duplicate scheduled jobs',
+    status: 'processing',
+    claim_token: workerToken,
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+
+  // Insert primary and duplicate scheduled_jobs
+  await admin.from('scheduled_jobs').insert([
+    {
+      id: 'job-primary-106',
+      post_id: dupPostId,
+      status: 'processing',
+      attempts: 0,
+      created_at: new Date(Date.now() - 1000).toISOString(),
+    },
+    {
+      id: 'job-duplicate-106',
+      post_id: dupPostId,
+      status: 'scheduled',
+      attempts: 0,
+      created_at: new Date(Date.now() - 5000).toISOString(),
+    },
+  ]);
+
+  const { data: retryRes } = await admin.rpc('handle_publishing_failure_and_retry', {
+    target_post_id: dupPostId,
+    expected_claim_token: workerToken,
+    error_message: 'Network issue',
+    max_attempts: 3,
+  });
+
+  assert.equal(retryRes.success, true);
+
+  // Check scheduled_jobs: duplicate should be cancelled
+  const { data: jobs } = await admin.from('scheduled_jobs').select('*').eq('post_id', dupPostId);
+  assert.ok(jobs);
+  const cancelled = jobs.filter((j: any) => j.status === 'cancelled');
+  const scheduled = jobs.filter((j: any) => j.status === 'scheduled');
+
+  assert.equal(cancelled.length, 1, 'Older duplicate must be cancelled');
+  assert.equal(scheduled.length, 1, 'Authoritative job must be scheduled');
+});
+
+test('Lease Ownership: Atomic finalize_post_publishing updates posts and scheduled_jobs and clears lease tokens', async () => {
+  const admin = createAdminClient();
+  const finPostId = 'finalize-clean-post-107';
+  const workerToken = 'token-finalize-worker';
+
+  await admin.from('posts').insert({
+    id: finPostId,
+    workspace_id: 'test-ws',
+    content: 'Clean finalize test post',
+    status: 'processing',
+    claim_token: workerToken,
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-fin-107',
+    post_id: finPostId,
+    status: 'processing',
+    claim_token: workerToken,
+  });
+
+  const { data: finRes } = await admin.rpc('finalize_post_publishing', {
+    target_post_id: finPostId,
+    expected_claim_token: workerToken,
+    provider_post_id: 'urn:li:share:published-107',
+  });
+
+  assert.equal(finRes.success, true);
+  assert.equal(finRes.provider_post_id, 'urn:li:share:published-107');
+
+  const { data: postRecord } = await admin.from('posts').select('*').eq('id', finPostId).single();
+  assert.equal(postRecord.status, 'published');
+  assert.equal(postRecord.claim_token, null);
+  assert.equal(postRecord.lease_expires_at, null);
+  assert.equal(postRecord.provider_post_id, 'urn:li:share:published-107');
+
+  const { data: jobRecord } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-fin-107').single();
+  assert.equal(jobRecord.status, 'completed');
+  assert.equal(jobRecord.claim_token, null);
+  assert.equal(jobRecord.lease_expires_at, null);
+});
+

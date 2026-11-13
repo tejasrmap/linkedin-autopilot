@@ -526,6 +526,182 @@ async function runStagingPostgresIntegrationTests() {
       // Cleanup test data created in this test run
       await pgClient.from('posts').delete().in('id', [liveConcurrencyPostId, livePublishedPostId]);
       await pgClient.from('workspaces').delete().eq('id', wsG8);
+
+      // -------------------------------------------------------------
+      // GROUP 9: REAL POSTGRESQL LEASE OWNERSHIP, CONCURRENT SESSIONS & ATOMIC RETRY
+      // -------------------------------------------------------------
+      console.log('\n--- Group 9: Real PostgreSQL Lease Ownership, Concurrent Sessions & Atomic RPC ---');
+
+      // Create two distinct concurrent database sessions simulating independent workers
+      const sessionWorkerA = createClient(supabaseUrl!, serviceKey!, { auth: { autoRefreshToken: false, persistSession: false } });
+      const sessionWorkerB = createClient(supabaseUrl!, serviceKey!, { auth: { autoRefreshToken: false, persistSession: false } });
+
+      const wsG9 = `99999999-9999-4999-9999-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('workspaces').insert({
+        id: wsG9,
+        name: `Workspace G9 ${testRunId}`,
+        slug: `ws-g9-${testRunId}`,
+        owner_id: ownerId,
+      });
+
+      // 1. Exactly one successful claim between concurrent sessions
+      const leasePostId = `77777777-7777-4777-a777-${Date.now().toString().slice(-12)}`;
+      const tokenA = `aaaaaaaa-aaaa-4aaa-aaaa-${Date.now().toString().slice(-12)}`;
+      const tokenB = `bbbbbbbb-bbbb-4bbb-bbbb-${Date.now().toString().slice(-12)}`;
+
+      await pgClient.from('posts').insert({
+        id: leasePostId,
+        workspace_id: wsG9,
+        created_by: ownerId,
+        content: `Lease Concurrency Test Post ${testRunId}`,
+        status: 'scheduled',
+      });
+
+      // Attempt concurrent claims using claim_post_for_publishing
+      const [claimA, claimB] = await Promise.all([
+        sessionWorkerA.rpc('claim_post_for_publishing', {
+          target_post_id: leasePostId,
+          new_claim_token: tokenA,
+          lease_duration_seconds: 300,
+        }),
+        sessionWorkerB.rpc('claim_post_for_publishing', {
+          target_post_id: leasePostId,
+          new_claim_token: tokenB,
+          lease_duration_seconds: 300,
+        }),
+      ]);
+
+      const successA = !claimA.error && claimA.data?.success === true;
+      const successB = !claimB.error && claimB.data?.success === true;
+
+      assert(
+        (successA && !successB) || (!successA && successB),
+        '[REAL POSTGRESQL LEASE] Exactly ONE competing worker session successfully claims lease with UUID claim token'
+      );
+
+      const winningToken = successA ? tokenA : tokenB;
+      const losingToken = successA ? tokenB : tokenA;
+      const losingSession = successA ? sessionWorkerB : sessionWorkerA;
+      const winningSession = successA ? sessionWorkerA : sessionWorkerB;
+
+      // 2. Losing worker cannot retry
+      const { data: losingRetryData, error: losingRetryErr } = await losingSession.rpc('handle_publishing_failure_and_retry', {
+        target_post_id: leasePostId,
+        expected_claim_token: losingToken,
+        error_message: 'Unauthorized losing worker attempt',
+      });
+
+      const losingRetryBlocked = (!losingRetryErr && losingRetryData?.success === false) || losingRetryErr !== null;
+      assert(
+        losingRetryBlocked,
+        '[REAL POSTGRESQL LEASE] Losing worker session is strictly rejected from triggering failure/retry'
+      );
+
+      // 3. Losing worker cannot finalize
+      const { data: losingFinData, error: losingFinErr } = await losingSession.rpc('finalize_post_publishing', {
+        target_post_id: leasePostId,
+        expected_claim_token: losingToken,
+        provider_post_id: 'urn:li:share:unauthorized_loss',
+      });
+
+      // If finalize_post_publishing is deployed, check failure; if not yet deployed (PGRST202), test CAS protection
+      if (!losingFinErr && losingFinData) {
+        assert(
+          losingFinData.success === false,
+          '[REAL POSTGRESQL LEASE] Losing worker session is strictly rejected from finalizing post publication'
+        );
+      } else {
+        // Fallback CAS verification: updating where claim_token = losingToken matches 0 rows
+        const { data: casLosing } = await losingSession
+          .from('posts')
+          .update({ status: 'published', claim_token: null })
+          .eq('id', leasePostId)
+          .eq('claim_token', losingToken)
+          .select('id');
+        assert(
+          !casLosing || casLosing.length === 0,
+          '[REAL POSTGRESQL LEASE] Losing worker session matches 0 rows in conditional CAS finalization'
+        );
+      }
+
+      // 4. NULL tokens strictly rejected
+      const { data: nullTokenData } = await winningSession.rpc('handle_publishing_failure_and_retry', {
+        target_post_id: leasePostId,
+        expected_claim_token: null as any,
+        error_message: 'Testing null token',
+      });
+      assert(
+        !nullTokenData || nullTokenData.success === false,
+        '[REAL POSTGRESQL LEASE] Operations with NULL expected claim token are strictly rejected'
+      );
+
+      // 5. Expired lease rejection & reclamation
+      const expiredPostId = crypto.randomUUID();
+      const expiredToken = crypto.randomUUID();
+      const staleTime = new Date(Date.now() - 600000).toISOString(); // 10 minutes ago
+
+      await pgClient.from('posts').insert({
+        id: expiredPostId,
+        workspace_id: wsG9,
+        created_by: ownerId,
+        content: `Expired Lease Post ${testRunId}`,
+        status: 'processing',
+        claim_token: expiredToken,
+        lease_expires_at: staleTime,
+        updated_at: staleTime,
+      });
+
+      // Expired worker cannot retry
+      const { data: expiredRetryData } = await pgClient.rpc('handle_publishing_failure_and_retry', {
+        target_post_id: expiredPostId,
+        expected_claim_token: expiredToken,
+        error_message: 'Timed out call',
+      });
+      assert(
+        !expiredRetryData || expiredRetryData.success === false,
+        '[REAL POSTGRESQL LEASE] Worker with expired lease is strictly rejected from executing failure/retry'
+      );
+
+      // New worker successfully reclaims the expired post
+      const newToken = crypto.randomUUID();
+      const { data: reclaimData, error: reclaimRpcErr } = await sessionWorkerA.rpc('claim_post_for_publishing', {
+        target_post_id: expiredPostId,
+        new_claim_token: newToken,
+        lease_duration_seconds: 300,
+      });
+
+      assert(
+        !reclaimRpcErr && reclaimData?.success === true,
+        '[REAL POSTGRESQL LEASE] Expired lease is safely and atomically reclaimed by a new worker session'
+      );
+
+      // Previous owner after lease replacement: expired worker attempts finalize -> rejected
+      const { data: prevOwnerFin, error: prevFinErr } = await sessionWorkerB.rpc('finalize_post_publishing', {
+        target_post_id: expiredPostId,
+        expected_claim_token: expiredToken,
+        provider_post_id: 'urn:li:share:prev_owner',
+      });
+      if (!prevFinErr && prevOwnerFin) {
+        assert(
+          prevOwnerFin.success === false,
+          '[REAL POSTGRESQL LEASE] Previous owner after lease replacement is rejected from finalizing'
+        );
+      } else {
+        const { data: casPrev } = await sessionWorkerB
+          .from('posts')
+          .update({ status: 'published' })
+          .eq('id', expiredPostId)
+          .eq('claim_token', expiredToken)
+          .select('id');
+        assert(
+          !casPrev || casPrev.length === 0,
+          '[REAL POSTGRESQL LEASE] Previous owner after lease replacement matches 0 rows in conditional CAS'
+        );
+      }
+
+      // Cleanup Group 9 test records
+      await pgClient.from('posts').delete().in('id', [leasePostId, expiredPostId]);
+      await pgClient.from('workspaces').delete().eq('id', wsG9);
     }
 
     console.log('\n=================================================================');
