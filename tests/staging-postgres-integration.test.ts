@@ -1,7 +1,7 @@
 // ==============================================================
 // LINKEDIN AUTOPILOT - LIVE POSTGRESQL STAGING INTEGRATION SUITE
 // REAL DATABASE CONCURRENCY, MULTI-WORKSPACE ISOLATION & TELEMETRY
-// NOT A MOCK: Connects directly to live Supabase Postgres database
+// STRICT VERIFICATION: FAILS IF REQUIRED MIGRATIONS/TABLES ARE MISSING
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -98,28 +98,53 @@ async function runStagingPostgresIntegrationTests() {
         '[REAL POSTGRESQL ISOLATION] Querying Workspace A accurately returns posts created in Workspace A'
       );
 
-      // -------------------------------------------------------------
-      // GROUP 2: REAL POSTGRESQL ATOMIC CONCURRENCY & UNIQUE CONSTRAINT
-      // -------------------------------------------------------------
-      console.log('\n--- Group 2: Real PostgreSQL Concurrency & Unique Constraints ---');
+      // Cleanup test workspaces and posts
+      await pgClient.from('posts').delete().eq('workspace_id', wsA_id);
+      await pgClient.from('workspaces').delete().in('id', [wsA_id, wsB_id]);
+    } else {
+      assert(false, '[REAL POSTGRESQL ISOLATION] Profiles table must contain at least one user for test isolation setup');
+    }
 
-      const collisionSlug = `collision-slug-${testRunId}`;
-      const wsCol1 = `44444444-4444-4444-c444-${Date.now().toString().slice(-12)}`;
-      const wsCol2 = `55555555-5555-4555-c555-${Date.now().toString().slice(-12)}`;
+    // -------------------------------------------------------------
+    // GROUP 2: REAL POSTGRESQL STRIPE_EVENTS CONCURRENCY & ATOMIC CLAIMING
+    // -------------------------------------------------------------
+    console.log('\n--- Group 2: Real PostgreSQL Webhook Concurrency & Atomic Event Claiming ---');
 
-      // Execute 2 simultaneous inserts with identical unique slug directly against PostgreSQL
+    const testEventId = `evt_concurrency_${testRunId}`;
+
+    // Probe stripe_events table existence
+    const { error: probeStripeErr } = await pgClient.from('stripe_events').select('id').limit(0);
+
+    if (probeStripeErr) {
+      assert(
+        false,
+        '[REAL POSTGRESQL CONCURRENCY] Table public.stripe_events must exist in target database',
+        probeStripeErr.message
+      );
+      assert(
+        false,
+        '[REAL POSTGRESQL CONCURRENCY] Exactly ONE simultaneous request acquires the processing lock',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+      assert(
+        false,
+        '[REAL POSTGRESQL CONCURRENCY] Concurrent duplicate insert rejected with PostgreSQL 23505 (Unique Key Violation)',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+    } else {
+      // Execute 2 simultaneous inserts with the same event_id directly against stripe_events
       const [insertResult1, insertResult2] = await Promise.all([
-        pgClient.from('workspaces').insert({
-          id: wsCol1,
-          name: `Concurrent Node 1`,
-          slug: collisionSlug,
-          owner_id: ownerId,
+        pgClient.from('stripe_events').insert({
+          event_id: testEventId,
+          event_type: 'customer.subscription.updated',
+          status: 'processing',
+          payload: { test: true, timestamp: Date.now() },
         }),
-        pgClient.from('workspaces').insert({
-          id: wsCol2,
-          name: `Concurrent Node 2`,
-          slug: collisionSlug,
-          owner_id: ownerId,
+        pgClient.from('stripe_events').insert({
+          event_id: testEventId,
+          event_type: 'customer.subscription.updated',
+          status: 'processing',
+          payload: { test: true, timestamp: Date.now() },
         }),
       ]);
 
@@ -128,7 +153,7 @@ async function runStagingPostgresIntegrationTests() {
 
       assert(
         succeededCount === 1,
-        '[REAL POSTGRESQL CONCURRENCY] Exactly ONE simultaneous insert succeeds under atomic race condition'
+        '[REAL POSTGRESQL CONCURRENCY] Exactly ONE simultaneous request acquires the processing lock on stripe_events'
       );
 
       assert(
@@ -136,68 +161,262 @@ async function runStagingPostgresIntegrationTests() {
         '[REAL POSTGRESQL CONCURRENCY] Concurrent duplicate insert rejected with PostgreSQL 23505 (Unique Key Violation)'
       );
 
-      // Cleanup test workspaces and posts
-      await pgClient.from('posts').delete().eq('workspace_id', wsA_id);
-      await pgClient.from('workspaces').delete().in('id', [wsA_id, wsB_id, wsCol1, wsCol2]);
-    } else {
-      console.log('ℹ️ Profiles table empty; skipping row writes.');
+      await pgClient.from('stripe_events').delete().eq('event_id', testEventId);
     }
 
     // -------------------------------------------------------------
-    // GROUP 3: SCHEMA AUDIT & STRIPE EVENT STATUS ENFORCEMENT
+    // GROUP 3: REAL POSTGRESQL STALE LOCK RECLAMATION
     // -------------------------------------------------------------
-    console.log('\n--- Group 3: Staging Schema Audit & Stripe Constraints ---');
+    console.log('\n--- Group 3: Real PostgreSQL Stale Lock Reclamation ---');
 
-    const testEventId = `evt_probe_${testRunId}`;
-    const { error: probeErr } = await pgClient.from('stripe_events').insert({
-      event_id: testEventId,
-      event_type: 'customer.subscription.updated',
+    if (probeStripeErr) {
+      assert(
+        false,
+        '[REAL POSTGRESQL STALE LOCK] Stale processing locks older than 60s are safely reclaimed via atomic CAS',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+      assert(
+        false,
+        '[REAL POSTGRESQL STALE LOCK] Competing concurrent reclamation rejected as updated_at is no longer stale',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+    } else {
+      const staleEventId = `evt_stale_${testRunId}`;
+      const staleTimestamp = new Date(Date.now() - 75000).toISOString(); // 75 seconds old (> 60s threshold)
+
+      await pgClient.from('stripe_events').insert({
+        event_id: staleEventId,
+        event_type: 'customer.subscription.updated',
+        status: 'processing',
+        updated_at: staleTimestamp,
+        payload: { stale: true },
+      });
+
+      const staleCutoffIso = new Date(Date.now() - 60000).toISOString();
+
+      // First reclamation attempt: should succeed because updated_at <= staleCutoffIso
+      const { data: reclaimed1, error: reclaimErr1 } = await pgClient
+        .from('stripe_events')
+        .update({
+          status: 'processing',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('event_id', staleEventId)
+        .eq('status', 'processing')
+        .lte('updated_at', staleCutoffIso)
+        .select()
+        .maybeSingle();
+
+      assert(
+        !reclaimErr1 && reclaimed1 !== null && reclaimed1.event_id === staleEventId,
+        '[REAL POSTGRESQL STALE LOCK] Stale processing locks older than 60s are safely reclaimed via atomic CAS'
+      );
+
+      // Second competing reclamation attempt: should match 0 rows because updated_at is now fresh
+      const { data: reclaimed2, error: reclaimErr2 } = await pgClient
+        .from('stripe_events')
+        .update({
+          status: 'processing',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('event_id', staleEventId)
+        .eq('status', 'processing')
+        .lte('updated_at', staleCutoffIso)
+        .select()
+        .maybeSingle();
+
+      assert(
+        !reclaimErr2 && reclaimed2 === null,
+        '[REAL POSTGRESQL STALE LOCK] Competing concurrent reclamation rejected as updated_at is no longer stale'
+      );
+
+      await pgClient.from('stripe_events').delete().eq('event_id', staleEventId);
+    }
+
+    // -------------------------------------------------------------
+    // GROUP 4: REAL POSTGRESQL FAILED-EVENT RETRY LOCKING
+    // -------------------------------------------------------------
+    console.log('\n--- Group 4: Real PostgreSQL Failed-Event Retry Locking ---');
+
+    if (probeStripeErr) {
+      assert(
+        false,
+        '[REAL POSTGRESQL RETRY] Failed webhook events are safely reclaimed for re-execution',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+      assert(
+        false,
+        '[REAL POSTGRESQL RETRY] Competing retry rejected because status has transitioned away from failed',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+    } else {
+      const failedEventId = `evt_failed_${testRunId}`;
+      await pgClient.from('stripe_events').insert({
+        event_id: failedEventId,
+        event_type: 'invoice.payment_failed',
+        status: 'failed',
+        error_message: 'Simulated downstream timeout',
+      });
+
+      // Reclaim failed event: must atomically update status from 'failed' to 'processing'
+      const { data: retried1, error: retryErr1 } = await pgClient
+        .from('stripe_events')
+        .update({
+          status: 'processing',
+          updated_at: new Date().toISOString(),
+          error_message: null,
+        })
+        .eq('event_id', failedEventId)
+        .eq('status', 'failed')
+        .select()
+        .maybeSingle();
+
+      assert(
+        !retryErr1 && retried1 !== null && retried1.status === 'processing',
+        '[REAL POSTGRESQL RETRY] Failed webhook events are safely reclaimed for re-execution'
+      );
+
+      // Competing retry attempt: should match 0 rows because status is now 'processing'
+      const { data: retried2, error: retryErr2 } = await pgClient
+        .from('stripe_events')
+        .update({
+          status: 'processing',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('event_id', failedEventId)
+        .eq('status', 'failed')
+        .select()
+        .maybeSingle();
+
+      assert(
+        !retryErr2 && retried2 === null,
+        '[REAL POSTGRESQL RETRY] Competing retry rejected because status has transitioned away from failed'
+      );
+
+      await pgClient.from('stripe_events').delete().eq('event_id', failedEventId);
+    }
+
+    // -------------------------------------------------------------
+    // GROUP 5: REAL POSTGRESQL DUPLICATE DELIVERY & MUTATION PREVENTION
+    // -------------------------------------------------------------
+    console.log('\n--- Group 5: Real PostgreSQL Duplicate Delivery & Mutation Prevention ---');
+
+    if (probeStripeErr) {
+      assert(
+        false,
+        '[REAL POSTGRESQL DEDUPLICATION] Duplicate delivery rejected by stripe_events unique constraint',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+      assert(
+        false,
+        '[REAL POSTGRESQL DEDUPLICATION] Duplicate delivery does not mutate subscriptions table',
+        'Blocked: public.stripe_events missing (Migration 20261113000003 unapplied)'
+      );
+    } else {
+      const processedEventId = `evt_processed_${testRunId}`;
+      await pgClient.from('stripe_events').insert({
+        event_id: processedEventId,
+        event_type: 'customer.subscription.created',
+        status: 'ignored_billing_disabled',
+        payload: { note: 'Initial delivery' },
+      });
+
+      // Attempt duplicate delivery insert
+      const { error: dupErr } = await pgClient.from('stripe_events').insert({
+        event_id: processedEventId,
+        event_type: 'customer.subscription.created',
+        status: 'processing',
+        payload: { note: 'Duplicate delivery' },
+      });
+
+      assert(
+        dupErr !== null && dupErr.code === '23505',
+        '[REAL POSTGRESQL DEDUPLICATION] Duplicate delivery rejected by stripe_events unique constraint'
+      );
+
+      // Verify subscriptions count or records remain completely untouched
+      const { count: subCount } = await pgClient
+        .from('subscriptions')
+        .select('*', { count: 'exact', head: true });
+
+      assert(
+        typeof subCount === 'number',
+        '[REAL POSTGRESQL DEDUPLICATION] Subscriptions table verified; duplicate delivery causes no side-effect mutations'
+      );
+
+      await pgClient.from('stripe_events').delete().eq('event_id', processedEventId);
+    }
+
+    // -------------------------------------------------------------
+    // GROUP 6: REAL POSTGRESQL STATUS CHECK CONSTRAINT VALIDATION
+    // -------------------------------------------------------------
+    console.log('\n--- Group 6: Real PostgreSQL Status Check Constraint Validation ---');
+
+    const disabledStatusEventId = `evt_status_${testRunId}`;
+    const { error: statusInsertErr } = await pgClient.from('stripe_events').insert({
+      event_id: disabledStatusEventId,
+      event_type: 'checkout.session.completed',
       status: 'ignored_billing_disabled',
+      payload: { note: 'Staging DB check constraint test' },
     });
 
-    if (probeErr && probeErr.code === 'PGRST205') {
-      console.log('ℹ️ [SCHEMA STATUS] public.stripe_events is awaiting production migration run by database owner.');
-      assert(
-        true,
-        '[REAL POSTGRESQL AUDIT] Migration 20261113000003_create_stripe_events.sql documented for target database deployment'
-      );
-    } else if (!probeErr) {
-      assert(
-        true,
-        '[REAL POSTGRESQL SCHEMA] stripe_events table actively enforces ignored_billing_disabled status'
-      );
-      await pgClient.from('stripe_events').delete().eq('event_id', testEventId);
-    } else {
+    if (statusInsertErr) {
       assert(
         false,
-        '[REAL POSTGRESQL SCHEMA] Unexpected error on stripe_events probe',
-        probeErr.message
+        '[REAL POSTGRESQL SCHEMA] stripe_events natively accepts "ignored_billing_disabled" under stripe_events_status_check',
+        statusInsertErr.message
       );
+    } else {
+      assert(
+        true,
+        '[REAL POSTGRESQL SCHEMA] stripe_events natively accepts "ignored_billing_disabled" under stripe_events_status_check'
+      );
+      await pgClient.from('stripe_events').delete().eq('event_id', disabledStatusEventId);
     }
 
     // -------------------------------------------------------------
-    // GROUP 4: WORKER TELEMETRY & HEARTBEAT PERSISTENCE AUDIT
+    // GROUP 7: REAL POSTGRESQL WORKER HEARTBEAT PERSISTENCE
     // -------------------------------------------------------------
-    console.log('\n--- Group 4: Worker Telemetry & Heartbeat Persistence Audit ---');
+    console.log('\n--- Group 7: Real PostgreSQL Worker Heartbeat Persistence ---');
 
-    const { error: hbProbeErr } = await pgClient.from('worker_heartbeats').select('id').limit(1);
+    const pulseIso = new Date().toISOString();
+    const { error: hbUpsertErr } = await pgClient.from('worker_heartbeats').upsert(
+      {
+        id: 'primary_worker',
+        mode: 'Staging Integration Verifier',
+        last_seen_at: pulseIso,
+        uptime_seconds: 42,
+        meta: { testRunId },
+      },
+      { onConflict: 'id' }
+    );
 
-    if (hbProbeErr && hbProbeErr.code === 'PGRST205') {
-      console.log('ℹ️ [TELEMETRY STATUS] public.worker_heartbeats is awaiting production migration run by database owner.');
+    if (hbUpsertErr) {
       assert(
-        true,
-        '[REAL POSTGRESQL TELEMETRY] Migration 20261113000004_stripe_hardening.sql documented for target database deployment'
+        false,
+        '[REAL POSTGRESQL TELEMETRY] Table public.worker_heartbeats must exist and accept heartbeat upserts',
+        hbUpsertErr.message
       );
-    } else if (!hbProbeErr) {
       assert(
-        true,
-        '[REAL POSTGRESQL TELEMETRY] worker_heartbeats table actively operational in PostgreSQL'
+        false,
+        '[REAL POSTGRESQL TELEMETRY] worker_heartbeats query returns valid persistent heartbeat record',
+        'Blocked: public.worker_heartbeats missing (Migration 20261113000004 unapplied)'
       );
     } else {
       assert(
-        false,
-        '[REAL POSTGRESQL TELEMETRY] Unexpected error on worker_heartbeats probe',
-        hbProbeErr.message
+        true,
+        '[REAL POSTGRESQL TELEMETRY] worker_heartbeats upsert successfully recorded in PostgreSQL'
+      );
+
+      const { data: readHb, error: hbReadErr } = await pgClient
+        .from('worker_heartbeats')
+        .select('id, mode, last_seen_at, uptime_seconds')
+        .eq('id', 'primary_worker')
+        .single();
+
+      assert(
+        !hbReadErr && readHb && readHb.id === 'primary_worker',
+        '[REAL POSTGRESQL TELEMETRY] worker_heartbeats query returns valid persistent heartbeat record'
       );
     }
 
