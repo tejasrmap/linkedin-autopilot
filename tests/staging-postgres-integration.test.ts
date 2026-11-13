@@ -366,12 +366,30 @@ async function runStagingPostgresIntegrationTests() {
         '[REAL POSTGRESQL SCHEMA] stripe_events natively accepts "ignored_billing_disabled" under stripe_events_status_check',
         statusInsertErr.message
       );
+      assert(
+        false,
+        '[REAL POSTGRESQL SCHEMA] stripe_events strictly rejects unsupported status values via check constraint violation (23514)',
+        'Blocked: stripe_events check constraint check failed'
+      );
     } else {
       assert(
         true,
         '[REAL POSTGRESQL SCHEMA] stripe_events natively accepts "ignored_billing_disabled" under stripe_events_status_check'
       );
       await pgClient.from('stripe_events').delete().eq('event_id', disabledStatusEventId);
+
+      const invalidStatusEventId = `evt_invalid_${testRunId}`;
+      const { error: invalidStatusErr } = await pgClient.from('stripe_events').insert({
+        event_id: invalidStatusEventId,
+        event_type: 'checkout.session.completed',
+        status: 'unsupported_bogus_status',
+        payload: { note: 'Staging DB check constraint rejection test' },
+      });
+
+      assert(
+        invalidStatusErr !== null && invalidStatusErr.code === '23514',
+        '[REAL POSTGRESQL SCHEMA] stripe_events strictly rejects unsupported status values via check constraint violation (23514)'
+      );
     }
 
     // -------------------------------------------------------------
