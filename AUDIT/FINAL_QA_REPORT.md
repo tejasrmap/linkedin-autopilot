@@ -29,3 +29,4 @@
 5. **Worker & Scheduling:** Precision millisecond delay calculation, overdue 0ms catch-up, atomic CAS publishing locks.
 6. **Billing & Subscriptions:** Durable Stripe webhook event ledger, exact period timestamps, customer portal API.
 7. **Production Build:** All 47 Next.js routes compiled with exit code 0.
+

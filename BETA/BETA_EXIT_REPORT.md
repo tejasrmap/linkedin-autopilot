@@ -26,3 +26,4 @@
 - **Publishing Reliability:** >= 99% success rate across all attempted scheduled deliveries.
 - **Defect Resolution:** 100% of reported SEV-1 and SEV-2 beta defects resolved.
 - **Customer Satisfaction:** >= 4.0 / 5.0 average score on the Beta Exit Survey.
+

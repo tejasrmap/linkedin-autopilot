@@ -35,3 +35,4 @@ The endpoint `/api/admin/metrics` performs active connectivity checks and return
 | **LinkedIn OAuth** | Validates `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` configuration | `{"status": "operational", "version": "202610"}` |
 | **AI Studio** | Validates `GEMINI_API_KEY` configuration | `{"status": "operational", "rateLimitActive": true}` |
 | **Billing** | Validates `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` | `{"status": "not_configured"}` |
+

@@ -10,3 +10,4 @@
 - [ ] **Privacy Policy (`/privacy`):** Confirm adherence to DPDP Act (India) and GDPR cross-border transfer standards regarding OAuth tokens and Google Gemini LLM processing.
 - [ ] **LinkedIn Developer Agreement:** Ensure user-facing notices clarify that LinkedIn Autopilot utilizes official APIs and never stores member passwords.
 - [ ] **Stripe Services Agreement:** Verify terms regarding recurring billing disclosures, refund periods, and cancellation rights.
+

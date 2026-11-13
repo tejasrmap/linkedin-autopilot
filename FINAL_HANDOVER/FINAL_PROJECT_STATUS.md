@@ -48,3 +48,4 @@ In accordance with GT InnoX LLP Autonomous Execution Rule #7 ("Never use fake pr
    - Yes.
 11. **Is the product ready for GA?**
    - GA Blocked until live pilot beta run is executed and Stripe production keys are added.
+

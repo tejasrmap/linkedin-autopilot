@@ -1,23 +1,35 @@
-# OWNER ACTION REQUIRED — IMMEDIATE NEXT STEPS
-**Company:** GT InnoX LLP  
-**Product:** LinkedIn Autopilot SaaS  
+# OWNER ACTION REQUIRED — POST-HARDENING DEPLOYMENT CHECKLIST
+## GT InnoX LLP | LinkedIn Autopilot SaaS
+
+**Classification:** CONTROLLED BETA PREPARATION COMPLETE  
+**Production Domain:** https://autopilot.gtinnox.in  
 
 ---
 
-## 1. Owner Action Items
+## 1. ESSENTIAL VERCEL ENVIRONMENT VARIABLES
 
-### Priority 1: Configure Stripe Live Keys in Vercel
-1. Open [Stripe Dashboard](https://dashboard.stripe.com/).
-2. Obtain your Live Restricted Key (`sk_live_...`) and Webhook Secret (`whsec_...`).
-3. Add to [Vercel Project Settings](https://vercel.com/) > Environment Variables:
-   - `STRIPE_SECRET_KEY`
-   - `STRIPE_WEBHOOK_SECRET`
-   - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+To complete production activation for the hardened release, verify these environment variables in your **Vercel Project Settings -> Environment Variables**:
 
-### Priority 2: Recruit & Onboard the 20 Beta Pilot Users
-1. Use the pre-written [BETA/BETA_ONBOARDING_GUIDE.md](file:///c:/Users/tejag/Downloads/GT-Scheduler/BETA/BETA_ONBOARDING_GUIDE.md).
-2. Invite your 20 pilot founders, consultants, and creators to register on https://autopilot.gtinnox.in.
-3. Track incoming feedback in the Admin Portal at https://autopilot.gtinnox.in/admin.
+1. **`ADMIN_EMAILS` (Mandatory for Platform Administration):**
+   * Value: `tejag.vijay@gmail.com,admin@gtinnox.in`
+   * *Purpose:* Required by the fail-closed administrator security architecture. Any user not in this list will be treated strictly as a single-workspace member.
 
-### Priority 3: Submit LinkedIn Company Page Review (When Ready)
-- When ready to expand beyond personal profile publishing, submit the approval package prepared in [LINKEDIN_APPROVAL_CHECKLIST.md](file:///c:/Users/tejag/Downloads/GT-Scheduler/LINKEDIN_APPROVAL_CHECKLIST.md) to the LinkedIn Developer Portal.
+2. **Stripe Billing Keys (When Activating Commercial Payments):**
+   * `STRIPE_SECRET_KEY`: `sk_live_...` (or `sk_test_...` for test sandbox)
+   * `STRIPE_WEBHOOK_SECRET`: `whsec_...`
+   * `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`: `pk_live_...`
+   * *Webhook Endpoint:* `https://autopilot.gtinnox.in/api/billing/webhook` (select `customer.subscription.*` and `invoice.payment_*` events).
+
+---
+
+## 2. SUPABASE DATABASE MIGRATION CHECK
+
+* **Migration file:** `supabase/migrations/20261113000004_stripe_hardening.sql`
+* If running a separate production Supabase instance from your local environment, run the SQL in your [Supabase SQL Editor](https://supabase.com/dashboard/project/lrctjyjowhtxrydutezk/sql) to ensure `worker_heartbeats` table exists for live daemon telemetry.
+
+---
+
+## 3. CONTROLLED BETA ONBOARDING
+
+* Follow [FINAL_BETA_ENTRY_CHECKLIST.md](file:///c:/Users/tejag/Downloads/GT-Scheduler/FINAL_HANDOVER/FINAL_BETA_ENTRY_CHECKLIST.md) to invite your first cohort of beta users.
+* Users can sign up directly at `https://autopilot.gtinnox.in/register` and connect their LinkedIn personal profile.

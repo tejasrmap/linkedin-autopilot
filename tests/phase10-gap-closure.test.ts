@@ -37,6 +37,7 @@ async function runGapClosureTests() {
   // --- GROUP 1: Platform Superadmin vs Tenant Role Isolation ---
   console.log('--- TEST GROUP 1: Platform Superadmin vs Tenant Role Isolation ---');
 
+  process.env.ADMIN_EMAILS = 'tejag.vijay@gmail.com,admin@gtinnox.in';
   const knownAdmin = 'tejag.vijay@gmail.com';
   const alternativeAdmin = 'admin@gtinnox.in';
   const regularUser = 'customer@acme-corp.com';

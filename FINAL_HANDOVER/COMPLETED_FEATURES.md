@@ -42,3 +42,4 @@
 - [x] In-app customer support ticketing portal (`/api/support`, `SupportModal`).
 - [x] 5-step onboarding guide (`OnboardingCard`) on `/dashboard`.
 - [x] Legal Terms of Service (`/terms`) and Privacy Policy (`/privacy`).
+

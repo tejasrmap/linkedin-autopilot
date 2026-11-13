@@ -25,3 +25,4 @@
 1. Revoke LinkedIn Developer application credentials in the LinkedIn Developer Portal.
 2. Rotate `LINKEDIN_CLIENT_SECRET` in Vercel environment variables.
 3. Trigger automated account status flag (`revoked`) in `public.social_accounts` to prompt user reauthorization.
+

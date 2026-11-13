@@ -28,3 +28,4 @@ Autonomous Scheduled Publishing (/calendar)
 - **Expired Verification Links:** Handled gracefully on `/login` via hash listener `#error_code=otp_expired` with informative banner and session recovery.
 - **Empty States:** Clear calls-to-action on Dashboard, Calendar, and Composer guiding users to connect their account.
 - **Support Ingestion:** One-click modal accessible from the persistent top navigation bar.
+

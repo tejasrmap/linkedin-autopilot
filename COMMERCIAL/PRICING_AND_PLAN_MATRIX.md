@@ -26,3 +26,4 @@ All limits are verified against live database counts in `/api/subscription`:
 - **Upgrades:** Immediate checkout session via `POST /api/billing/checkout`.
 - **Invoices & Receipts:** Downloadable via `POST /api/billing/portal` (Stripe Customer Portal).
 - **Cancellations:** User can cancel anytime in the customer portal; access remains active until `current_period_end`.
+

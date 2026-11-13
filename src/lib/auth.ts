@@ -19,16 +19,29 @@ export interface AuthContext {
 }
 
 /**
- * Checks whether an email belongs to an authorized GT InnoX platform administrator
+ * Checks whether an email belongs to an authorized GT InnoX platform administrator.
+ * FAIL-CLOSED: If ADMIN_EMAILS is not configured or empty, platform superadmin access is completely disabled.
  */
-export function isPlatformAdmin(userEmail?: string): boolean {
-  if (!userEmail) return false;
-  const adminEmails = (
-    process.env.ADMIN_EMAILS || 'tejag.vijay@gmail.com,admin@gtinnox.in,gamermadebyindia@gmail.com'
-  )
+export function isPlatformAdmin(userEmail?: string | null): boolean {
+  if (!userEmail || typeof userEmail !== 'string') return false;
+
+  const rawAdminEmails = process.env.ADMIN_EMAILS;
+  // Strict fail-closed: No implicit administrator emails are accepted in any environment
+  if (!rawAdminEmails || typeof rawAdminEmails !== 'string' || !rawAdminEmails.trim()) {
+    return false;
+  }
+
+  const normalizedUserEmail = userEmail.trim().toLowerCase();
+  if (!normalizedUserEmail || !normalizedUserEmail.includes('@')) {
+    return false;
+  }
+
+  const adminEmails = rawAdminEmails
     .split(',')
-    .map((e) => e.trim().toLowerCase());
-  return adminEmails.includes(userEmail.toLowerCase());
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.length > 0 && e.includes('@'));
+
+  return adminEmails.includes(normalizedUserEmail);
 }
 
 /**
@@ -48,11 +61,13 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
   }
 
   if (!user || !user.id) {
-    // Only allow dev fallback in local development when ALLOW_DEV_AUTH is explicitly set
-    if (process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH === 'true') {
+    // STRICT PRODUCTION SAFEGUARD:
+    // Development authentication is strictly forbidden in production environments.
+    if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_AUTH === 'true') {
       const admin = createAdminClient();
       let devWsId = requestWorkspaceId;
       let devUserId = '3f722c4d-c224-4431-a0dc-28249bd79c37';
+      const devEmail = 'tejag.vijay@gmail.com';
 
       try {
         if (!devWsId) {
@@ -72,10 +87,10 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
       devWsId = devWsId || '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
 
       return {
-        user: { id: devUserId, email: 'tejag.vijay@gmail.com', full_name: 'Teja Ganugula' },
+        user: { id: devUserId, email: devEmail, full_name: 'Teja Ganugula' },
         workspaceId: devWsId,
         role: 'owner',
-        isPlatformAdmin: true,
+        isPlatformAdmin: isPlatformAdmin(devEmail),
       };
     }
     return null;

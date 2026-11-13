@@ -13,3 +13,4 @@
 - **Total Registered Routes:** 47 (All compiled into production bundles)
 - **Worker Execution:** Node.js Persistent Daemon (`src/worker/index.ts`) with BullMQ and standalone 5-second polling fallback.
 - **Failover Serverless Cron:** Vercel Cron calling `/api/cron/publish` every 1 minute.
+

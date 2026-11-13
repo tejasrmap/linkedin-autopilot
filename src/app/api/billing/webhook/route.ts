@@ -1,5 +1,6 @@
 // ==============================================================
 // LINKEDIN AUTOPILOT - DURABLE STRIPE WEBHOOK LISTENER
+// ATOMIC EVENT CLAIMING, CONCURRENCY LOCKS & IDEMPOTENCY
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -42,32 +43,96 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient();
 
-  // 1. Idempotency Check: Verify if event has already been recorded
-  const { data: existingEvent } = await admin
-    .from('stripe_events')
-    .select('id, status, created_at')
-    .eq('event_id', event.id)
-    .maybeSingle();
+  // -------------------------------------------------------------
+  // 1. ATOMIC EVENT CLAIMING & CONCURRENCY RESOLUTION
+  // -------------------------------------------------------------
+  let shouldProcess = false;
 
-  if (existingEvent && existingEvent.status === 'processed') {
-    // Idempotent success response
+  // Try atomic insert into ledger
+  const { error: insertError } = await admin.from('stripe_events').insert({
+    event_id: event.id,
+    event_type: event.type,
+    status: 'processing',
+    payload: {
+      id: event.id,
+      type: event.type,
+      created: event.created,
+    },
+  });
+
+  if (!insertError) {
+    // Successfully claimed new event lock
+    shouldProcess = true;
+  } else {
+    // Event already registered. Inspect status and handle retries/concurrency
+    const { data: existingEvent } = await admin
+      .from('stripe_events')
+      .select('id, status, created_at, updated_at')
+      .eq('event_id', event.id)
+      .maybeSingle();
+
+    if (existingEvent) {
+      if (existingEvent.status === 'processed') {
+        // Fast-path: Event already fully processed (Idempotent success)
+        return NextResponse.json({ received: true, deduplicated: true });
+      }
+
+      if (existingEvent.status === 'processing') {
+        const lastActivity = new Date(existingEvent.updated_at || existingEvent.created_at).getTime();
+        const staleThresholdMs = 60000; // 60 seconds
+
+        if (Date.now() - lastActivity < staleThresholdMs) {
+          // Concurrent delivery actively running in another thread
+          return NextResponse.json(
+            { received: true, in_flight: true },
+            { status: 200 }
+          );
+        }
+
+        // Stale lock recovery: Reclaim crashed or timed-out processing event
+        const { data: reclaimed } = await admin
+          .from('stripe_events')
+          .update({
+            status: 'processing',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('event_id', event.id)
+          .eq('status', 'processing')
+          .select()
+          .maybeSingle();
+
+        if (reclaimed) {
+          shouldProcess = true;
+        } else {
+          return NextResponse.json({ received: true, deduplicated: true });
+        }
+      } else if (existingEvent.status === 'failed') {
+        // Retry handling: Reclaim previously failed event for re-execution
+        const { data: reclaimed } = await admin
+          .from('stripe_events')
+          .update({
+            status: 'processing',
+            updated_at: new Date().toISOString(),
+            error_message: null,
+          })
+          .eq('event_id', event.id)
+          .select()
+          .maybeSingle();
+
+        if (reclaimed) {
+          shouldProcess = true;
+        }
+      }
+    }
+  }
+
+  if (!shouldProcess) {
     return NextResponse.json({ received: true, deduplicated: true });
   }
 
-  // 2. Register event in ledger with status 'processing'
-  if (!existingEvent) {
-    await admin.from('stripe_events').insert({
-      event_id: event.id,
-      event_type: event.type,
-      status: 'processing',
-      payload: {
-        id: event.id,
-        type: event.type,
-        created: event.created,
-      },
-    });
-  }
-
+  // -------------------------------------------------------------
+  // 2. SUBSCRIPTION STATE MACHINE & AUTHORITATIVE TIMESTAMPS
+  // -------------------------------------------------------------
   let associatedWorkspaceId: string | null = null;
   let customerId: string | null = null;
 
@@ -81,27 +146,31 @@ export async function POST(req: NextRequest) {
         customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id || null;
 
         if (associatedWorkspaceId) {
-          let periodStart: string | null = null;
-          let periodEnd: string | null = null;
-
-          // Retrieve actual subscription from Stripe to derive real billing periods
-          if (subscriptionId) {
-            try {
-              const subObj = (await stripe.subscriptions.retrieve(subscriptionId)) as any;
-              if (subObj?.current_period_start) {
-                periodStart = new Date(subObj.current_period_start * 1000).toISOString();
-              }
-              if (subObj?.current_period_end) {
-                periodEnd = new Date(subObj.current_period_end * 1000).toISOString();
-              }
-            } catch (retrieveErr: any) {
-              console.warn('[Stripe-Webhook] Could not retrieve subscription details:', retrieveErr.message);
-            }
+          if (!subscriptionId) {
+            throw new Error(`Checkout session ${session.id} completed without a valid subscription ID.`);
           }
 
-          // Fallback to exact 30 days only if Stripe API was unreachable
-          if (!periodEnd) {
-            periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+          // Authoritative retrieval: Derive real billing periods strictly from Stripe
+          const subObj = (await stripe.subscriptions.retrieve(subscriptionId)) as any;
+          if (!subObj || !subObj.current_period_end) {
+            throw new Error(`Stripe subscription ${subscriptionId} did not provide authoritative period end.`);
+          }
+
+          const periodStart = subObj.current_period_start
+            ? new Date(subObj.current_period_start * 1000).toISOString()
+            : new Date().toISOString();
+          const periodEnd = new Date(subObj.current_period_end * 1000).toISOString();
+
+          // Out-of-order check
+          const { data: existingSub } = await admin
+            .from('subscriptions')
+            .select('last_event_created')
+            .eq('workspace_id', associatedWorkspaceId)
+            .maybeSingle();
+
+          if (existingSub?.last_event_created && event.created < existingSub.last_event_created) {
+            console.warn(`[Stripe-Webhook] Out-of-order checkout session: event created ${event.created} < ${existingSub.last_event_created}`);
+            break;
           }
 
           await admin.from('subscriptions').upsert(
@@ -113,11 +182,11 @@ export async function POST(req: NextRequest) {
               status: 'active',
               current_period_start: periodStart,
               current_period_end: periodEnd,
+              last_event_created: event.created,
             },
             { onConflict: 'workspace_id' }
           );
 
-          // Add notification for workspace members
           await admin.from('notifications').insert({
             workspace_id: associatedWorkspaceId,
             title: 'Subscription Activated 🎉',
@@ -130,7 +199,9 @@ export async function POST(req: NextRequest) {
 
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
+        const subAny = subscription as any;
         customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id || null;
+
         const statusMap: Record<string, string> = {
           active: 'active',
           past_due: 'past_due',
@@ -140,7 +211,6 @@ export async function POST(req: NextRequest) {
         };
 
         const dbStatus = statusMap[subscription.status] || 'active';
-        const subAny = subscription as any;
         const periodStart = subAny?.current_period_start
           ? new Date(subAny.current_period_start * 1000).toISOString()
           : null;
@@ -148,31 +218,31 @@ export async function POST(req: NextRequest) {
           ? new Date(subAny.current_period_end * 1000).toISOString()
           : null;
 
-        // Look up workspace by provider_subscription_id
         const { data: subRow } = await admin
           .from('subscriptions')
-          .select('workspace_id, current_period_end')
+          .select('workspace_id, last_event_created')
           .eq('provider_subscription_id', subscription.id)
           .maybeSingle();
 
         if (subRow) {
           associatedWorkspaceId = subRow.workspace_id;
 
-          // Out-of-order check: do not overwrite newer subscription data with an older event
-          const existingEnd = subRow.current_period_end ? new Date(subRow.current_period_end).getTime() : 0;
-          const newEnd = periodEnd ? new Date(periodEnd).getTime() : 0;
-
-          if (newEnd >= existingEnd || dbStatus === 'canceled' || dbStatus === 'past_due') {
-            await admin
-              .from('subscriptions')
-              .update({
-                status: dbStatus,
-                stripe_customer_id: customerId,
-                current_period_start: periodStart,
-                current_period_end: periodEnd,
-              })
-              .eq('provider_subscription_id', subscription.id);
+          // Out-of-order rejection
+          if (subRow.last_event_created && event.created < subRow.last_event_created) {
+            console.warn(`[Stripe-Webhook] Out-of-order subscription update ignored: event ${event.created} < ${subRow.last_event_created}`);
+            break;
           }
+
+          await admin
+            .from('subscriptions')
+            .update({
+              status: dbStatus,
+              stripe_customer_id: customerId,
+              current_period_start: periodStart,
+              current_period_end: periodEnd,
+              last_event_created: event.created,
+            })
+            .eq('provider_subscription_id', subscription.id);
         }
         break;
       }
@@ -181,17 +251,24 @@ export async function POST(req: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription;
         const { data: subRow } = await admin
           .from('subscriptions')
-          .select('workspace_id')
+          .select('workspace_id, last_event_created')
           .eq('provider_subscription_id', subscription.id)
           .maybeSingle();
 
         if (subRow) {
           associatedWorkspaceId = subRow.workspace_id;
+
+          if (subRow.last_event_created && event.created < subRow.last_event_created) {
+            console.warn(`[Stripe-Webhook] Out-of-order subscription cancellation ignored.`);
+            break;
+          }
+
           await admin
             .from('subscriptions')
             .update({
               status: 'canceled',
               plan_id: 'free',
+              last_event_created: event.created,
             })
             .eq('provider_subscription_id', subscription.id);
 
@@ -211,7 +288,7 @@ export async function POST(req: NextRequest) {
         if (subscriptionId) {
           const { data: subRow } = await admin
             .from('subscriptions')
-            .select('workspace_id')
+            .select('workspace_id, last_event_created')
             .eq('provider_subscription_id', subscriptionId)
             .maybeSingle();
 
@@ -219,7 +296,10 @@ export async function POST(req: NextRequest) {
             associatedWorkspaceId = subRow.workspace_id;
             await admin
               .from('subscriptions')
-              .update({ status: 'past_due' })
+              .update({
+                status: 'past_due',
+                last_event_created: event.created,
+              })
               .eq('provider_subscription_id', subscriptionId);
 
             await admin.from('notifications').insert({
@@ -238,29 +318,32 @@ export async function POST(req: NextRequest) {
         break;
     }
 
-    // 3. Mark event as successfully processed in ledger
+    // Mark event as successfully processed
     await admin
       .from('stripe_events')
       .update({
         status: 'processed',
         workspace_id: associatedWorkspaceId,
         customer_id: customerId,
+        updated_at: new Date().toISOString(),
       })
       .eq('event_id', event.id);
 
     return NextResponse.json({ received: true });
   } catch (err: any) {
-    console.error('[Stripe-Webhook] Error processing event:', err.message);
+    console.error('[Stripe-Webhook] Processing error:', err.message);
 
-    // Record error in ledger for auditability
+    // Record error in ledger
     await admin
       .from('stripe_events')
       .update({
         status: 'failed',
         error_message: err.message,
+        updated_at: new Date().toISOString(),
       })
       .eq('event_id', event.id);
 
-    return NextResponse.json({ error: 'Internal handler failure' }, { status: 500 });
+    // Return 500 so Stripe knows to retry
+    return NextResponse.json({ error: err.message || 'Internal handler failure' }, { status: 500 });
   }
 }

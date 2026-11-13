@@ -38,3 +38,4 @@
    ```
 4. Update Vercel environment variables with new Supabase URL and anon/service keys.
 5. Redeploy web tier.
+

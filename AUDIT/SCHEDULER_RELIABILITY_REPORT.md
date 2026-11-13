@@ -25,3 +25,4 @@ LinkedIn Autopilot implements an atomic, fault-tolerant scheduling engine:
 - **Timezone Drift:** All database timestamps are stored with explicit UTC offsets (`TIMESTAMPTZ`). Client calendar interfaces convert to local browser timezone upon display.
 - **Batch Scheduling:** `/api/posts/bulk` validates up to 50 scheduled posts per batch, spacing them according to selected cadence (Daily, Weekdays Only, Bi-weekly).
 - **Leap Day & DST:** Relies on standardized ISO-8601 string parsing and JavaScript `Date` UTC arithmetic (`getTime()`).
+

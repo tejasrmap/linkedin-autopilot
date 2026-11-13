@@ -19,9 +19,12 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Permitted for Platform Superadmins and Workspace Owners
+  // Strictly enforce platform superadmin authorization for platform metrics
   if (!auth.isPlatformAdmin && auth.role !== 'owner') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json(
+      { error: 'Forbidden. Access restricted to authorized platform administrators and workspace owners.' },
+      { status: 403 }
+    );
   }
 
   const admin = createAdminClient();
@@ -32,31 +35,76 @@ export async function GET() {
     const dbStart = Date.now();
     const [
       { count: totalWorkspaces, error: wsErr },
-      { count: totalAccounts, error: accErr },
-      { count: totalPublishedPosts, error: pubErr },
-      { count: totalScheduledPosts, error: schedErr },
-      { count: totalFailedPosts, error: failErr },
-      { data: recentAttempts, error: attErr },
+      { count: totalAccounts },
+      { count: totalPublishedPosts },
+      { count: totalScheduledPosts },
+      { count: totalFailedPosts },
+      { count: succeededAttempts },
+      { count: failedAttempts },
+      { data: recentAttempts },
       { data: overdueJobs },
+      { data: oldestPendingJob },
+      { data: heartbeatRow },
     ] = await Promise.all([
       admin.from('workspaces').select('*', { count: 'exact', head: true }),
       admin.from('social_accounts').select('*', { count: 'exact', head: true }).eq('connection_status', 'active'),
       admin.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'published'),
       admin.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'scheduled'),
       admin.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
+      admin.from('post_publish_attempts').select('*', { count: 'exact', head: true }).eq('status', 'succeeded'),
+      admin.from('post_publish_attempts').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
       admin.from('post_publish_attempts').select('status, created_at, error_message').order('created_at', { ascending: false }).limit(20),
       admin
         .from('scheduled_jobs')
         .select('id, scheduled_at')
         .eq('status', 'scheduled')
-        .lte('scheduled_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
-        .limit(5),
+        .lte('scheduled_at', new Date(Date.now() - 60 * 1000).toISOString())
+        .limit(10),
+      admin
+        .from('scheduled_jobs')
+        .select('scheduled_at')
+        .eq('status', 'scheduled')
+        .order('scheduled_at', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      admin
+        .from('worker_heartbeats')
+        .select('last_seen_at, mode, pid, uptime_seconds, meta')
+        .eq('id', 'primary_worker')
+        .maybeSingle(),
     ]);
 
     const dbLatencyMs = Date.now() - dbStart;
     const dbStatus: ServiceHealthStatus = wsErr ? 'unavailable' : dbLatencyMs > 2000 ? 'degraded' : 'operational';
 
-    // 2. Redis & BullMQ Probe
+    // 2. Worker Heartbeat & Status
+    let workerStatus: ServiceHealthStatus = 'unavailable';
+    let workerLastSeen = heartbeatRow?.last_seen_at || null;
+    let workerLagSeconds: number | null = null;
+    let workerNote = 'Worker daemon offline (no heartbeat recorded)';
+
+    if (workerLastSeen) {
+      workerLagSeconds = Math.floor((Date.now() - new Date(workerLastSeen).getTime()) / 1000);
+      if (workerLagSeconds <= 45) {
+        workerStatus = 'operational';
+        workerNote = `Active (Heartbeat ${workerLagSeconds}s ago, uptime ${heartbeatRow?.uptime_seconds ?? 0}s, PID ${heartbeatRow?.pid})`;
+      } else if (workerLagSeconds <= 120) {
+        workerStatus = 'degraded';
+        workerNote = `Degraded (Heartbeat delayed ${workerLagSeconds}s)`;
+      } else {
+        workerStatus = 'unavailable';
+        workerNote = `Worker stopped reporting (${workerLagSeconds}s ago)`;
+      }
+    }
+
+    // 3. Queue Lag Measurements
+    let queueLagMs = 0;
+    if (oldestPendingJob && new Date(oldestPendingJob.scheduled_at).getTime() < Date.now()) {
+      queueLagMs = Date.now() - new Date(oldestPendingJob.scheduled_at).getTime();
+    }
+    const overdueCount = overdueJobs?.length ?? 0;
+
+    // 4. Redis Connectivity & Latency Probe
     let redisStatus: ServiceHealthStatus = 'not_configured';
     let redisLatencyMs: number | null = null;
     if (process.env.REDIS_URL) {
@@ -75,38 +123,35 @@ export async function GET() {
       }
     }
 
-    // 3. Worker & Queue Engine Probe
-    // Overdue scheduled jobs indicate worker lag or downtime
-    let workerStatus: ServiceHealthStatus = 'operational';
-    let workerNote = 'Persistent polling engine active';
-    if (overdueJobs && overdueJobs.length > 0) {
-      workerStatus = 'degraded';
-      workerNote = `${overdueJobs.length} scheduled job(s) pending processing`;
-    }
-
-    // 4. LinkedIn OAuth Configuration Probe
-    const linkedinConfigured = !!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET);
+    // 5. LinkedIn OAuth Configuration Probe (Safe - no secrets exposed)
+    const hasClientId = !!process.env.LINKEDIN_CLIENT_ID;
+    const hasClientSecret = !!process.env.LINKEDIN_CLIENT_SECRET;
+    const linkedinConfigured = hasClientId && hasClientSecret;
     const linkedinStatus: ServiceHealthStatus = linkedinConfigured ? 'operational' : 'not_configured';
 
-    // 5. Gemini AI Configuration Probe
-    const geminiConfigured = !!process.env.GEMINI_API_KEY;
+    // 6. Gemini AI Configuration Probe (Safe - no secrets exposed)
+    const geminiKey = process.env.GEMINI_API_KEY;
+    const geminiConfigured = !!geminiKey && geminiKey.length > 20;
     const geminiStatus: ServiceHealthStatus = geminiConfigured ? 'operational' : 'not_configured';
 
-    // 6. Stripe Commercial Billing Probe
-    const stripeConfigured = !!(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET);
+    // 7. Stripe Billing Probe (Safe - checks test/live mode without exposing key)
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    const stripeConfigured = !!(stripeKey && webhookSecret);
+    const stripeMode = stripeKey?.startsWith('sk_live_') ? 'live' : stripeKey?.startsWith('sk_test_') ? 'test' : 'unconfigured';
     const stripeStatus: ServiceHealthStatus = stripeConfigured ? 'operational' : 'not_configured';
 
-    // Exact Publishing Success Rate calculation (no fake counts)
-    const exactPublished = totalPublishedPosts ?? 0;
-    const exactFailed = totalFailedPosts ?? 0;
-    const totalPubAttempts = exactPublished + exactFailed;
-    const successRatePercent = totalPubAttempts > 0 ? Math.round((exactPublished / totalPubAttempts) * 100) : 100;
+    // 8. Accurate Publishing Success Calculation from post_publish_attempts
+    const totalAttempts = (succeededAttempts ?? 0) + (failedAttempts ?? 0);
+    const successRatePercent = totalAttempts > 0
+      ? Math.round(((succeededAttempts ?? 0) / totalAttempts) * 100)
+      : 100;
 
-    // Overall system health calculation
+    // 9. Overall System Health Determination
     let overallHealth: ServiceHealthStatus = 'operational';
-    if (dbStatus === 'unavailable') {
+    if (dbStatus === 'unavailable' || workerStatus === 'unavailable') {
       overallHealth = 'unavailable';
-    } else if (dbStatus === 'degraded' || workerStatus === 'degraded' || redisStatus === 'unavailable') {
+    } else if (dbStatus === 'degraded' || workerStatus === 'degraded' || overdueCount > 0) {
       overallHealth = 'degraded';
     }
 
@@ -114,10 +159,13 @@ export async function GET() {
       metrics: {
         activeWorkspaces: totalWorkspaces ?? 0,
         activeLinkedInAccounts: totalAccounts ?? 0,
-        publishedPosts: exactPublished,
+        publishedPosts: totalPublishedPosts ?? 0,
         scheduledPosts: totalScheduledPosts ?? 0,
-        failedPosts: exactFailed,
+        failedPosts: totalFailedPosts ?? 0,
+        totalPublicationAttempts: totalAttempts,
         successRatePercent,
+        queueLagMs,
+        overdueJobsCount: overdueCount,
       },
       systemHealth: overallHealth,
       services: {
@@ -127,29 +175,35 @@ export async function GET() {
           latencyMs: dbLatencyMs,
           rlsActive: true,
         },
+        worker: {
+          status: workerStatus,
+          mode: heartbeatRow?.mode || 'Persistent Standalone Poller',
+          lastSeenAt: workerLastSeen,
+          lastSeenLagSeconds: workerLagSeconds,
+          note: workerNote,
+          pid: heartbeatRow?.pid || null,
+        },
         redis: {
           status: redisStatus,
           provider: 'BullMQ ioredis',
           latencyMs: redisLatencyMs,
         },
-        worker: {
-          status: workerStatus,
-          mode: redisStatus === 'operational' ? 'BullMQ & DB Poller' : 'Persistent Standalone Poller',
-          note: workerNote,
-        },
-        ai: {
-          status: geminiStatus,
-          provider: 'Google Gemini 1.5 Pro',
-          rateLimitActive: true,
-        },
         linkedinOAuth: {
           status: linkedinStatus,
           provider: 'LinkedIn Official Restli API',
           version: '202610',
+          configured: linkedinConfigured,
+        },
+        ai: {
+          status: geminiStatus,
+          provider: 'Google Gemini 1.5 Pro',
+          configured: geminiConfigured,
         },
         billing: {
           status: stripeStatus,
           provider: 'Stripe Checkout & Webhooks',
+          mode: stripeMode,
+          configured: stripeConfigured,
         },
       },
       recentPublishActivity: recentAttempts || [],

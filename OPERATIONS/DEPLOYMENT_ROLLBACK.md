@@ -28,3 +28,4 @@ All migrations in `supabase/migrations/` are non-destructive and backward compat
 ```sql
 DROP TABLE IF EXISTS public.faulty_table CASCADE;
 ```
+

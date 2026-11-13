@@ -45,3 +45,4 @@ This document reviews the Stripe subscription lifecycle, webhook idempotency led
 | Video & Carousel Uploads | Disabled | Enabled | Enabled |
 | Team Roles & Multi-tenant Workspaces | 1 Workspace | 3 Workspaces | 50 Workspaces |
 | Queue Priority | Standard | Priority Worker | Dedicated SLA |
+

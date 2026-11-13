@@ -23,3 +23,4 @@
 | `STRIPE_SECRET_KEY` | Server Only | Pending Config | Stripe secret API key for live subscriptions |
 | `STRIPE_WEBHOOK_SECRET` | Server Only | Pending Config | Stripe webhook signing secret for signature verification |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Client / Server | Pending Config | Stripe public publishable key |
+

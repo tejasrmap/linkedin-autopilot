@@ -39,3 +39,4 @@ CREATE POLICY "Members view workspace stripe events"
 -- 2. Enhance subscriptions table for exact Stripe customer and period tracking
 ALTER TABLE public.subscriptions ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 ALTER TABLE public.subscriptions ADD COLUMN IF NOT EXISTS current_period_start TIMESTAMPTZ;
+

@@ -20,3 +20,4 @@
 - [ ] **Stripe Live Production Keys:** Configure `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` in Vercel to activate real credit card charges.
 - [ ] **LinkedIn Company Page Approval:** Awaiting LinkedIn Partner Program review for `w_organization_social` scope (Personal publishing is 100% operational).
 - [ ] **Custom Domain DNS:** Verify CNAME `autopilot.gtinnox.in` pointing to `cname.vercel-dns.com`.
+

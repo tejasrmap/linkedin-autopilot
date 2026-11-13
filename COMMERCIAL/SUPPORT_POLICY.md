@@ -17,3 +17,4 @@
 | **Free Starter** | Best-effort community support | 24 Hours | 48 Hours |
 | **Pro Growth** | Monday – Friday (9 AM – 6 PM IST) | 2 Hours | 12 Hours |
 | **Agency Enterprise** | 24/7 Dedicated Email & Slack | 15 Minutes | 4 Hours |
+

@@ -30,3 +30,4 @@ Thank you for participating in our controlled beta. Your feedback helps ensure o
 
 ### Step 5: Report Feedback or Issues
 - If you notice anything unexpected, click the **Help / Support (? / LifeBuoy)** icon in the top right navigation to submit a ticket directly to GT InnoX engineering.
+

@@ -17,3 +17,4 @@
 | **TC-07** | Global Hashtag Application | Input global hashtags and click "Apply to All" | Appends tags cleanly without duplicating existing hashtags |
 | **TC-08** | In-App Support Ticket | Open Support modal, submit medium priority ticket | Ticket appears in member's workspace ticket history and `/admin` queue |
 | **TC-09** | Team Invitation & RBAC | Invite member with 'Editor' role | Invitee can draft and edit posts but cannot delete workspace or change billing |
+

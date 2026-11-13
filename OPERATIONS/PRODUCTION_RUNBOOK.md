@@ -41,3 +41,4 @@ To deploy the dedicated background worker:
 2. Build Command: `npm install`
 3. Start Command: `npm run worker`
 4. Inject all required environment variables: `REDIS_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`.
+

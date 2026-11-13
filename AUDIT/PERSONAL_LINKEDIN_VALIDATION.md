@@ -35,3 +35,4 @@ The complete personal-profile publishing flow has been validated end-to-end on a
 | Required OAuth Scope | `w_member_social` | `w_organization_social` (Requires LinkedIn Partner Approval) |
 | Active Verification | **VERIFIED WORKING LIVE** ✅ | Awaiting external LinkedIn App Approval ⏳ |
 | Code Scope | Actively maintained & tested | Strictly frozen & unmodified |
+

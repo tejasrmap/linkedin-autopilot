@@ -125,9 +125,46 @@ const pollInterval = setInterval(checkDueScheduledJobs, 5000);
 // Check immediately on startup to recover any pending overdue jobs
 checkDueScheduledJobs();
 
+// -------------------------------------------------------------
+// LIVE WORKER HEARTBEAT TELEMETRY
+// -------------------------------------------------------------
+let heartbeatWarned = false;
+
+async function recordHeartbeat() {
+  try {
+    const supabase = createAdminClient();
+    const { error } = await supabase.from('worker_heartbeats').upsert(
+      {
+        id: 'primary_worker',
+        mode: hasRedisConfig ? 'BullMQ & DB Poller' : 'Persistent Standalone Poller',
+        last_seen_at: new Date().toISOString(),
+        pid: process.pid,
+        uptime_seconds: Math.floor(process.uptime()),
+        meta: {
+          nodeVersion: process.version,
+          platform: process.platform,
+        },
+      },
+      { onConflict: 'id' }
+    );
+    if (error) {
+      if (!heartbeatWarned) {
+        console.warn('[Worker] Heartbeat note (run migration 20261113000004 if table missing):', error.message);
+        heartbeatWarned = true;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Worker] Heartbeat error:', err.message);
+  }
+}
+
+recordHeartbeat();
+const heartbeatInterval = setInterval(recordHeartbeat, 15000);
+
 async function shutdown() {
   console.log('\n[Worker] Gracefully shutting down worker...');
   clearInterval(pollInterval);
+  clearInterval(heartbeatInterval);
   if (worker) {
     await worker.close();
   }

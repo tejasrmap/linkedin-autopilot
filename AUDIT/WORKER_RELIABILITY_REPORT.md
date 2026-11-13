@@ -34,3 +34,4 @@ The LinkedIn Autopilot background worker operates on a zero-single-point-of-fail
   - Closes BullMQ worker waiting for currently running publishing jobs to finish.
   - Disconnects Redis connection cleanly.
 - **Overdue Recovery on Startup:** Immediately queries `checkDueScheduledJobs()` upon initialization to catch up on any jobs that matured during a process restart.
+

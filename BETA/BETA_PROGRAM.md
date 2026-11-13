@@ -30,3 +30,4 @@
 - **Publishing Reliability:** > 99% of valid scheduled posts delivered on time.
 - **Onboarding Completion:** > 90% of pilot users complete the 5-step checklist.
 - **Support Responsiveness:** SEV-1 ticket acknowledgment within 15 minutes.
+
