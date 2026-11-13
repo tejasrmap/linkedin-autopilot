@@ -8,6 +8,7 @@ const testStore: Record<string, any[]> = {
   posts: [],
   social_accounts: [],
   profiles: [],
+  ai_generations: [],
 };
 
 export function createAdminClient(): SupabaseClient {
@@ -93,20 +94,34 @@ export function createAdminClient(): SupabaseClient {
               }),
             };
           },
-          update: (record: any) => ({
-            eq: (col: string, val: any) => {
-              const rows = testStore[table] || [];
-              const match = rows.find((r) => r[col] === val);
-              if (match) {
-                Object.assign(match, record);
-              }
-              return {
-                select: () => ({
-                  maybeSingle: async () => ({ data: match || record, error: null }),
-                }),
-              };
-            },
-          }),
+          update: (record: any) => {
+            const updateFilters: Array<{ col: string; val: any }> = [];
+            const updateBuilder: any = {
+              eq: (col: string, val: any) => {
+                updateFilters.push({ col, val });
+                return updateBuilder;
+              },
+              select: () => ({
+                maybeSingle: async () => {
+                  const rows = testStore[table] || [];
+                  const match = rows.find((r) => updateFilters.every((f) => r[f.col] === f.val));
+                  if (match) {
+                    Object.assign(match, record);
+                  }
+                  return { data: match || null, error: null };
+                },
+                single: async () => {
+                  const rows = testStore[table] || [];
+                  const match = rows.find((r) => updateFilters.every((f) => r[f.col] === f.val));
+                  if (match) {
+                    Object.assign(match, record);
+                  }
+                  return { data: match || null, error: match ? null : new Error('Not found') };
+                },
+              }),
+            };
+            return updateBuilder;
+          },
         };
       },
     } as unknown as SupabaseClient;
