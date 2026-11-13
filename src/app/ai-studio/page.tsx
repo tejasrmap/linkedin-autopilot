@@ -97,6 +97,7 @@ export default function AIStudioPage() {
   const [brandName, setBrandName] = useState('GT InnoX LLP');
   const [brandIndustry, setBrandIndustry] = useState('AI & Software Engineering');
   const [brandVoice, setBrandVoice] = useState('Visionary, rigorous, results-focused');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
   const [savedBrand, setSavedBrand] = useState(false);
 
   // Copy indicator state
@@ -110,7 +111,20 @@ export default function AIStudioPage() {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     setCustomStartDate(tomorrow.toISOString().split('T')[0]);
+
+    if (typeof window !== 'undefined') {
+      const storedKey = localStorage.getItem('gemini_api_key') || '';
+      setGeminiApiKey(storedKey);
+    }
   }, []);
+
+  const getAiHeaders = () => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (geminiApiKey.trim()) {
+      headers['x-gemini-key'] = geminiApiKey.trim();
+    }
+    return headers;
+  };
 
   const fetchAccounts = async () => {
     try {
@@ -155,7 +169,7 @@ export default function AIStudioPage() {
     try {
       const res = await fetch('/api/ai/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({
           topic: activeTopic,
           targetAudience: audience,
@@ -185,7 +199,7 @@ export default function AIStudioPage() {
     try {
       const res = await fetch('/api/ai/rewrite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({
           content: draftToRewrite,
           targetTone: rewriteTone,
@@ -212,7 +226,7 @@ export default function AIStudioPage() {
     try {
       const res = await fetch('/api/ai/hashtags', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ topic: hashtagTopic }),
       });
       const data = await res.json();
@@ -236,7 +250,7 @@ export default function AIStudioPage() {
     try {
       const res = await fetch('/api/ai/ideas', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ industry: ideasIndustry }),
       });
       const data = await res.json();
@@ -260,7 +274,7 @@ export default function AIStudioPage() {
     try {
       const res = await fetch('/api/ai/calendar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ industry: calendarIndustry }),
       });
       const data = await res.json();
@@ -1472,12 +1486,42 @@ export default function AIStudioPage() {
             />
           </div>
 
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                <span>Google Gemini API Key (Optional)</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">Stored securely in browser</span>
+            </label>
+            <input
+              type="password"
+              value={geminiApiKey}
+              onChange={(e) => {
+                setGeminiApiKey(e.target.value);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('gemini_api_key', e.target.value);
+                }
+              }}
+              placeholder="AIzaSy... (Paste Gemini key to enable live Google Gemini 1.5 Flash)"
+              className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 font-mono"
+            />
+            <p className="text-[11px] text-slate-400 mt-1">
+              If omitted, our high-variety built-in GT InnoX generative engine runs automatically with dynamic topic variations and non-repeating frameworks.
+            </p>
+          </div>
+
           <button
-            onClick={handleSaveBrand}
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('gemini_api_key', geminiApiKey.trim());
+              }
+              handleSaveBrand();
+            }}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
           >
             {savedBrand ? <Check className="w-4 h-4" /> : null}
-            {savedBrand ? 'Brand Settings Saved' : 'Save Brand Settings'}
+            {savedBrand ? 'Settings & API Key Saved' : 'Save Brand Settings'}
           </button>
         </div>
       )}

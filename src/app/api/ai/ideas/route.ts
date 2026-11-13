@@ -18,7 +18,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const ideas = await aiService.generateIdeas(industry, count);
+    const customKey = request.headers.get('x-gemini-key') || undefined;
+    const ideas = await aiService.generateIdeas(industry, count, customKey);
     return NextResponse.json({ ideas });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

@@ -18,7 +18,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const plan = await aiService.generateContentCalendar(industry, tone);
+    const customKey = request.headers.get('x-gemini-key') || undefined;
+    const plan = await aiService.generateContentCalendar(industry, tone, customKey);
     return NextResponse.json({ plan });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

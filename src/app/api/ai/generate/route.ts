@@ -44,6 +44,7 @@ export async function POST(request: Request) {
       }
     }
 
+    const customKey = request.headers.get('x-gemini-key') || undefined;
     const generatedContent = await aiService.generatePost({
       topic: validated.topic,
       targetAudience: validated.targetAudience,
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
       length: validated.length,
       contentType: validated.contentType,
       brandVoice: brandVoiceOptions,
+      apiKey: customKey,
     });
 
     // Record generation for history

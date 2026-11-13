@@ -20,10 +20,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const customKey = request.headers.get('x-gemini-key') || undefined;
     const rewrittenContent = await aiService.rewritePost({
       content: validated.content,
       targetTone: validated.targetTone,
       improveHook: validated.improveHook,
+      apiKey: customKey,
     });
 
     const admin = createAdminClient();

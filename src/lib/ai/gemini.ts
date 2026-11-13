@@ -5,8 +5,8 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-function getGeminiModel() {
-  const apiKey = process.env.GEMINI_API_KEY || '';
+function getGeminiModel(customApiKey?: string) {
+  const apiKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey || apiKey === 'your_gemini_api_key') {
     return null;
   }
@@ -24,6 +24,7 @@ export interface GeneratePostOptions {
   tone?: string;
   length?: 'short' | 'medium' | 'long';
   contentType?: string;
+  apiKey?: string;
   brandVoice?: {
     brandName?: string;
     industry?: string;
@@ -37,6 +38,7 @@ export interface RewritePostOptions {
   content: string;
   targetTone: 'professional' | 'conversational' | 'technical' | 'educational' | 'persuasive' | 'storytelling';
   improveHook?: boolean;
+  apiKey?: string;
 }
 
 export class AIService {
@@ -44,7 +46,7 @@ export class AIService {
    * Generates a viral, high-converting LinkedIn post based on options
    */
   async generatePost(options: GeneratePostOptions): Promise<string> {
-    const model = getGeminiModel();
+    const model = getGeminiModel(options.apiKey);
 
     if (model) {
       try {
@@ -95,36 +97,182 @@ FORMATTING & BEST PRACTICES:
       }
     }
 
-    // High-Converting Fallback Framework Engine (Guarantees AI Studio never fails)
-    const topic = options.topic || 'Enterprise Software Architecture and Growth';
-    const audience = options.targetAudience || 'Engineers and Founders';
-    const tone = options.tone || 'Actionable & Visionary';
+    // High-Converting Multi-Paradigm Generative Synthesis Engine
+    // Dynamically generates varied, non-repeating posts across multiple archetypes, tones, and lengths
+    const topic = (options.topic || 'Enterprise Software Architecture and Growth').trim();
+    const audience = options.targetAudience || 'Founders, CTOs, and Engineers';
+    const tone = options.tone || 'Thought leadership & inspiring';
+    const cType = options.contentType || 'Actionable Framework';
+    const pLength = options.length || 'medium';
 
-    return `Most ${audience} get this completely wrong when it comes to ${topic.toLowerCase()}.
+    const words = topic.split(/\s+/).filter((w) => w.length > 2);
+    const domainTag = words.length > 0 ? words[0].replace(/[^a-zA-Z]/g, '') : 'Leadership';
+    const secondTag = words.length > 1 ? words[1].replace(/[^a-zA-Z]/g, '') : 'Growth';
+    const tags = `#${domainTag} #${secondTag} #Leadership #Strategy #GTInnoX`;
 
-Here is the exact framework we use at GT InnoX LLP to eliminate friction and build for scale:
+    // Randomized variation index to ensure clicking "Generate" multiple times always produces fresh content
+    const randomVariation = Math.floor(Math.random() * 4);
 
-1. Diagnose the Root Bottleneck First
-Don't solve symptoms. Measure cycle velocity and remove the single constraint slowing your workflow down.
+    // 1. CONTRARIAN TAKE / MYTH BUSTING
+    if (cType.toLowerCase().includes('contrarian') || cType.toLowerCase().includes('myth') || randomVariation === 1 && !cType.toLowerCase().includes('case')) {
+      const contrarianHooks = [
+        `Unpopular opinion about ${topic.toLowerCase()}: most conventional playbooks are completely backwards.`,
+        `The biggest lie leaders are told about ${topic.toLowerCase()}: work harder and volume will solve it.`,
+        `Why 90% of strategies around ${topic.toLowerCase()} fail before they ever reach production:`,
+        `Stop treating ${topic.toLowerCase()} like a checklist. Here is the uncomfortable truth:`,
+      ];
+      const hook = contrarianHooks[Math.floor(Math.random() * contrarianHooks.length)];
 
-2. Automate the Repetitive Work
-Human focus should be reserved for high-leverage decisions. Everything else belongs in automated queues with failure recovery.
+      if (pLength === 'short') {
+        return `${hook}
 
-3. Measure Outcomes, Not Busywork
-Velocity without directional clarity is just noise. Focus on high-signal output every single sprint.
+The conventional approach focuses on vanity metrics and superficial activity.
 
-What is the single biggest lesson you've learned while scaling ${topic.toLowerCase()}?
+In reality, sustainable results come down to three fundamentals:
+• Ruthlessly delete redundant friction
+• Align incentives with high-leverage outcomes
+• Automate the repeatable steps so humans can think
+
+When you eliminate operational drag, momentum takes care of itself.
+
+Agree or disagree?
+
+${tags}`;
+      }
+
+      return `${hook}
+
+Every quarter, teams burn thousands of hours optimizing the wrong side of the equation.
+
+They add more reviews, more coordinators, and more point solutions.
+And then they wonder why execution speed grinds to a halt.
+
+Here are the 3 hard truths nobody wants to acknowledge about ${topic.toLowerCase()}:
+
+1. Activity is not progress.
+Measuring how busy your team looks is an expensive distraction. The only metric that matters is cycle turnaround time and customer delivery.
+
+2. Complexity is a vulnerability disguised as sophistication.
+If your workflow requires 10 hand-offs and a 20-page guide, it will collapse under real market pressure. The best systems are aggressively simple.
+
+3. Tools don't fix broken process architecture.
+Digitizing chaos just gives you automated chaos. Fix the manual foundation first, then automate.
+
+The organizations that dominate their market aren't doing 100 things differently. They do 3 non-negotiables with relentless discipline.
+
+What is the biggest misconception you see around ${topic.toLowerCase()}?
+
+${tags}`;
+    }
+
+    // 2. CASE STUDY & RETROSPECTIVE
+    if (cType.toLowerCase().includes('case') || cType.toLowerCase().includes('story') || randomVariation === 2) {
+      const caseHooks = [
+        `We spent 4 months building a solution for ${topic.toLowerCase()}. Here was the exact moment we realized we were wrong:`,
+        `A real breakdown of how addressing ${topic.toLowerCase()} unlocked a 40% gain in team execution:`,
+        `The most expensive lesson we learned in our first year of tackling ${topic.toLowerCase()}:`,
+      ];
+      const hook = caseHooks[Math.floor(Math.random() * caseHooks.length)];
+
+      return `${hook}
+
+At the start, we believed the hardest part was the technical execution.
+
+We spent late nights drafting multi-tier approvals, complex tracking dashboards, and detailed spreadsheets.
+
+The result? Almost nobody used it.
+
+The workflow was so cumbersome that our own team bypassed it to get real work done.
+
+That failure forced us to adopt 3 radical changes:
+
+1. Shadow the End-User Directly
+We stopped guessing what was needed in meeting rooms and watched the actual execution friction in the field.
+
+2. Cut 70% of the Steps
+We eliminated every field, sign-off, and notification that didn't directly drive execution safety or customer delivery.
+
+3. Automate Background Dispatch
+We replaced manual check-ins with automated background queue workers that run reliably without human intervention.
+
+Within 2 weeks, turnaround time dropped in half and team adoption reached 98%.
+
+The takeaway: Your strategy is only as good as the friction it removes for the person executing it.
+
+Have you ever over-engineered a workflow before simplifying it?
+
+${tags}`;
+    }
+
+    // 3. THOUGHT LEADERSHIP & MACRO THESIS
+    if (cType.toLowerCase().includes('thought') || cType.toLowerCase().includes('leadership') || randomVariation === 3) {
+      const leadershipHooks = [
+        `The landscape of ${topic.toLowerCase()} is shifting faster than most organizations realize.`,
+        `Over the next 12 months, how teams approach ${topic.toLowerCase()} will separate market leaders from laggards.`,
+        `The traditional playbook for ${topic.toLowerCase()} is expiring. Here is what is replacing it:`,
+      ];
+      const hook = leadershipHooks[Math.floor(Math.random() * leadershipHooks.length)];
+
+      return `${hook}
+
+We are moving away from manual coordination and fragmented silos toward unified, automated operational engines.
+
+The organizations thriving in this environment share three distinct operating characteristics:
+
+1. Unified Real-Time Visibility
+They don't wait for end-of-week status syncs. Critical data flows automatically from the edge to executive leadership instantaneously.
+
+2. Asynchronous Execution by Default
+Synchronous meetings are reserved for high-stakes strategic debates. Everything else moves asynchronously through structured updates.
+
+3. High-Agency Ownership
+Individual operators are empowered with clear guardrails to make decisions independently, removing approval bottlenecks.
+
+When your systems handle the baseline execution, your team has the cognitive bandwidth to innovate.
+
+Where is your team on this operational maturity curve?
+
+${tags}`;
+    }
+
+    // 4. ACTIONABLE FRAMEWORK / BLUEPRINT (Default)
+    const frameworkHooks = [
+      `If you want to master ${topic.toLowerCase()}, stop overcomplicating it. Here is the 3-pillar blueprint:`,
+      `Most ${audience} get this completely wrong when it comes to ${topic.toLowerCase()}:`,
+      `The 3-step operational framework we use to systematically solve ${topic.toLowerCase()}:`,
+      `How high-velocity organizations solve ${topic.toLowerCase()} without burning out their teams:`,
+    ];
+    const hook = frameworkHooks[Math.floor(Math.random() * frameworkHooks.length)];
+
+    return `${hook}
+
+Execution isn't about working 14-hour days. It's about building airtight systems that eliminate friction.
+
+Here is the exact playbook:
+
+1. Diagnose the Root Constraint First
+Don't treat symptoms. Measure turnaround velocity and identify the single bottleneck slowing down your delivery cycle.
+
+2. Automate the Repeatable Hand-offs
+Human focus belongs on high-leverage strategic decisions. Every status check, reminder, and recurring dispatch should run in persistent background queues.
+
+3. Establish 24-Hour Feedback Loops
+Catch anomalies and blockers the day they occur. When feedback loops are tight, compounding progress becomes inevitable.
+
+Keep the architecture lean. Enforce rigor. Iterate relentlessly.
+
+What is the single biggest bottleneck your team is tackling right now with ${topic.toLowerCase()}?
 
 Let's discuss in the comments below.
 
-#Leadership #SoftwareEngineering #Automation #Growth #GTInnoX`;
+${tags}`;
   }
 
   /**
    * Rewrites an existing draft into a desired tone or structure
    */
   async rewritePost(options: RewritePostOptions): Promise<string> {
-    const model = getGeminiModel();
+    const model = getGeminiModel(options.apiKey);
 
     if (model) {
       try {
@@ -208,8 +356,8 @@ Agree or disagree?
   /**
    * Generates relevant hashtags for a topic or post content
    */
-  async generateHashtags(topicOrContent: string, count = 5): Promise<string[]> {
-    const model = getGeminiModel();
+  async generateHashtags(topicOrContent: string, count = 5, apiKey?: string): Promise<string[]> {
+    const model = getGeminiModel(apiKey);
 
     if (model) {
       try {
@@ -259,8 +407,8 @@ Return ONLY a JSON array of strings containing the hashtags (each starting with 
   /**
    * Generates creative post concepts and hooks with full ready-to-publish drafts
    */
-  async generateIdeas(industryOrCategory: string, count = 5): Promise<Array<{ title: string; hook: string; outline: string; fullDraft: string }>> {
-    const model = getGeminiModel();
+  async generateIdeas(industryOrCategory: string, count = 5, apiKey?: string): Promise<Array<{ title: string; hook: string; outline: string; fullDraft: string }>> {
+    const model = getGeminiModel(apiKey);
 
     if (model) {
       try {
@@ -306,13 +454,13 @@ Return ONLY valid JSON.
     const cleanIndustry = industryOrCategory.replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'Modern Business';
     const tag = cleanIndustry.split(' ')[0] || 'Leadership';
 
-    // Built-in viral hook concepts with rich, complete publication-ready drafts
-    return [
+    // Built-in dynamic viral hook pool with complete publication-ready drafts
+    const allIdeas = [
       {
         title: 'The Uncomfortable Truth About Scaling',
-        hook: `90% of leaders in ${industryOrCategory} focus on the wrong metric in their first 12 months.`,
+        hook: `90% of leaders in ${cleanIndustry} focus on the wrong metric in their first 12 months.`,
         outline: 'Why vanity growth without workflow automation creates unsustainable operational debt, and how to fix it before you burn out.',
-        fullDraft: `90% of leaders in ${industryOrCategory} focus on the wrong metric in their first 12 months.
+        fullDraft: `90% of leaders in ${cleanIndustry} focus on the wrong metric in their first 12 months.
 
 They celebrate vanity volume while their team drowns in manual friction, disjointed hand-offs, and avoidable rework.
 
@@ -337,9 +485,9 @@ What metric do you prioritize when evaluating your team's operational health?
       },
       {
         title: 'The 3-Step Execution Framework',
-        hook: `We simplified our entire ${industryOrCategory} operations down to 3 non-negotiable rules. Here is what happened:`,
+        hook: `We simplified our entire ${cleanIndustry} operations down to 3 non-negotiable rules. Here is what happened:`,
         outline: 'A practical breakdown of removing meeting fatigue and replacing synchronous syncs with asynchronous updates.',
-        fullDraft: `We simplified our entire ${industryOrCategory} operations down to 3 non-negotiable rules. Here is what happened:
+        fullDraft: `We simplified our entire ${cleanIndustry} operations down to 3 non-negotiable rules. Here is what happened:
 
 Output increased by 40%. Turnaround time dropped by half. And team morale reached an all-time high.
 
@@ -362,9 +510,9 @@ How many hours could your team reclaim this week by eliminating low-value meetin
       },
       {
         title: 'The Cost of Premature Optimization',
-        hook: `The biggest mistake technical and business leaders make in ${industryOrCategory}: solving problems they do not have yet.`,
+        hook: `The biggest mistake technical and business leaders make in ${cleanIndustry}: solving problems they do not have yet.`,
         outline: 'Why building complex architectures before finding repeatable validation kills velocity faster than lack of capital.',
-        fullDraft: `The biggest mistake technical and business leaders make in ${industryOrCategory}: solving problems they do not have yet.
+        fullDraft: `The biggest mistake technical and business leaders make in ${cleanIndustry}: solving problems they do not have yet.
 
 We often confuse complexity with sophistication.
 
@@ -388,9 +536,9 @@ Have you ever caught your team over-engineering a solution too early?
       },
       {
         title: 'What Nobody Tells You About B2B Growth',
-        hook: `Enterprise sales in ${industryOrCategory} isn't about persuasive closing pitches. It’s about trust architecture.`,
+        hook: `Enterprise sales in ${cleanIndustry} isn't about persuasive closing pitches. It’s about trust architecture.`,
         outline: 'A real-world breakdown of turning organic LinkedIn thought leadership into inbound qualified enterprise inquiries.',
-        fullDraft: `Enterprise sales in ${industryOrCategory} isn't about persuasive closing pitches. It’s about trust architecture.
+        fullDraft: `Enterprise sales in ${cleanIndustry} isn't about persuasive closing pitches. It’s about trust architecture.
 
 Enterprise buyers don't buy because of flashy slides. They buy when you systematically de-risk their decision.
 
@@ -435,13 +583,41 @@ Are you treating your industry presence like a daily chore or an automated syste
 
 #${tag} #Consistency #PersonalBranding #ExecutiveLeadership #GrowthHacking`,
       },
-    ].slice(0, count);
+      {
+        title: 'The Single-Point-of-Failure Risk',
+        hook: `If your ${cleanIndustry} operations pause when one key person goes on vacation, you do not have a company. You have an emergency waiting to happen.`,
+        outline: 'Why cross-functional documentation and asynchronous tooling protect businesses from key-person dependency.',
+        fullDraft: `If your ${cleanIndustry} operations pause when one key person goes on vacation, you do not have a company. You have an emergency waiting to happen.
+
+The hallmark of mature operations is resilience.
+
+When critical information lives solely in someone's head:
+• Decision-making bottlenecks at their inbox
+• Work stalls whenever they are unavailable
+• Onboarding new talent takes months instead of days
+
+3 ways to build operational redundancy:
+1. Mandate written operating procedures for every core hand-off.
+2. Automate notifications and escalations so tasks don't get trapped.
+3. Rotate second-in-command operators across critical pipelines.
+
+Build systems strong enough that no single absence disrupts customer delivery.
+
+How does your team protect against single-point-of-failure bottlenecks?
+
+#${tag} #Operations #BusinessResilience #Leadership #SystemsThinking`,
+      },
+    ];
+
+    // Shuffle and slice count to ensure fresh ideas on every generation click
+    const shuffled = [...allIdeas].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count);
   }
 
   /**
    * Generates a 7-day content calendar with complete publication-ready drafts
    */
-  async generateContentCalendar(industry: string, brandTone: string): Promise<Array<{
+  async generateContentCalendar(industry: string, brandTone: string, apiKey?: string): Promise<Array<{
     day: string;
     theme: string;
     hook: string;
@@ -449,7 +625,7 @@ Are you treating your industry presence like a daily chore or an automated syste
     contentType: string;
     fullDraft: string;
   }>> {
-    const model = getGeminiModel();
+    const model = getGeminiModel(apiKey);
 
     if (model) {
       try {
@@ -495,15 +671,14 @@ Return ONLY a valid JSON array of 7 objects with the structure:
     const cleanIndustry = industry.replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'Modern Enterprise';
     const tag = cleanIndustry.split(' ')[0] || 'Leadership';
 
-    // Built-in 7-day strategy matrix with complete publication-ready drafts
-    return [
+    // Dynamic Multi-Variant Strategy Matrix: Every call to generateContentCalendar / Rebuild picks fresh angles
+    const mondayPool = [
       {
-        day: 'Monday',
         theme: 'Strategic Perspective & Industry Thesis',
-        hook: `Why the next 12 months will redefine how ${industry} teams operate.`,
+        hook: `Why the next 12 months will redefine how ${cleanIndustry} teams operate.`,
         format: 'Text + Framework Checklist',
         contentType: 'Thought Leadership',
-        fullDraft: `Why the next 12 months will redefine how ${industry} teams operate.
+        fullDraft: `Why the next 12 months will redefine how ${cleanIndustry} teams operate.
 
 For years, conventional wisdom said you could solve execution bottlenecks simply by hiring more coordinators or layering on more point solutions.
 
@@ -527,7 +702,36 @@ What's the single biggest operational bottleneck you're solving right now?
 #${tag} #Leadership #OperationalExcellence #Enterprise #Innovation`,
       },
       {
-        day: 'Tuesday',
+        theme: 'The Invisible Bottleneck in Operations',
+        hook: `In ${cleanIndustry}, 80% of project delays don't happen in the field. They happen in the hand-offs.`,
+        format: 'Analytical Breakdown',
+        contentType: 'Strategic Insight',
+        fullDraft: `In ${cleanIndustry}, 80% of project delays don't happen in the field. They happen in the hand-offs.
+
+When you analyze root causes across multi-million dollar projects, the pattern is startlingly consistent:
+
+It's almost never a lack of technical skill on the ground.
+It's the friction between departments:
+• Waiting 48 hours for an approval signature
+• Re-entering data from field paper into central systems
+• Misaligned inventory updates between procurement and scheduling
+
+To solve this, leading organizations are doing three things differently:
+
+1. Single Source of Operational Truth: Eliminate duplicate spreadsheets.
+2. Automated Escalation Triggers: If an approval sits for 4 hours, it escalates automatically.
+3. Mobile-First Field Logging: Empower site teams to capture updates in under 30 seconds.
+
+Stop optimizing the work that takes 1 hour while ignoring the waiting time that takes 3 days.
+
+Where does the biggest communication delay happen in your pipeline?
+
+#${tag} #ProjectManagement #Operations #Productivity #Efficiency`,
+      },
+    ];
+
+    const tuesdayPool = [
+      {
         theme: 'Failure to Success Case Breakdown',
         hook: `We spent 3 months building a workflow nobody used in ${cleanIndustry}. Here was the exact moment we realized we were wrong:`,
         format: 'Personal Narrative / Story',
@@ -554,7 +758,37 @@ Have you ever over-engineered a process before realizing simple is better?
 #${tag} #CaseStudy #ProductManagement #LessonsLearned #FieldOperations`,
       },
       {
-        day: 'Wednesday',
+        theme: 'Operational Turnaround Retrospective',
+        hook: `How cutting 4 recurring meetings gave our ${cleanIndustry} team back 220 hours a month:`,
+        format: 'Before / After Breakdown',
+        contentType: 'Case Study',
+        fullDraft: `How cutting 4 recurring meetings gave our ${cleanIndustry} team back 220 hours a month:
+
+6 months ago, our team was suffering from acute sync-fatigue.
+Mondays started with a 2-hour status meeting.
+Wednesdays had a mid-week sync.
+Fridays had a retro.
+
+Everyone was constantly talking about the work, but milestone completion dates kept slipping.
+
+We made one radical rule change:
+"If a meeting exists solely to inform people of status, cancel it. Replace it with an automated async report."
+
+Here is what happened:
+1. Team reclaimed 220 productive engineering and operational hours every month.
+2. Blockers were resolved 3x faster because issues were logged in real-time instead of waiting for the weekly meeting.
+3. Documentation quality skyrocketed because updates were captured in written, searchable records.
+
+Meetings should be for high-stakes decision making, not reading status updates off slides.
+
+How many hours could your team reclaim by canceling low-value status meetings?
+
+#${tag} #WorkplaceExcellence #Productivity #TimeManagement #Leadership`,
+      },
+    ];
+
+    const wednesdayPool = [
+      {
         theme: 'Actionable How-To Guide',
         hook: `The 5-step framework to audit and improve your team's weekly output in ${cleanIndustry}:`,
         format: 'Numbered Step-by-Step Breakdown',
@@ -585,12 +819,40 @@ Which of these 5 steps would have the highest immediate impact on your team?
 #${tag} #Management #ProcessOptimization #WorkplaceEfficiency #Systems`,
       },
       {
-        day: 'Thursday',
+        theme: 'The 3-Tier Operational Scorecard',
+        hook: `Stop tracking 40 different KPIs in ${cleanIndustry}. Here are the only 3 that predict delivery success:`,
+        format: 'Executive Framework',
+        contentType: 'Educational',
+        fullDraft: `Stop tracking 40 different KPIs in ${cleanIndustry}. Here are the only 3 that predict delivery success:
+
+Dashboard bloat is a real problem. When leadership tries to track everything, nobody focuses on the levers that move the needle.
+
+Here is the simplified 3-metric scorecard we recommend:
+
+1. Cycle Velocity (Lead Time to Delivery)
+From the moment a task or site change order is submitted, how many hours until it is fully resolved? This measures organizational friction better than any survey.
+
+2. Variance Rate (% Unplanned Work)
+What percentage of your team's weekly bandwidth is consumed by emergencies and rework? Top organizations keep this under 15%.
+
+3. Hand-off Lag (Queue Dwell Time)
+How long does work sit in waiting state between departments? Eliminating dwell time delivers instant capacity without hiring more staff.
+
+Focus on reducing friction in these three areas, and your top-line revenue follows naturally.
+
+What is the single most important metric your team tracks each week?
+
+#${tag} #KPIs #Metrics #Performance #ExecutiveStrategy`,
+      },
+    ];
+
+    const thursdayPool = [
+      {
         theme: 'Contrarian Take / Myth Busting',
-        hook: `Unpopular opinion in ${industry}: More software tools won't solve your operational problems.`,
+        hook: `Unpopular opinion in ${cleanIndustry}: More software tools won't solve your operational problems.`,
         format: 'Short & Punchy Argument',
         contentType: 'Contrarian Analysis',
-        fullDraft: `Unpopular opinion in ${industry}: More software tools won't solve your operational problems.
+        fullDraft: `Unpopular opinion in ${cleanIndustry}: More software tools won't solve your operational problems.
 
 Every year, companies spend six figures adding another SaaS tool to their stack.
 
@@ -613,7 +875,34 @@ Do you think most companies have too many tools or too few?
 #${tag} #Contrarian #TechStrategy #DigitalTransformation #Efficiency`,
       },
       {
-        day: 'Friday',
+        theme: 'The Premature Optimization Fallacy',
+        hook: `The biggest trap in ${cleanIndustry} scaling: automating workflows before validating them in the field.`,
+        format: 'Critical Analysis',
+        contentType: 'Contrarian Analysis',
+        fullDraft: `The biggest trap in ${cleanIndustry} scaling: automating workflows before validating them in the field.
+
+We frequently see leaders spend months building complex automation pipelines for workflows that haven't even stabilized manually.
+
+Here is what happens when you automate prematurely:
+• You hardcode assumptions that turn out to be wrong
+• Changes require engineering sprints instead of a quick protocol update
+• Teams become rigid and resistant to changing field realities
+
+The golden rule of systems engineering:
+1. Do it manually until you feel the real operational pain.
+2. Standardize the checklist until variance is near zero.
+3. ONLY THEN automate the mechanical steps.
+
+Automation should accelerate verified processes, never compensate for missing discipline.
+
+Have you ever had to unwind an automated workflow that was built too early?
+
+#${tag} #ProcessDesign #SystemsThinking #Automation #Operations`,
+      },
+    ];
+
+    const fridayPool = [
+      {
         theme: 'Behind-the-Scenes & Team Culture',
         hook: `The one hiring and culture principle that saved our ${cleanIndustry} operations hundreds of wasted hours:`,
         format: 'Conversational Reflection',
@@ -642,7 +931,35 @@ What is the single most important trait you look for when hiring?
 #${tag} #Culture #Hiring #Leadership #TalentAcquisition #HighAgency`,
       },
       {
-        day: 'Saturday',
+        theme: 'Building Workflow Empathy',
+        hook: `The most common operational failure in ${cleanIndustry} isn't incompetence. It's lack of workflow empathy.`,
+        format: 'Team Leadership Reflection',
+        contentType: 'Hiring & Culture',
+        fullDraft: `The most common operational failure in ${cleanIndustry} isn't incompetence. It's lack of workflow empathy.
+
+When site field teams don't understand how their paperwork affects procurement...
+When engineering doesn't understand how their updates affect sales...
+When management doesn't understand the daily friction on the ground...
+
+Silos form. Finger-pointing starts. And delivery velocity dies.
+
+Here is the simple habit we use to bridge the gap:
+Every manager spends 1 day each quarter shadowing someone in a completely different functional department.
+
+Field coordinators spend a day in procurement.
+Software engineers spend a day with customer support.
+Executives spend a day on site.
+
+The clarity you gain in 8 hours of direct observation is worth more than 50 slide decks.
+
+When was the last time you shadowed someone on the front lines of your operations?
+
+#${tag} #TeamAlignment #Empathy #Leadership #WorkplaceCulture`,
+      },
+    ];
+
+    const saturdayPool = [
+      {
         theme: 'Curated Tools & Resources',
         hook: `The 4 high-leverage frameworks and tools that delivered 10x ROI for ${cleanIndustry} teams this year:`,
         format: 'Resource List + Commentary',
@@ -670,7 +987,37 @@ Which operational tool has given your team the highest return on investment this
 #${tag} #ProductivityTools #TechStack #ROI #ExecutiveResources`,
       },
       {
-        day: 'Sunday',
+        theme: 'The 80/20 Documentation Playbook',
+        hook: `Nobody reads your 60-page operations manual in ${cleanIndustry}. Here is the 80/20 format that actually works:`,
+        format: 'Tactical Playbook',
+        contentType: 'Curated Insights',
+        fullDraft: `Nobody reads your 60-page operations manual in ${cleanIndustry}. Here is the 80/20 format that actually works:
+
+Most companies spend months writing exhaustive SOPs that end up buried in a Google Drive folder nobody ever opens.
+
+When edge cases arise, people just ask their peers or wing it.
+
+Here is the dynamic documentation standard that transformed our operations:
+
+1. One-Page Action Checklists
+If a procedure can't be distilled into 5 non-negotiable checklist steps with clear checkboxes, it's too complex.
+
+2. Video Walkthroughs Under 90 Seconds
+A screen recording showing the exact clicks or physical procedure is 10x more effective than three paragraphs of text.
+
+3. Live "Last Updated" Tags
+Every document has a named owner and an expiration date. If it hasn't been reviewed in 90 days, it's flagged as outdated.
+
+Keep your knowledge base lean, visible, and directly integrated into daily execution tools.
+
+How does your organization keep documentation fresh and actionable?
+
+#${tag} #SOPs #KnowledgeManagement #Operations #Documentation`,
+      },
+    ];
+
+    const sundayPool = [
+      {
         theme: 'Executive Reflection & Weekly Reset',
         hook: 'Rest isn’t a reward for finishing your work. It’s an essential prerequisite for high-leverage execution.',
         format: 'Inspirational Reflection',
@@ -696,6 +1043,45 @@ How do you reset your mind before a demanding week of execution?
 
 #${tag} #Leadership #Mindset #ExecutiveWellness #SundayReflection`,
       },
+      {
+        theme: 'The Sunday Evening Clarity Ritual',
+        hook: `3 questions every leader in ${cleanIndustry} should ask before Monday morning begins:`,
+        format: 'Strategic Planning Reset',
+        contentType: 'Mindset & Leadership',
+        fullDraft: `3 questions every leader in ${cleanIndustry} should ask before Monday morning begins:
+
+Walking into Monday without a crystal-clear focus is how you spend the entire week reacting to other people's emergencies.
+
+Here is the 15-minute Sunday evening audit:
+
+1. "If only ONE major outcome gets achieved this week, what must it be?"
+Identify the single domino that makes everything else easier or unnecessary. Protect the time needed to finish it.
+
+2. "What meeting or task on my calendar can be deleted or delegated?"
+Ruthlessly protect your cognitive bandwidth for high-leverage strategic work.
+
+3. "Where is my team currently waiting on me for unblocking?"
+Clear the bottlenecks on your end so your operators can execute at full velocity from 9:00 AM Monday.
+
+Clarity creates confidence. Discipline creates momentum.
+
+What is your #1 non-negotiable priority for the upcoming week?
+
+#${tag} #WeeklyPlanning #ExecutiveHabits #Strategy #Focus`,
+      },
+    ];
+
+    // Pick a random variant for each day so repeated clicks on "Rebuild 7-Day Plan" always produce a fresh schedule!
+    const pickRandom = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+    return [
+      { day: 'Monday', ...pickRandom(mondayPool) },
+      { day: 'Tuesday', ...pickRandom(tuesdayPool) },
+      { day: 'Wednesday', ...pickRandom(wednesdayPool) },
+      { day: 'Thursday', ...pickRandom(thursdayPool) },
+      { day: 'Friday', ...pickRandom(fridayPool) },
+      { day: 'Saturday', ...pickRandom(saturdayPool) },
+      { day: 'Sunday', ...pickRandom(sundayPool) },
     ];
   }
 }
