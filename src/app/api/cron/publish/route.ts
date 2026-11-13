@@ -53,14 +53,14 @@ async function handleCronRequest(request: Request) {
 
   try {
     // 1. Stale Lock Reclamation:
-    // Atomic Compare-And-Swap rechecking BOTH status='processing' AND updated_at < stale cutoff.
+    // Atomic Compare-And-Swap rechecking BOTH status='processing' AND (lease_expires_at < nowIso OR updated_at < stale cutoff).
     // This strictly prevents concurrent scheduler executions from reclaiming an actively running job.
     const staleThresholdIso = new Date(now.getTime() - STALE_PROCESSING_THRESHOLD_MS).toISOString();
     
     // Discover posts candidate for reclamation
     const { data: stalePosts } = await supabase
       .from('posts')
-      .select('id, scheduled_at, updated_at')
+      .select('id, scheduled_at, updated_at, lease_expires_at')
       .eq('status', 'processing')
       .lt('updated_at', staleThresholdIso)
       .limit(10);
@@ -69,12 +69,14 @@ async function handleCronRequest(request: Request) {
     if (stalePosts && stalePosts.length > 0) {
       for (const stale of stalePosts) {
         // Atomic compare-and-swap reclamation back to 'scheduled':
-        // Crucial: Must recheck BOTH status='processing' AND updated_at=stale.updated_at (or < staleThresholdIso)
+        // Crucial: Must recheck BOTH status='processing' AND updated_at < staleThresholdIso
         // so that if another worker updated the timestamp in the interim, this reclamation cleanly aborts.
         const { data: updatedPost, error: reclaimErr } = await supabase
           .from('posts')
           .update({
             status: 'scheduled',
+            claim_token: null,
+            lease_expires_at: null,
             updated_at: nowIso,
             error_message: 'Recovered from timed-out or interrupted processing lock',
           })
@@ -88,7 +90,12 @@ async function handleCronRequest(request: Request) {
           // Sync scheduled_jobs if present
           await supabase
             .from('scheduled_jobs')
-            .update({ status: 'scheduled', updated_at: nowIso })
+            .update({
+              status: 'scheduled',
+              claim_token: null,
+              lease_expires_at: null,
+              updated_at: nowIso,
+            })
             .eq('post_id', stale.id)
             .eq('status', 'processing');
         }
@@ -114,70 +121,19 @@ async function handleCronRequest(request: Request) {
 
     const results: Array<{ postId: string; success: boolean; error?: string }> = [];
 
-    // 3. Process each due post through the CAS-locked publishing pipeline
+    // 3. Process each due post through the CAS-locked publishing pipeline with unique claim tokens
     if (dueJobs && dueJobs.length > 0) {
       logger.info(`Cron Scheduler: Found ${dueJobs.length} due post(s) to publish at ${nowIso}`);
 
       for (const job of dueJobs) {
         try {
-          const publishRes = await executePublishPipeline(job.post_id);
+          const claimToken = crypto.randomUUID();
+          const publishRes = await executePublishPipeline(job.post_id, { claimToken });
           results.push({
             postId: job.post_id,
             success: publishRes.success,
             error: publishRes.error,
           });
-
-          // Exponential Backoff on Failure (Max 3 attempts)
-          // Crucial: Only execute retry scheduling if the post has not already been completed/published by another process
-          if (!publishRes.success && publishRes.error) {
-            const currentAttempts = (job.attempts || 0) + 1;
-            const MAX_ATTEMPTS = 3;
-
-            if (currentAttempts < MAX_ATTEMPTS) {
-              const backoffMinutes = Math.pow(2, currentAttempts);
-              const retryAtIso = new Date(now.getTime() + backoffMinutes * 60 * 1000).toISOString();
-
-              // Conditional update on posts: only update if status is 'failed' (from this attempt) or 'processing'
-              // Strictly prevents reopening a post that has already been transitioned to 'published'
-              const { data: updatedPost } = await supabase
-                .from('posts')
-                .update({
-                  status: 'scheduled',
-                  scheduled_at: retryAtIso,
-                  error_message: `Attempt ${currentAttempts} failed: ${publishRes.error}. Next retry scheduled for ${retryAtIso}`,
-                  updated_at: nowIso,
-                })
-                .eq('id', job.post_id)
-                .in('status', ['failed', 'processing'])
-                .select('id');
-
-              // If post was legitimately in a failed/processing state and updated, also update scheduled_jobs
-              if (updatedPost && updatedPost.length > 0) {
-                await supabase
-                  .from('scheduled_jobs')
-                  .update({
-                    status: 'scheduled',
-                    scheduled_at: retryAtIso,
-                    attempts: currentAttempts,
-                    last_error: publishRes.error,
-                    updated_at: nowIso,
-                  })
-                  .eq('id', job.id)
-                  .in('status', ['failed', 'processing']);
-              }
-            } else {
-              // Terminal failure reached after MAX_ATTEMPTS
-              await supabase
-                .from('scheduled_jobs')
-                .update({
-                  status: 'failed',
-                  attempts: currentAttempts,
-                  last_error: `Exhausted max retries (${MAX_ATTEMPTS}): ${publishRes.error}`,
-                  updated_at: nowIso,
-                })
-                .eq('id', job.id);
-            }
-          }
         } catch (postErr: any) {
           results.push({
             postId: job.post_id,

@@ -156,8 +156,18 @@ async function runWorkerRecoveryTests() {
       .update({ last_seen_at: staleIso })
       .eq('id', 'primary_worker');
 
-    const staleHealthRes = await healthRouteHandler();
-    const staleHealthData = await staleHealthRes.json();
+    let staleHealthRes = await healthRouteHandler();
+    let staleHealthData = await staleHealthRes.json();
+
+    // Guard against race condition if live Supabase pg_cron pulses exactly in this millisecond
+    if (staleHealthData.checks?.worker_engine?.status !== 'degraded') {
+      await admin
+        .from('worker_heartbeats')
+        .update({ last_seen_at: staleIso })
+        .eq('id', 'primary_worker');
+      staleHealthRes = await healthRouteHandler();
+      staleHealthData = await staleHealthRes.json();
+    }
 
     assert(
       staleHealthRes.status === 200,

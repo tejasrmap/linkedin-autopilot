@@ -112,6 +112,18 @@ export async function GET() {
           message: `Scheduler execution is stale (${ageSeconds}s ago; threshold is ${SCHEDULER_HEARTBEAT_THRESHOLD_SECONDS}s). Trigger may have stopped.`,
           details: { last_execution_at: heartbeat.last_seen_at, age_seconds: ageSeconds },
         };
+      } else if (latestLog && latestLog.status === 'failed') {
+        checks.scheduler_execution = {
+          status: 'degraded',
+          latencyMs: workerLatency,
+          message: `Latest scheduler execution recorded a failed status (${latestLog.failed_count || 1} failed).`,
+          details: {
+            last_execution_at: heartbeat.last_seen_at,
+            last_execution_duration_ms: heartbeat.meta?.last_execution_duration_ms || latestLog?.execution_duration_ms,
+            age_seconds: ageSeconds,
+            latest_execution_status: 'failed',
+          },
+        };
       } else {
         checks.scheduler_execution = {
           status: 'healthy',
