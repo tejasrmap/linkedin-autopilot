@@ -161,21 +161,57 @@ export async function cancelScheduledJob(postId: string): Promise<boolean> {
 /**
  * The core publishing pipeline that executes the actual LinkedIn post creation
  */
-export async function executePublishPipeline(postId: string): Promise<{ success: boolean; error?: string }> {
+export async function executePublishPipeline(
+  postId: string,
+  options?: { claimToken?: string }
+): Promise<{ success: boolean; error?: string }> {
   const supabase = createAdminClient();
+  const claimToken = options?.claimToken || crypto.randomUUID();
+  const leaseDurationSeconds = 300; // 5-minute lease duration
+  const nowIso = new Date().toISOString();
 
-  // 1. Atomic Compare-And-Swap (CAS) Concurrency Lock
-  // Only transitions if status is scheduled, approved, or draft (prevents concurrent duplicate runs)
-  const { data: post, error: lockErr } = await supabase
-    .from('posts')
-    .update({ status: 'processing', updated_at: new Date().toISOString() })
-    .eq('id', postId)
-    .in('status', ['scheduled', 'approved', 'draft'])
-    .select('*, social_account:social_accounts(*)')
-    .single();
+  // 1. Atomic Claim with UUID Execution Lease Token (RPC with CAS fallback)
+  let post: any = null;
+  const { data: claimData, error: rpcErr } = await supabase.rpc('claim_post_for_publishing', {
+    target_post_id: postId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: leaseDurationSeconds,
+  });
 
-  if (lockErr || !post) {
-    return { success: false, error: 'Post is already processing or has already been published.' };
+  if (!rpcErr && claimData) {
+    if (!claimData.success) {
+      return { success: false, error: 'Post is already processing or has already been published.' };
+    }
+    const { data: fetchedPost, error: fetchErr } = await supabase
+      .from('posts')
+      .select('*, social_account:social_accounts(*)')
+      .eq('id', postId)
+      .eq('claim_token', claimToken)
+      .single();
+
+    if (fetchErr || !fetchedPost) {
+      return { success: false, error: 'Failed to retrieve claimed post record.' };
+    }
+    post = fetchedPost;
+  } else {
+    // Fallback if RPC is not yet applied: conditional CAS update
+    const { data: casPost, error: lockErr } = await supabase
+      .from('posts')
+      .update({
+        status: 'processing',
+        claim_token: claimToken,
+        lease_expires_at: new Date(Date.now() + leaseDurationSeconds * 1000).toISOString(),
+        updated_at: nowIso,
+      })
+      .eq('id', postId)
+      .in('status', ['scheduled', 'approved', 'draft'])
+      .select('*, social_account:social_accounts(*)')
+      .single();
+
+    if (lockErr || !casPost) {
+      return { success: false, error: 'Post is already processing or has already been published.' };
+    }
+    post = casPost;
   }
 
   // 3. Count attempt number
@@ -197,20 +233,20 @@ export async function executePublishPipeline(postId: string): Promise<{ success:
   const socialAccount = post.social_account as SocialAccount | null;
   if (!socialAccount) {
     const errorMsg = 'No LinkedIn account linked to this post. Please select an active account.';
-    await markPostFailed(supabase, post, errorMsg, attemptNumber);
+    await markPostFailed(supabase, post, errorMsg, attemptNumber, undefined, claimToken);
     return { success: false, error: errorMsg };
   }
 
   // Multi-workspace security safeguard: strictly prevent cross-workspace publishing
   if (socialAccount.workspace_id !== post.workspace_id) {
     const errorMsg = 'Security violation: Assigned LinkedIn account does not belong to the post workspace.';
-    await markPostFailed(supabase, post, errorMsg, attemptNumber);
+    await markPostFailed(supabase, post, errorMsg, attemptNumber, undefined, claimToken);
     return { success: false, error: errorMsg };
   }
 
   if (socialAccount.connection_status !== 'active') {
     const errorMsg = `LinkedIn account "${socialAccount.account_name}" is currently ${socialAccount.connection_status}. Please reconnect.`;
-    await markPostFailed(supabase, post, errorMsg, attemptNumber);
+    await markPostFailed(supabase, post, errorMsg, attemptNumber, undefined, claimToken);
     return { success: false, error: errorMsg };
   }
 
@@ -231,26 +267,31 @@ export async function executePublishPipeline(postId: string): Promise<{ success:
 
   // 7. Handle response
   if (publishResult.success && publishResult.providerPostId) {
-    const nowIso = new Date().toISOString();
+    const publishTs = new Date().toISOString();
 
-    // Update post to published
+    // Update post to published, validating claim_token ownership
     await supabase
       .from('posts')
       .update({
         status: 'published',
-        published_at: nowIso,
+        published_at: publishTs,
         provider_post_id: publishResult.providerPostId,
+        claim_token: null,
+        lease_expires_at: null,
         error_message: null,
-        updated_at: nowIso,
+        updated_at: publishTs,
       })
-      .eq('id', postId);
+      .eq('id', postId)
+      .eq('claim_token', claimToken);
 
     // Update scheduled job record if any
     await supabase
       .from('scheduled_jobs')
       .update({
         status: 'completed',
-        updated_at: nowIso,
+        claim_token: null,
+        lease_expires_at: null,
+        updated_at: publishTs,
       })
       .eq('post_id', postId);
 
@@ -284,22 +325,30 @@ export async function executePublishPipeline(postId: string): Promise<{ success:
 
       if (recon.reconciled && recon.providerPostId) {
         console.log(`[Publisher] Post ${postId} successfully reconciled with live LinkedIn post ${recon.providerPostId}!`);
-        const nowIso = new Date().toISOString();
+        const reconTs = new Date().toISOString();
 
         await supabase
           .from('posts')
           .update({
             status: 'published',
-            published_at: nowIso,
+            published_at: reconTs,
             provider_post_id: recon.providerPostId,
+            claim_token: null,
+            lease_expires_at: null,
             error_message: null,
-            updated_at: nowIso,
+            updated_at: reconTs,
           })
-          .eq('id', postId);
+          .eq('id', postId)
+          .eq('claim_token', claimToken);
 
         await supabase
           .from('scheduled_jobs')
-          .update({ status: 'completed', updated_at: nowIso })
+          .update({
+            status: 'completed',
+            claim_token: null,
+            lease_expires_at: null,
+            updated_at: reconTs,
+          })
           .eq('post_id', postId);
 
         await supabase.from('post_publish_attempts').insert({
@@ -345,7 +394,7 @@ export async function executePublishPipeline(postId: string): Promise<{ success:
       });
     }
 
-    await markPostFailed(supabase, post, errorMsg, attemptNumber, publishResult.rawResponse);
+    await markPostFailed(supabase, post, errorMsg, attemptNumber, publishResult.rawResponse, claimToken);
     return { success: false, error: errorMsg };
   }
 }
@@ -355,27 +404,43 @@ async function markPostFailed(
   post: any,
   errorMsg: string,
   attemptNumber: number,
-  rawResponse?: any
+  rawResponse?: any,
+  claimToken?: string
 ) {
   const nowIso = new Date().toISOString();
 
-  await supabase
-    .from('posts')
-    .update({
-      status: 'failed',
-      error_message: errorMsg,
-      updated_at: nowIso,
-    })
-    .eq('id', post.id);
+  // Atomic retry state transition via PostgreSQL RPC
+  const { data: retryData, error: rpcErr } = await supabase.rpc('handle_publishing_failure_and_retry', {
+    target_post_id: post.id,
+    expected_claim_token: claimToken || post.claim_token || null,
+    error_message: errorMsg,
+    max_attempts: 3,
+  });
 
-  await supabase
-    .from('scheduled_jobs')
-    .update({
-      status: 'failed',
-      last_error: errorMsg,
-      updated_at: nowIso,
-    })
-    .eq('post_id', post.id);
+  if (rpcErr || !retryData?.success) {
+    // Fallback: conditional CAS updates
+    await supabase
+      .from('posts')
+      .update({
+        status: 'failed',
+        claim_token: null,
+        lease_expires_at: null,
+        error_message: errorMsg,
+        updated_at: nowIso,
+      })
+      .eq('id', post.id);
+
+    await supabase
+      .from('scheduled_jobs')
+      .update({
+        status: 'failed',
+        claim_token: null,
+        lease_expires_at: null,
+        last_error: errorMsg,
+        updated_at: nowIso,
+      })
+      .eq('post_id', post.id);
+  }
 
   await supabase.from('post_publish_attempts').insert({
     post_id: post.id,

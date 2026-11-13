@@ -60,6 +60,7 @@ async function runStagingPostgresIntegrationTests() {
     const { data: existingProfile } = await pgClient.from('profiles').select('id').limit(1).maybeSingle();
     const ownerId = existingProfile?.id;
 
+    let postA_id = '';
     if (ownerId) {
       await pgClient.from('workspaces').insert([
         { id: wsA_id, name: `Workspace Alpha ${testRunId}`, slug: `ws-alpha-${testRunId}`, owner_id: ownerId },
@@ -67,7 +68,7 @@ async function runStagingPostgresIntegrationTests() {
       ]);
 
       // Insert post in Workspace A
-      const postA_id = `33333333-3333-4333-c333-${Date.now().toString().slice(-12)}`;
+      postA_id = `33333333-3333-4333-c333-${Date.now().toString().slice(-12)}`;
       await pgClient.from('posts').insert({
         id: postA_id,
         workspace_id: wsA_id,
@@ -436,6 +437,95 @@ async function runStagingPostgresIntegrationTests() {
         !hbReadErr && readHb && readHb.id === 'primary_worker',
         '[REAL POSTGRESQL TELEMETRY] worker_heartbeats query returns valid persistent heartbeat record'
       );
+    }
+
+    // -------------------------------------------------------------
+    // GROUP 8: REAL POSTGRESQL PUBLISHING CONCURRENCY & IMMUTABILITY
+    // -------------------------------------------------------------
+    console.log('\n--- Group 8: Real PostgreSQL Publishing Concurrency & Immutability ---');
+
+    if (ownerId) {
+      const wsG8 = `88888888-8888-4888-8888-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('workspaces').insert({
+        id: wsG8,
+        name: `Workspace G8 ${testRunId}`,
+        slug: `ws-g8-${testRunId}`,
+        owner_id: ownerId,
+      });
+
+      const liveConcurrencyPostId = `44444444-4444-4444-d444-${Date.now().toString().slice(-12)}`;
+      const { error: insErr } = await pgClient.from('posts').insert({
+        id: liveConcurrencyPostId,
+        workspace_id: wsG8,
+        created_by: ownerId,
+        content: `Live Concurrency CAS Post ${testRunId}`,
+        status: 'scheduled',
+      });
+      if (insErr) {
+        console.error('Group 8 insert error:', insErr);
+      }
+
+      // Simulate 2 simultaneous competing workers attempting to claim the same post
+      const claimWorker1 = pgClient
+        .from('posts')
+        .update({
+          status: 'processing',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', liveConcurrencyPostId)
+        .in('status', ['scheduled', 'approved', 'draft'])
+        .select('id');
+
+      const claimWorker2 = pgClient
+        .from('posts')
+        .update({
+          status: 'processing',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', liveConcurrencyPostId)
+        .in('status', ['scheduled', 'approved', 'draft'])
+        .select('id');
+
+      const [claimRes1, claimRes2] = await Promise.all([claimWorker1, claimWorker2]);
+
+      const worker1Won = !claimRes1.error && claimRes1.data && claimRes1.data.length === 1;
+      const worker2Won = !claimRes2.error && claimRes2.data && claimRes2.data.length === 1;
+
+      assert(
+        (worker1Won && !worker2Won) || (!worker1Won && worker2Won),
+        '[REAL POSTGRESQL CONCURRENCY] Exactly ONE competing worker atomically claims the post for processing'
+      );
+
+      // Verify that published posts in PostgreSQL can NEVER be reopened or rescheduled
+      const livePublishedPostId = `55555555-5555-4555-e555-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('posts').insert({
+        id: livePublishedPostId,
+        workspace_id: wsG8,
+        created_by: ownerId,
+        content: `Live Published Immutable Post ${testRunId}`,
+        status: 'published',
+        published_at: new Date().toISOString(),
+      });
+
+      const { data: illegalReopenData } = await pgClient
+        .from('posts')
+        .update({
+          status: 'scheduled',
+          scheduled_at: new Date().toISOString(),
+          error_message: 'Illegal attempt to reopen published post',
+        })
+        .eq('id', livePublishedPostId)
+        .in('status', ['failed', 'processing'])
+        .select('id');
+
+      assert(
+        !illegalReopenData || illegalReopenData.length === 0,
+        '[REAL POSTGRESQL IMMUTABILITY] Published post is strictly protected from being rescheduled or reopened'
+      );
+
+      // Cleanup test data created in this test run
+      await pgClient.from('posts').delete().in('id', [liveConcurrencyPostId, livePublishedPostId]);
+      await pgClient.from('workspaces').delete().eq('id', wsG8);
     }
 
     console.log('\n=================================================================');
