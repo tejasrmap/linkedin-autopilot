@@ -27,6 +27,13 @@ export function createAdminClient(): SupabaseClient {
         const nowIso = now.toISOString();
 
         if (fnName === 'claim_post_for_publishing') {
+          if (!params.target_post_id) {
+            return { data: { success: false, reason: 'target_post_id_required' }, error: null };
+          }
+          if (!params.new_claim_token) {
+            return { data: { success: false, reason: 'claim_token_required' }, error: null };
+          }
+
           const posts = testStore.posts || [];
           const post = posts.find((p) => p.id === params.target_post_id);
           if (!post) {
@@ -75,6 +82,13 @@ export function createAdminClient(): SupabaseClient {
         }
 
         if (fnName === 'handle_publishing_failure_and_retry') {
+          if (!params.target_post_id) {
+            return { data: { success: false, reason: 'target_post_id_required' }, error: null };
+          }
+          if (!params.expected_claim_token) {
+            return { data: { success: false, reason: 'expected_claim_token_required' }, error: null };
+          }
+
           const posts = testStore.posts || [];
           const post = posts.find((p) => p.id === params.target_post_id);
           if (!post) {
@@ -85,16 +99,30 @@ export function createAdminClient(): SupabaseClient {
             return { data: { success: false, reason: 'post_already_published' }, error: null };
           }
 
-          if (
-            params.expected_claim_token &&
-            post.claim_token &&
-            post.claim_token !== params.expected_claim_token
-          ) {
+          if (!post.claim_token) {
+            return { data: { success: false, reason: 'claim_token_missing_unowned' }, error: null };
+          }
+
+          if (post.claim_token !== params.expected_claim_token) {
             return { data: { success: false, reason: 'claim_token_mismatch_lease_lost' }, error: null };
           }
 
+          if (post.lease_expires_at && new Date(post.lease_expires_at).getTime() < now.getTime()) {
+            return { data: { success: false, reason: 'lease_expired' }, error: null };
+          }
+
           const jobs = testStore.scheduled_jobs || [];
-          const job = jobs.find((j) => j.post_id === params.target_post_id);
+          // Deterministically sort and select the most recent scheduled_job
+          const postJobs = jobs.filter((j) => j.post_id === params.target_post_id);
+          postJobs.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          const job = postJobs[0];
+
+          // Cancel any duplicate/older scheduled_jobs
+          for (let i = 1; i < postJobs.length; i++) {
+            postJobs[i].status = 'cancelled';
+            postJobs[i].updated_at = nowIso;
+          }
+
           const nextAttempt = ((job?.attempts ?? 0) as number) + 1;
           const maxAttempts = params.max_attempts || 3;
 
@@ -117,6 +145,18 @@ export function createAdminClient(): SupabaseClient {
               job.lease_expires_at = null;
               job.last_error = params.error_message;
               job.updated_at = nowIso;
+            } else {
+              // Missing scheduled_jobs record: insert to prevent orphaned post
+              jobs.push({
+                id: `job_${Date.now()}`,
+                post_id: params.target_post_id,
+                status: 'scheduled',
+                scheduled_at: retryAtIso,
+                attempts: nextAttempt,
+                last_error: params.error_message,
+                created_at: nowIso,
+                updated_at: nowIso,
+              });
             }
 
             return {
@@ -142,6 +182,16 @@ export function createAdminClient(): SupabaseClient {
               job.lease_expires_at = null;
               job.last_error = `Exhausted max retries (${maxAttempts}): ${params.error_message}`;
               job.updated_at = nowIso;
+            } else {
+              jobs.push({
+                id: `job_${Date.now()}`,
+                post_id: params.target_post_id,
+                status: 'failed',
+                attempts: nextAttempt,
+                last_error: `Exhausted max retries (${maxAttempts}): ${params.error_message}`,
+                created_at: nowIso,
+                updated_at: nowIso,
+              });
             }
 
             return {
@@ -153,6 +203,72 @@ export function createAdminClient(): SupabaseClient {
               error: null,
             };
           }
+        }
+
+        if (fnName === 'finalize_post_publishing') {
+          if (!params.target_post_id) {
+            return { data: { success: false, reason: 'target_post_id_required' }, error: null };
+          }
+          if (!params.expected_claim_token) {
+            return { data: { success: false, reason: 'expected_claim_token_required' }, error: null };
+          }
+          if (!params.provider_post_id) {
+            return { data: { success: false, reason: 'provider_post_id_required' }, error: null };
+          }
+
+          const posts = testStore.posts || [];
+          const post = posts.find((p) => p.id === params.target_post_id);
+          if (!post) {
+            return { data: { success: false, reason: 'post_not_found' }, error: null };
+          }
+
+          if (post.status === 'published') {
+            return { data: { success: false, reason: 'post_already_published' }, error: null };
+          }
+
+          if (!post.claim_token) {
+            return { data: { success: false, reason: 'claim_token_missing_unowned' }, error: null };
+          }
+
+          if (post.claim_token !== params.expected_claim_token) {
+            return { data: { success: false, reason: 'claim_token_mismatch_lease_lost' }, error: null };
+          }
+
+          if (post.lease_expires_at && new Date(post.lease_expires_at).getTime() < now.getTime()) {
+            return { data: { success: false, reason: 'lease_expired' }, error: null };
+          }
+
+          post.status = 'published';
+          post.published_at = nowIso;
+          post.provider_post_id = params.provider_post_id;
+          post.claim_token = null;
+          post.lease_expires_at = null;
+          post.error_message = null;
+          post.updated_at = nowIso;
+
+          const jobs = testStore.scheduled_jobs || [];
+          const postJobs = jobs.filter((j) => j.post_id === params.target_post_id);
+          postJobs.forEach((j, idx) => {
+            if (idx === 0) {
+              j.status = 'completed';
+              j.claim_token = null;
+              j.lease_expires_at = null;
+              j.updated_at = nowIso;
+            } else {
+              j.status = 'cancelled';
+              j.updated_at = nowIso;
+            }
+          });
+
+          return {
+            data: {
+              success: true,
+              post_id: post.id,
+              provider_post_id: params.provider_post_id,
+              published_at: nowIso,
+            },
+            error: null,
+          };
         }
 
         return { data: null, error: { message: `Unknown function ${fnName}` } };
@@ -261,34 +377,39 @@ export function createAdminClient(): SupabaseClient {
               };
             }
             const rows = (testStore[table] = testStore[table] || []);
-            // Check unique constraint on event_id if stripe_events
-            if (table === 'stripe_events' && rows.some((r) => r.event_id === record.event_id)) {
-              return {
-                data: null,
-                error: {
-                  message: 'duplicate key value violates unique constraint "idx_stripe_events_event_id"',
-                  code: '23505',
-                },
-                select: () => ({
-                  maybeSingle: async () => ({
-                    data: null,
-                    error: { message: 'duplicate key', code: '23505' },
+            const recordsToInsert = Array.isArray(record) ? record : [record];
+            const inserted: any[] = [];
+            for (const rec of recordsToInsert) {
+              // Check unique constraint on event_id if stripe_events
+              if (table === 'stripe_events' && rows.some((r) => r.event_id === rec.event_id)) {
+                return {
+                  data: null,
+                  error: {
+                    message: 'duplicate key value violates unique constraint "idx_stripe_events_event_id"',
+                    code: '23505',
+                  },
+                  select: () => ({
+                    maybeSingle: async () => ({
+                      data: null,
+                      error: { message: 'duplicate key', code: '23505' },
+                    }),
                   }),
-                }),
+                };
+              }
+              const enrichedRecord = {
+                ...rec,
+                id: rec.id || `mock_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                created_at: rec.created_at || new Date().toISOString(),
+                ...(table === 'scheduler_execution_logs' && !rec.invoked_at ? { invoked_at: new Date().toISOString() } : {}),
               };
+              rows.push(enrichedRecord);
+              inserted.push(enrichedRecord);
             }
-            const enrichedRecord = {
-              ...record,
-              id: record.id || `mock_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-              created_at: record.created_at || new Date().toISOString(),
-              ...(table === 'scheduler_execution_logs' && !record.invoked_at ? { invoked_at: new Date().toISOString() } : {}),
-            };
-            rows.push(enrichedRecord);
             return {
-              data: enrichedRecord,
+              data: Array.isArray(record) ? inserted : inserted[0],
               error: null,
               select: () => ({
-                maybeSingle: async () => ({ data: enrichedRecord, error: null }),
+                maybeSingle: async () => ({ data: inserted[0], error: null }),
               }),
             };
           },
