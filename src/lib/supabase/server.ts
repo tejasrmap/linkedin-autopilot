@@ -2,7 +2,17 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 export function createServerSupabaseClient() {
-  const cookieStore = cookies();
+  let cookieStore: any = null;
+  try {
+    cookieStore = cookies();
+  } catch (error) {
+    // Called outside Next.js request context (e.g. standalone test execution)
+    cookieStore = {
+      get: () => undefined,
+      set: () => {},
+      remove: () => {},
+    };
+  }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 

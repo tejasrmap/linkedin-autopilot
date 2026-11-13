@@ -8,3 +8,4 @@
 ALTER TABLE public.stripe_events DROP CONSTRAINT IF EXISTS stripe_events_status_check;
 ALTER TABLE public.stripe_events ADD CONSTRAINT stripe_events_status_check 
   CHECK (status IN ('processing', 'processed', 'failed', 'ignored_billing_disabled'));
+
