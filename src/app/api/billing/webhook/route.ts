@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { isBillingEnabled } from '@/lib/billing-config';
 import Stripe from 'stripe';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,33 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createAdminClient();
+
+  // -------------------------------------------------------------
+  // 0. REVERSIBLE BILLING SUSPENSION CHECK
+  // Webhooks are verified & recorded without mutating subscriptions
+  // -------------------------------------------------------------
+  if (!isBillingEnabled()) {
+    // Record the verified event in stripe_events ledger to preserve audit trail
+    // and avoid repeated processing loops
+    await admin.from('stripe_events').insert({
+      event_id: event.id,
+      event_type: event.type,
+      status: 'processed',
+      payload: {
+        id: event.id,
+        type: event.type,
+        created: event.created,
+        billing_disabled: true,
+        note: 'Acknowledged without subscription mutation because BILLING_ENABLED=false',
+      },
+    }).select().maybeSingle();
+
+    return NextResponse.json({
+      received: true,
+      billing_enabled: false,
+      message: 'Billing is temporarily disabled. Verified event acknowledged without subscription mutation.',
+    });
+  }
 
   // -------------------------------------------------------------
   // 1. ATOMIC EVENT CLAIMING & CONCURRENCY RESOLUTION

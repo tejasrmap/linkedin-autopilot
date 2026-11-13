@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthContext } from '@/lib/auth';
+import { isBillingEnabled, BILLING_DISABLED_MESSAGE } from '@/lib/billing-config';
 import Stripe from 'stripe';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,19 @@ export async function POST(req: NextRequest) {
     const auth = await getAuthContext();
     if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // 1. REVERSIBLE BILLING SUSPENSION CHECK
+    if (!isBillingEnabled()) {
+      return NextResponse.json(
+        {
+          configured: false,
+          enabled: false,
+          error: BILLING_DISABLED_MESSAGE,
+          message: 'Billing is temporarily unavailable.',
+        },
+        { status: 503 }
+      );
     }
 
     const body = await req.json().catch(() => ({}));

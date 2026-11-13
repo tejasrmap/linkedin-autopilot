@@ -14,6 +14,7 @@
     "test:phase6": "tsx tests/phase6-hardening.test.ts",
     "test:phase10": "tsx tests/phase10-gap-closure.test.ts",
     "test:hardening": "tsx tests/hardening-suite.test.ts",
+    "test:disablement": "tsx tests/stripe-disablement.test.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {

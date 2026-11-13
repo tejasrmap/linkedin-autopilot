@@ -7,11 +7,12 @@
 import { getAuthContext } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getRedisConnection } from '@/lib/queue/redis';
+import { isBillingEnabled } from '@/lib/billing-config';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-export type ServiceHealthStatus = 'operational' | 'degraded' | 'unavailable' | 'not_configured';
+export type ServiceHealthStatus = 'operational' | 'degraded' | 'unavailable' | 'not_configured' | 'temporarily_disabled';
 
 export async function GET() {
   const auth = await getAuthContext();
@@ -138,8 +139,13 @@ export async function GET() {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
     const stripeConfigured = !!(stripeKey && webhookSecret);
+    const billingActive = isBillingEnabled();
     const stripeMode = stripeKey?.startsWith('sk_live_') ? 'live' : stripeKey?.startsWith('sk_test_') ? 'test' : 'unconfigured';
-    const stripeStatus: ServiceHealthStatus = stripeConfigured ? 'operational' : 'not_configured';
+    const stripeStatus: ServiceHealthStatus = !billingActive
+      ? 'temporarily_disabled'
+      : stripeConfigured
+      ? 'operational'
+      : 'not_configured';
 
     // 8. Accurate Publishing Success Calculation from post_publish_attempts
     const totalAttempts = (succeededAttempts ?? 0) + (failedAttempts ?? 0);
@@ -204,6 +210,7 @@ export async function GET() {
           provider: 'Stripe Checkout & Webhooks',
           mode: stripeMode,
           configured: stripeConfigured,
+          enabled: billingActive,
         },
       },
       recentPublishActivity: recentAttempts || [],
