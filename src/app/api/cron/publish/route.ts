@@ -128,6 +128,7 @@ async function handleCronRequest(request: Request) {
           });
 
           // Exponential Backoff on Failure (Max 3 attempts)
+          // Crucial: Only execute retry scheduling if the post has not already been completed/published by another process
           if (!publishRes.success && publishRes.error) {
             const currentAttempts = (job.attempts || 0) + 1;
             const MAX_ATTEMPTS = 3;
@@ -136,18 +137,9 @@ async function handleCronRequest(request: Request) {
               const backoffMinutes = Math.pow(2, currentAttempts);
               const retryAtIso = new Date(now.getTime() + backoffMinutes * 60 * 1000).toISOString();
 
-              await supabase
-                .from('scheduled_jobs')
-                .update({
-                  status: 'scheduled',
-                  scheduled_at: retryAtIso,
-                  attempts: currentAttempts,
-                  last_error: publishRes.error,
-                  updated_at: nowIso,
-                })
-                .eq('id', job.id);
-
-              await supabase
+              // Conditional update on posts: only update if status is 'failed' (from this attempt) or 'processing'
+              // Strictly prevents reopening a post that has already been transitioned to 'published'
+              const { data: updatedPost } = await supabase
                 .from('posts')
                 .update({
                   status: 'scheduled',
@@ -155,7 +147,35 @@ async function handleCronRequest(request: Request) {
                   error_message: `Attempt ${currentAttempts} failed: ${publishRes.error}. Next retry scheduled for ${retryAtIso}`,
                   updated_at: nowIso,
                 })
-                .eq('id', job.post_id);
+                .eq('id', job.post_id)
+                .in('status', ['failed', 'processing'])
+                .select('id');
+
+              // If post was legitimately in a failed/processing state and updated, also update scheduled_jobs
+              if (updatedPost && updatedPost.length > 0) {
+                await supabase
+                  .from('scheduled_jobs')
+                  .update({
+                    status: 'scheduled',
+                    scheduled_at: retryAtIso,
+                    attempts: currentAttempts,
+                    last_error: publishRes.error,
+                    updated_at: nowIso,
+                  })
+                  .eq('id', job.id)
+                  .eq('status', 'processing');
+              }
+            } else {
+              // Terminal failure reached after MAX_ATTEMPTS
+              await supabase
+                .from('scheduled_jobs')
+                .update({
+                  status: 'failed',
+                  attempts: currentAttempts,
+                  last_error: `Exhausted max retries (${MAX_ATTEMPTS}): ${publishRes.error}`,
+                  updated_at: nowIso,
+                })
+                .eq('id', job.id);
             }
           }
         } catch (postErr: any) {
@@ -172,7 +192,22 @@ async function handleCronRequest(request: Request) {
     const failedCount = results.filter((r) => !r.success).length;
     const durationMs = Date.now() - startTime;
 
-    // 4. Update worker_heartbeats telemetry UPON SUCCESSFUL EXECUTION
+    // 4. Record execution log in scheduler_execution_logs
+    try {
+      await supabase.from('scheduler_execution_logs').insert({
+        trigger_source: 'pg_cron',
+        status: failedCount > 0 && succeededCount === 0 ? 'failed' : 'completed',
+        due_jobs_count: dueJobs ? dueJobs.length : 0,
+        published_count: succeededCount,
+        failed_count: failedCount,
+        reclaimed_stale_count: reclaimedCount,
+        execution_duration_ms: durationMs,
+      });
+    } catch (logErr: any) {
+      // Non-fatal
+    }
+
+    // 5. Update worker_heartbeats telemetry UPON SUCCESSFUL EXECUTION
     // Includes distinct operational counters for health discrimination
     try {
       await supabase.from('worker_heartbeats').upsert(

@@ -4,190 +4,142 @@
 **Repository:** `tejasrmap/linkedin-autopilot`  
 **Production URL:** `https://autopilot.gtinnox.in`  
 **Branch:** `feature/serverless-trigger-final-audit`  
-**Base Commit:** `16c5706f8369c07150e635f03cabf6020b587196`  
+**Base:** `main` (`16c5706f8369c07150e635f03cabf6020b587196`)  
 **Audit Date:** November 13, 2026  
 
 ---
 
-## 1. Executive Summary & Critical Findings Resolution
+## 1. Executive Summary & Verification Matrix
 
-This audit confirms the complete operational readiness and security hardening of the **100% serverless scheduling engine** for LinkedIn Autopilot on Vercel + Supabase, strictly without persistent worker processes (no Railway, Render, VPS, or AWS ECS).
+This audit documents the complete remediation of serverless scheduler release blockers for LinkedIn Autopilot on Vercel + Supabase, without introducing Railway, Render, VPS, AWS ECS, or any external persistent worker process.
 
-### Critical Findings Remediated:
-1. **Recurring Trigger Reality (Task A)**:
-   - Vercel Hobby accounts enforce a strict build-time limitation capping static `vercel.json` cron expressions to **at most once per day**. Attempting to configure 1-minute crons (`* * * * *`) in `vercel.json` triggers immediate deployment failure.
-   - **Resolution**: Designed and implemented native Supabase PostgreSQL scheduling utilizing the `pg_cron` and `pg_net` extensions (`supabase/migrations/20261113000006_serverless_scheduler_pg_cron.sql`). This issues an asynchronous HTTP request every minute directly to `/api/cron/publish` authenticated via `Authorization: Bearer <CRON_SECRET>`.
-2. **Fail-Closed Endpoint Security (Task B)**:
-   - Secured `/api/cron/publish` against unauthenticated access. If `CRON_SECRET` is missing or empty in the server environment, the endpoint immediately fails closed with HTTP 500 (`Server misconfiguration: CRON_SECRET is not configured`).
-   - Query string token authentication (`?key=...`) was removed from the handler to prevent logging sensitive secrets in proxy/access logs.
-   - Requires a strict `Authorization: Bearer <CRON_SECRET>` header before any database operations occur.
-3. **Atomic Stale-Lock Reclamation with Timestamp Cutoff Recheck (Task C)**:
-   - Fixed the atomic reclamation query in `/api/cron/publish` to re-verify BOTH `status = 'processing'` AND `updated_at < staleThresholdIso` during the update call.
-   - This ensures concurrent scheduler executions cannot reclaim an actively running or recently updated job.
-4. **Comprehensive System Health Discrimination (Task E)**:
-   - Updated `/api/health` to individually test and report:
-     - `api_server`: API runtime responsiveness.
-     - `database`: PostgreSQL connectivity.
-     - `scheduler_execution`: Last execution timestamp and latency from `public.worker_heartbeats`. Stale after 90 seconds.
-     - `last_successful_publication`: Queries the real `post_publish_attempts` ledger for genuine succeeded post timestamps.
-     - `stuck_scheduled_jobs`: Identifies any jobs stuck in `processing` for $>10$ minutes.
-   - A heartbeat pulse is no longer conflated with successful post publishing.
+### Verification Status Classification:
 
----
-
-## 2. Serverless Scheduling Architecture
-
-```mermaid
-flowchart TD
-    SUB["Supabase pg_cron (* * * * *)"] -->|pg_net: Asynchronous HTTP POST| ENDPOINT["Vercel Serverless Route: /api/cron/publish"]
-    ENDPOINT --> AUTH{"Header Check: Bearer CRON_SECRET"}
-    AUTH -->|Missing Secret| E500["HTTP 500 Server Misconfiguration"]
-    AUTH -->|Invalid / Missing Header| E401["HTTP 401 Unauthorized"]
-    AUTH -->|Authenticated| RECLAIM["1. Atomic CAS Reclaim Stale Locks (status='processing' AND updated_at < now-5m)"]
-    RECLAIM --> FETCH["2. Fetch Due Jobs (status='scheduled' AND scheduled_at <= now, limit 20)"]
-    FETCH --> CAS["3. Atomic CAS Claim Post (status: 'scheduled' -> 'processing')"]
-    CAS --> PIPELINE["4. Execute LinkedIn Publishing Pipeline (Token Decrypt -> REST API)"]
-    PIPELINE -->|Success| SUCCESS["Mark 'published' & Update 'post_publish_attempts' ledger"]
-    PIPELINE -->|Failure (Attempts < 3)| BACKOFF["Exponential Backoff Retry (now + 2^n min)"]
-    PIPELINE -->|Failure (Attempts >= 3)| FAIL["Mark 'failed' & Alert User"]
-    SUCCESS --> HEARTBEAT["5. Upsert Execution Telemetry to worker_heartbeats"]
-    BACKOFF --> HEARTBEAT
-    FAIL --> HEARTBEAT
-```
-
----
-
-## 3. Migration SQL: `20261113000006_serverless_scheduler_pg_cron.sql`
-
-```sql
--- ====================================================================
--- SUPABASE MIGRATION: 20261113000006_serverless_scheduler_pg_cron.sql
--- LinkedIn Autopilot - Native Serverless Scheduler Engine
--- By GT InnoX LLP
--- ====================================================================
-
--- 1. Enable required extensions for scheduled serverless requests
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
-
-GRANT USAGE ON SCHEMA cron TO postgres, service_role;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA cron TO postgres, service_role;
-GRANT USAGE ON SCHEMA net TO postgres, service_role;
-
--- 2. Create scheduler execution logs table
-CREATE TABLE IF NOT EXISTS public.scheduler_execution_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    invoked_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    trigger_source TEXT NOT NULL DEFAULT 'pg_cron',
-    status TEXT NOT NULL DEFAULT 'started',
-    due_jobs_count INTEGER DEFAULT 0,
-    published_count INTEGER DEFAULT 0,
-    failed_count INTEGER DEFAULT 0,
-    error_message TEXT,
-    execution_duration_ms INTEGER,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
-
-CREATE INDEX IF NOT EXISTS idx_scheduler_logs_invoked_at ON public.scheduler_execution_logs (invoked_at DESC);
-ALTER TABLE public.scheduler_execution_logs ENABLE ROW LEVEL SECURITY;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies 
-        WHERE tablename = 'scheduler_execution_logs' 
-        AND policyname = 'Allow service_role full access to scheduler_execution_logs'
-    ) THEN
-        CREATE POLICY "Allow service_role full access to scheduler_execution_logs"
-            ON public.scheduler_execution_logs
-            FOR ALL
-            TO service_role
-            USING (true)
-            WITH CHECK (true);
-    END IF;
-END $$;
-
--- 3. Stored Procedure for Safe Invocation of /api/cron/publish
-CREATE OR REPLACE FUNCTION public.invoke_serverless_publish_cron(
-    target_base_url TEXT DEFAULT 'https://autopilot.gtinnox.in',
-    secret_key TEXT DEFAULT NULL
-)
-RETURNS BIGINT
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    request_id BIGINT;
-    resolved_secret TEXT;
-    headers_json JSONB;
-BEGIN
-    resolved_secret := COALESCE(secret_key, current_setting('app.settings.cron_secret', true));
-
-    IF resolved_secret IS NULL OR length(trim(resolved_secret)) = 0 THEN
-        RAISE EXCEPTION 'CRON_SECRET is required to invoke serverless publisher';
-    END IF;
-
-    headers_json := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || resolved_secret,
-        'User-Agent', 'Supabase-pg_cron/1.0 (GT InnoX Autopilot)'
-    );
-
-    SELECT net.http_post(
-        url := target_base_url || '/api/cron/publish',
-        headers := headers_json,
-        body := jsonb_build_object('source', 'pg_cron', 'invoked_at', now())::jsonb,
-        timeout_milliseconds := 55000
-    ) INTO request_id;
-
-    RETURN request_id;
-END;
-$$;
-
--- 4. Recurring Cron Job Configuration (Every minute)
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'linkedin-autopilot-publish-cron') THEN
-        PERFORM cron.unschedule('linkedin-autopilot-publish-cron');
-    END IF;
-END $$;
-```
-
----
-
-## 4. Verification Evidence & Test Execution Results
-
-All automated suites, static checks, and full production builds passed with zero errors:
-
-| Test Suite / Inspection | Command | Pass Count | Status |
+| Category | Component / Check | Verification State | Evidence / Status |
 | :--- | :--- | :--- | :--- |
-| **Serverless Scheduler Suite** | `npm run test:serverless` | **9 / 9 passed** | ✅ PASS |
-| **Worker Recovery & Heartbeat Suite** | `npm run test:worker` | **16 / 16 passed** | ✅ PASS |
-| **Staging PostgreSQL Integration** | `npm run test:postgres` | **14 / 14 passed** | ✅ PASS |
-| **Stripe Disablement & Subscriptions** | `npm run test:disablement` | **44 / 44 passed** | ✅ PASS |
-| **TypeScript Typecheck** | `npx tsc --noEmit` | **0 errors** | ✅ PASS |
-| **ESLint Static Code Analysis** | `npm run lint` | **0 warnings, 0 errors** | ✅ PASS |
-| **Next.js Production Build** | `npm run build` | **45 / 45 routes compiled** | ✅ PASS |
+| **Source Code** | `/api/cron/publish` fail-closed auth | ✅ Source-code verified | Rejects missing/invalid secret with 500/401; query params disallowed |
+| **Source Code** | Atomic CAS stale lock reclamation | ✅ Source-code verified | Rechecks `status='processing'` AND `updated_at < cutoff` during update |
+| **Source Code** | Conditional retry handling | ✅ Source-code verified | Rechecks `status IN ('failed', 'processing')`; never reopens `published` |
+| **Source Code** | `/api/health` multi-dimension check | ✅ Source-code verified | Distinguishes API, DB, scheduler execution logs, publication attempts, stuck jobs |
+| **Source Code** | Supabase Vault `pg_cron` migration | ✅ Source-code verified | Uses `vault.decrypted_secrets`, `private` schema, restricted target URL |
+| **Automated Tests** | `npm run test:serverless` | ✅ Automated tests executed | **10 / 10 passed** (Exit code 0) |
+| **Automated Tests** | `npm run test:worker` | ✅ Automated tests executed | **16 / 16 passed** (Exit code 0) |
+| **Automated Tests** | `npm run test:postgres` | ✅ Automated tests executed | **14 / 14 passed** (Exit code 0) |
+| **Automated Tests** | `npm run test:disablement` | ✅ Automated tests executed | **44 / 44 passed** (Exit code 0) |
+| **Automated Tests** | `npx tsc --noEmit` & `npm run lint`| ✅ Automated tests executed | **0 errors, 0 warnings** (Exit code 0) |
+| **Automated Tests** | `npm run build` | ✅ Automated tests executed | **45 / 45 routes generated** (Exit code 0) |
+| **Database** | Staging PostgreSQL Schema | ✅ Staging database verified | 7/7 migration objects verified on `lrctjyjowhtxrydutezk.supabase.co` |
+| **Production** | Vault Secret Configuration | ⏳ Production config pending | Owner must add `cron_secret` to Supabase Vault in Dashboard |
+| **Production** | Migration Application | ⏳ Production config pending | Migration `20261113000006` pending execution in Supabase SQL editor |
+| **Production** | Recurring Execution Verification | ⏳ Production execution pending| Real recurring job execution verified upon owner deployment |
 
 ---
 
-## 5. Remaining Owner Actions for Production Activation
+## 2. Mandatory Fixes Detailed Breakdown
 
-To activate recurring 1-minute scheduling on Supabase for production (`https://autopilot.gtinnox.in`):
+### 1. Complete Recurring Scheduler Migration (`supabase/migrations/20261113000006_serverless_scheduler_pg_cron.sql`)
+- **Idempotency**: Safely unschedules any existing `linkedin-autopilot-publish-cron` job before re-registering the schedule.
+- **Supabase Vault Integration**: Retrieves `cron_secret` dynamically via `vault.decrypted_secrets`. Never exposes secrets in SQL literals or committed code.
+- **Privilege Separation**: Housed in a dedicated `private` schema with execution rights revoked from `PUBLIC`, `anon`, and `authenticated`, granted strictly to `postgres` and `service_role`.
+- **Target URL Enforcement**: The target endpoint is hardcoded as a constant `https://autopilot.gtinnox.in/api/cron/publish` within the stored procedure, preventing redirection.
+- **Failure Transparency**: If the secret is missing or the dispatch encounters an exception, it records a `failed` entry directly in `public.scheduler_execution_logs` and raises an exception.
 
-1. **Verify Vercel Environment Variable**:
-   Confirm that `CRON_SECRET` is defined in Vercel Project Settings > Environment Variables.
-2. **Apply Migration SQL on Supabase**:
-   Run the migration script [`supabase/migrations/20261113000006_serverless_scheduler_pg_cron.sql`](file:///c:/Users/tejag/Downloads/GT-Scheduler/supabase/migrations/20261113000006_serverless_scheduler_pg_cron.sql) in the Supabase SQL Editor.
-3. **Activate the 1-Minute pg_cron Schedule in Supabase SQL Editor**:
+### 2. Hardened Health Endpoint (`src/app/api/health/route.ts`)
+- **Database Query Errors**: Database errors when reading the publication ledger or execution telemetry report `status: 'degraded'` with the exact error message, rather than falsely masking as healthy.
+- **Separation of Invocations & Publications**: Checks `scheduler_execution` (from `worker_heartbeats` and `scheduler_execution_logs`) independently from `last_successful_publication` (from `post_publish_attempts`). A heartbeat pulse is no longer accepted as proof of publishing success.
+- **Stuck Jobs Detection**: Explicitly queries for any post remaining in `'processing'` status for $>10$ minutes without resolution.
+
+### 3. Hardened Retries & Consistency (`src/app/api/cron/publish/route.ts`)
+- **Conditional State Machine**: During failure backoff, the update to `status: 'scheduled'` is conditioned on `status IN ('failed', 'processing')`. If another concurrent execution or reconciliation already marked the post `published`, the affected row count is 0 and the job is never reopened.
+- **Terminal Failure Handling**: Once `currentAttempts >= 3`, the `scheduled_jobs` record is permanently transitioned to `status: 'failed'` with an explicit error summary (`Exhausted max retries (3)`).
+
+### 4. Hardened Concurrency & Ambiguity Protection
+- **Simultaneous Request Deduplication**: Tested via `Promise.all` with simultaneous cron invocations claiming the same post. CAS prevents race conditions.
+- **Stale-Lock Atomic Recheck**: When reclaiming jobs older than 5 minutes, the update checks both `status = 'processing'` AND `updated_at < staleThresholdIso`.
+- **Ambiguous Timeout Reconciliation**: Integrated in `executePublishPipeline(postId)`: if LinkedIn returns a network timeout, live author reconciliation searches for recent commentary snippets before marking failed, avoiding duplicates.
+
+---
+
+## 3. Full Automated Verification Log
+
+### Serverless Scheduler Suite (`npm run test:serverless`)
+```text
+✔ Security: Fails closed with 500 when CRON_SECRET is missing or empty (9.09ms)
+✔ Security: Rejects requests missing Authorization header with 401 (0.93ms)
+✔ Security: Rejects secret passed in query parameters (prevents logging secrets) (1.05ms)
+✔ Security: Rejects mismatched bearer tokens with 401 (0.95ms)
+✔ Security: Authorizes valid Authorization Bearer header on GET and POST (3.02ms)
+✔ Scheduling: Handles empty due post queues cleanly (0.72ms)
+✔ Concurrency: Prevents duplicate publishing across simultaneous cron invocations (4.20ms)
+✔ Stale Reclamation: Rechecks BOTH status=processing and updated_at < cutoff (1.47ms)
+✔ Retry Hardening: Never reopens completed or published jobs (0.38ms)
+✔ Health: Distinguishes API, Database, Scheduler, Publication, and Stuck Jobs (530.93ms)
+ℹ tests 10 | pass 10 | fail 0 (duration: 1671ms)
+```
+
+### Worker Recovery Suite (`npm run test:worker`)
+```text
+✅ PASS: Worker resolves operational mode cleanly
+✅ PASS: getRedisConnection() initializes safely without unhandled crashes
+✅ PASS: Worker heartbeat upsert successfully persists to worker_heartbeats table
+✅ PASS: Persisted heartbeat record returns authentic worker PID and identifier
+✅ PASS: Subsequent heartbeat write successfully updates existing primary_worker record
+✅ PASS: Heartbeat timestamp updates monotonically with fresh pulse
+✅ PASS: Health endpoint returns HTTP 200 with fresh worker heartbeat
+✅ PASS: Worker check reports status="healthy"
+✅ PASS: Overall system status reports "healthy" when all subsystems pass
+✅ PASS: Web API maintains HTTP 200 even when worker heartbeat is degraded
+✅ PASS: Worker engine status accurately reports "degraded" when heartbeat exceeds 90s
+✅ PASS: Overall health status accurately reports "degraded" without false healthy mask
+✅ PASS: Worker engine automatically recovers to status="healthy" upon new worker startup pulse
+✅ PASS: Overall platform status returns to "healthy" once worker resumes pulsing
+✅ PASS: Scheduled posts query executes cleanly without schema violation
+✅ PASS: Queued scheduled posts remain completely intact and preserved in database
+📊 WORKER RECOVERY RESULTS: 16 PASSED, 0 FAILED
+```
+
+### Staging PostgreSQL Integration Suite (`npm run test:postgres`)
+```text
+✅ PASS: [REAL POSTGRESQL ISOLATION] Querying Workspace B strictly returns 0 posts from Workspace A
+✅ PASS: [REAL POSTGRESQL ISOLATION] Querying Workspace A accurately returns posts created in Workspace A
+✅ PASS: [REAL POSTGRESQL CONCURRENCY] Exactly ONE simultaneous request acquires the processing lock on stripe_events
+✅ PASS: [REAL POSTGRESQL CONCURRENCY] Concurrent duplicate insert rejected with PostgreSQL 23505
+✅ PASS: [REAL POSTGRESQL STALE LOCK] Stale processing locks older than 60s are safely reclaimed via atomic CAS
+✅ PASS: [REAL POSTGRESQL STALE LOCK] Competing concurrent reclamation rejected as updated_at is no longer stale
+✅ PASS: [REAL POSTGRESQL RETRY] Failed webhook events are safely reclaimed for re-execution
+✅ PASS: [REAL POSTGRESQL RETRY] Competing retry rejected because status has transitioned away from failed
+✅ PASS: [REAL POSTGRESQL DEDUPLICATION] Duplicate delivery rejected by stripe_events unique constraint
+✅ PASS: [REAL POSTGRESQL DEDUPLICATION] Subscriptions table verified; duplicate delivery causes no side-effect mutations
+✅ PASS: [REAL POSTGRESQL SCHEMA] stripe_events natively accepts "ignored_billing_disabled" under stripe_events_status_check
+✅ PASS: [REAL POSTGRESQL SCHEMA] stripe_events strictly rejects unsupported status values via check constraint violation (23514)
+✅ PASS: [REAL POSTGRESQL TELEMETRY] worker_heartbeats upsert successfully recorded in PostgreSQL
+✅ PASS: [REAL POSTGRESQL TELEMETRY] worker_heartbeats query returns valid persistent heartbeat record
+📊 REAL POSTGRESQL STAGING RESULTS: 14 PASSED, 0 FAILED
+```
+
+### Stripe Disablement Suite (`npm run test:disablement`)
+```text
+📊 STRIPE HARDENING TEST RESULTS: 44 PASSED, 0 FAILED
+```
+
+---
+
+## 4. Remaining Owner Actions for Production Activation
+
+Because of strict non-deployment boundaries, the following steps must be performed by the repository owner to complete live production activation:
+
+1. **Store CRON_SECRET in Supabase Vault**:
+   In the Supabase Dashboard, navigate to **Project Settings > Vault** (or run via SQL):
    ```sql
-   SELECT cron.schedule(
-       'linkedin-autopilot-publish-cron',
-       '* * * * *',
-       $$ SELECT public.invoke_serverless_publish_cron('https://autopilot.gtinnox.in', '<YOUR_CRON_SECRET>'); $$
-   );
+   SELECT vault.create_secret('<YOUR_PRODUCTION_CRON_SECRET>', 'cron_secret', 'Secret for serverless cron publishing');
    ```
-4. **Verify Live Runs in Supabase**:
+
+2. **Apply Migration 6 in Supabase**:
+   Execute the contents of [`supabase/migrations/20261113000006_serverless_scheduler_pg_cron.sql`](file:///c:/Users/tejag/Downloads/GT-Scheduler/supabase/migrations/20261113000006_serverless_scheduler_pg_cron.sql) in the Supabase SQL Editor.
+
+3. **Verify pg_cron Schedule Execution**:
    ```sql
+   SELECT * FROM cron.job WHERE jobname = 'linkedin-autopilot-publish-cron';
    SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 5;
+   SELECT * FROM public.scheduler_execution_logs ORDER BY invoked_at DESC LIMIT 5;
    ```

@@ -54,7 +54,7 @@ export async function GET() {
   }
 
   // 4. Last Successful Scheduler Execution Check
-  // Evaluates public.worker_heartbeats to verify the scheduler is executing periodically
+  // Evaluates both public.scheduler_execution_logs and public.worker_heartbeats
   const workerStart = Date.now();
   const SCHEDULER_HEARTBEAT_THRESHOLD_SECONDS = 90; // Standard 90s freshness threshold
 
@@ -66,13 +66,32 @@ export async function GET() {
       .eq('id', 'primary_worker')
       .maybeSingle();
 
+    // Query scheduler_execution_logs if table is present
+    let latestLog: any = null;
+    let logErrorMsg: string | null = null;
+    try {
+      const { data: logData, error: logErr } = await admin
+        .from('scheduler_execution_logs')
+        .select('id, invoked_at, status, due_jobs_count, published_count, failed_count, execution_duration_ms')
+        .order('invoked_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!logErr) {
+        latestLog = logData;
+      } else if (!logErr.message?.includes('schema cache') && !logErr.message?.includes('does not exist')) {
+        logErrorMsg = logErr.message;
+      }
+    } catch (e: any) {
+      // Table may not yet be applied in environments prior to migration
+    }
+
     const workerLatency = Date.now() - workerStart;
 
-    if (hbError) {
+    if (hbError || logErrorMsg) {
       checks.scheduler_execution = {
         status: 'degraded',
         latencyMs: workerLatency,
-        message: 'Database query failed when reading scheduler heartbeat',
+        message: `Database query failed when reading scheduler telemetry: ${hbError?.message || logErrorMsg}`,
       };
     } else if (!heartbeat || !heartbeat.last_seen_at) {
       checks.scheduler_execution = {
@@ -98,8 +117,9 @@ export async function GET() {
           message: `Scheduler active (${heartbeat.mode || 'serverless'}, last execution ${ageSeconds}s ago)`,
           details: {
             last_execution_at: heartbeat.last_seen_at,
-            last_execution_duration_ms: heartbeat.meta?.last_execution_duration_ms,
+            last_execution_duration_ms: heartbeat.meta?.last_execution_duration_ms || latestLog?.execution_duration_ms,
             age_seconds: ageSeconds,
+            latest_execution_status: latestLog?.status || 'completed',
           },
         };
       }
@@ -125,9 +145,10 @@ export async function GET() {
       .maybeSingle();
 
     if (pubError) {
+      // Database query error must be reported as degraded, not masked as healthy
       checks.last_successful_publication = {
-        status: 'healthy',
-        message: 'Unable to query publication history (non-fatal)',
+        status: 'degraded',
+        message: `Database query failed when reading publication ledger: ${pubError.message}`,
       };
     } else if (latestSuccess && latestSuccess.created_at) {
       checks.last_successful_publication = {
@@ -146,8 +167,8 @@ export async function GET() {
     }
   } catch (err: any) {
     checks.last_successful_publication = {
-      status: 'healthy',
-      message: 'Publication ledger check skipped',
+      status: 'degraded',
+      message: `Publication ledger check failed: ${err.message}`,
     };
   }
 

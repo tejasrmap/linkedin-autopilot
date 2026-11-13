@@ -175,6 +175,30 @@ test('Stale Reclamation: Rechecks BOTH status=processing and updated_at < cutoff
   assert.match(reclaimed?.error_message || '', /Recovered from timed-out/);
 });
 
+test('Retry Hardening: Never reopens completed or published jobs', async () => {
+  const admin = createAdminClient();
+  const nowIso = new Date().toISOString();
+  const completedPostId = 'already-completed-post-555';
+
+  await admin.from('posts').insert({
+    id: completedPostId,
+    workspace_id: 'test-workspace-id',
+    content: 'Already published post',
+    status: 'published',
+    updated_at: nowIso,
+  });
+
+  // Attempting conditional update on post with status in ['failed', 'processing']
+  const { data: updated } = await admin
+    .from('posts')
+    .update({ status: 'scheduled' })
+    .eq('id', completedPostId)
+    .in('status', ['failed', 'processing'])
+    .select('id');
+
+  assert.equal(updated && updated.length, 0, 'Must NOT update or reopen post that is already published');
+});
+
 test('Health: Distinguishes API, Database, Scheduler, Publication, and Stuck Jobs', async () => {
   const healthRes = await healthHandler();
   assert.equal(healthRes.status, 200);

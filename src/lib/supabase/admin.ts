@@ -10,6 +10,8 @@ const testStore: Record<string, any[]> = {
   profiles: [],
   ai_generations: [],
   worker_heartbeats: [],
+  scheduler_execution_logs: [],
+  post_publish_attempts: [],
 };
 
 export function createAdminClient(): SupabaseClient {
