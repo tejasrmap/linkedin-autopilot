@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       console.warn('[Stripe-Webhook] Database insert note:', insertErr.message);
       // Fallback for legacy DB schema constraint: mark as failed, NEVER processed
       if (insertErr.message?.includes('check') || (insertErr as any).code === '23514') {
-        await admin.from('stripe_events').insert({
+        const { error: fallbackErr } = await admin.from('stripe_events').insert({
           event_id: event.id,
           event_type: event.type,
           status: 'failed',
@@ -97,6 +97,20 @@ export async function POST(req: NextRequest) {
             action: 'ignored_unapplied',
           },
         });
+        if (fallbackErr) {
+          // Both primary and fallback writes failed -> Return retryable 500
+          return NextResponse.json(
+            { error: 'Durable event recording failed. Retryable server error.', code: 'LEDGER_INSERT_FAILED' },
+            { status: 500 }
+          );
+        }
+      } else {
+        // A webhook must never be acknowledged as successfully recorded if its database ledger insertion failed.
+        // Return a retryable server error when durable event recording fails.
+        return NextResponse.json(
+          { error: 'Durable event recording failed. Retryable server error.', code: 'LEDGER_INSERT_FAILED' },
+          { status: 500 }
+        );
       }
     }
 
@@ -188,6 +202,12 @@ export async function POST(req: NextRequest) {
           shouldProcess = true;
         }
       }
+    } else if (insertError) {
+      // Database ledger failure: insert failed and existing record could not be read
+      return NextResponse.json(
+        { error: 'Durable event recording failed. Retryable server error.', code: 'LEDGER_INSERT_FAILED' },
+        { status: 500 }
+      );
     }
   }
 

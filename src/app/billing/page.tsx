@@ -132,7 +132,7 @@ export default function BillingPage() {
     }
   };
 
-  const activeTier = subData?.plan?.tier || 'pro';
+  const activeTier = subData?.plan?.tier || 'free';
   const usage = subData?.usage || {
     postsThisMonth: 0,
     postsLimit: 500,
