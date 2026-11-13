@@ -128,8 +128,6 @@ checkDueScheduledJobs();
 // -------------------------------------------------------------
 // LIVE WORKER HEARTBEAT TELEMETRY
 // -------------------------------------------------------------
-let heartbeatWarned = false;
-
 async function recordHeartbeat() {
   try {
     const supabase = createAdminClient();
@@ -148,13 +146,10 @@ async function recordHeartbeat() {
       { onConflict: 'id' }
     );
     if (error) {
-      if (!heartbeatWarned) {
-        console.warn('[Worker] Heartbeat note (run migration 20261113000004 if table missing):', error.message);
-        heartbeatWarned = true;
-      }
+      console.warn(`[Worker] Heartbeat write failed at ${new Date().toISOString()}:`, error.message);
     }
   } catch (err: any) {
-    console.warn('[Worker] Heartbeat error:', err.message);
+    console.warn(`[Worker] Heartbeat unexpected error at ${new Date().toISOString()}:`, err.message);
   }
 }
 
@@ -177,4 +172,13 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// Prevent unhandled rejections and exceptions from crashing the worker process
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[Worker] Unhandled promise rejection caught (process preserved):', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err: Error) => {
+  console.error('[Worker] Uncaught exception caught (process preserved):', err.message);
+});
 
