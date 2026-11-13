@@ -44,6 +44,13 @@ export async function GET() {
     .eq('workspace_id', auth.workspaceId)
     .eq('connection_status', 'active');
 
+  // Count AI generations created this month from actual ledger
+  const { count: monthlyAiCount } = await admin
+    .from('ai_generations')
+    .select('*', { count: 'exact', head: true })
+    .eq('workspace_id', auth.workspaceId)
+    .gte('created_at', startOfMonth.toISOString());
+
   // Tier configuration definitions
   const limits: Record<
     string,
@@ -75,6 +82,12 @@ export async function GET() {
   // - Otherwise strictly return null. Never fabricate arbitrary 30-day renewal estimates.
   const authoritativeRenewal = subRecord?.current_period_end || null;
 
+  // SUBSCRIPTION STATUS DISCRIMINATION:
+  // - Accurately distinguishes active paid subscription ('active' | 'trialing') from free tier ('free') or past paid ('canceled').
+  const resolvedStatus = isActiveSub
+    ? subRecord.status
+    : (subRecord?.status && subRecord.status !== 'active' ? subRecord.status : 'free');
+
   return NextResponse.json({
     billingEnabled: billingActive,
     billingNotice: billingActive
@@ -84,7 +97,8 @@ export async function GET() {
       id: subRecord?.provider_subscription_id || (isActiveSub ? `sub_${planTier}` : null),
       name: currentTierLimits.name,
       tier: planTier,
-      status: subRecord?.status || 'active',
+      status: resolvedStatus,
+      isPaid: Boolean(isActiveSub),
       currentPeriodStart: subRecord?.current_period_start || null,
       currentPeriodEnd: authoritativeRenewal,
       renewsAt: authoritativeRenewal,
@@ -95,7 +109,7 @@ export async function GET() {
       postsRemaining: Math.max(0, currentTierLimits.maxPostsPerMonth - (monthlyPostsCount || 0)),
       connectedAccounts: accountsCount || 0,
       accountsLimit: currentTierLimits.maxAccounts,
-      aiCreditsUsed: 120,
+      aiCreditsUsed: monthlyAiCount || 0,
       aiCreditsLimit: currentTierLimits.aiCredits,
       videoPublishingEnabled: currentTierLimits.videoSupport,
     },
