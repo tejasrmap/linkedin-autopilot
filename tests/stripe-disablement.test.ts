@@ -15,6 +15,7 @@ import { POST as webhookRouteHandler } from '../src/app/api/billing/webhook/rout
 import { GET as subscriptionRouteHandler } from '../src/app/api/subscription/route';
 import { reconcileWorkspaceSubscription } from '../src/lib/billing-reconcile';
 import { createAdminClient } from '../src/lib/supabase/admin';
+import { GET as healthRouteHandler } from '../src/app/api/health/route';
 import { NextRequest } from 'next/server';
 import Stripe from 'stripe';
 
@@ -389,15 +390,56 @@ async function runHardenedDisablementTests() {
       '[REAL ROUTE INTEGRATION] Previously failed webhook events are permitted to be reclaimed for safe re-execution'
     );
 
+    // Test 5.4: True Simultaneous Route-Handler Execution with Promise.all
+    const simultaneousEventId = `evt_simultaneous_${Date.now()}`;
+    const simultaneousPayload = JSON.stringify({
+      id: simultaneousEventId,
+      object: 'event',
+      type: 'ping',
+      created: Math.floor(Date.now() / 1000),
+    });
+    const simultaneousHeader = stripe.webhooks.generateTestHeaderString({
+      payload: simultaneousPayload,
+      secret: testWebhookSecret,
+    });
+
+    const createSimulReq = () =>
+      new NextRequest('http://localhost:3000/api/billing/webhook', {
+        method: 'POST',
+        body: simultaneousPayload,
+        headers: { 'stripe-signature': simultaneousHeader },
+      });
+
+    const [simulResA, simulResB, simulResC] = await Promise.all([
+      webhookRouteHandler(createSimulReq()),
+      webhookRouteHandler(createSimulReq()),
+      webhookRouteHandler(createSimulReq()),
+    ]);
+
+    const simulDataA = await simulResA.json();
+    const simulDataB = await simulResB.json();
+    const simulDataC = await simulResC.json();
+
+    assert(
+      [simulResA.status, simulResB.status, simulResC.status].every((s) => s === 200),
+      '[SIMULTANEOUS PROMISE.ALL] Concurrent webhook deliveries all return HTTP 200 without race condition crashes'
+    );
+
+    const receivedCount = [simulDataA, simulDataB, simulDataC].filter((d) => d.received === true).length;
+    assert(
+      receivedCount === 3,
+      '[SIMULTANEOUS PROMISE.ALL] All 3 concurrent calls safely acknowledged without duplicate mutation'
+    );
+
     // Restore BILLING_ENABLED=false for subsequent tests
     process.env.BILLING_ENABLED = 'false';
 
     // -------------------------------------------------------------
     // TEST GROUP 6: SUBSCRIPTION DATA CORRECTNESS (NO FABRICATION)
     // -------------------------------------------------------------
-    console.log('\n--- Group 6: Subscription Data Correctness & Zero-Fabrication ---');
+    console.log('\n--- Group 6: Subscription Data Correctness & Blocker 1 Regressions ---');
 
-    const subReq = new NextRequest('http://localhost:3000/api/subscription', { method: 'GET' });
+    // Test 6.1: Default Free Tier Workspace
     const subRes = await subscriptionRouteHandler();
     const subData = await subRes.json();
 
@@ -417,6 +459,11 @@ async function runHardenedDisablementTests() {
     );
 
     assert(
+      subData.plan.id === null,
+      'Subscription ID is strictly null for free users (Never fabricates synthetic sub_free ID)'
+    );
+
+    assert(
       subData.plan.renewsAt === null,
       'Genuine renewal date returns null when unavailable (Never fabricates arbitrary 30-day renewal estimates)'
     );
@@ -429,6 +476,75 @@ async function runHardenedDisablementTests() {
     assert(
       subData.usage.aiCreditsUsed === 0,
       'AI credits used reflects authentic database ledger count (Replaced hardcoded 120 with genuine database query)'
+    );
+
+    // Test 6.2: Invalid / Unknown Tier Safety Check
+    await adminClient.from('subscriptions').insert({
+      workspace_id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31',
+      tier: 'super_enterprise_hack',
+      status: 'active',
+    });
+
+    const invalidTierRes = await subscriptionRouteHandler();
+    const invalidTierData = await invalidTierRes.json();
+
+    assert(
+      invalidTierData.plan.tier === 'free' && invalidTierData.plan.isPaid === false,
+      '[BLOCKER 1 REGRESSION] Corrupted or invalid subscription tiers strictly fallback to tier="free" and isPaid=false'
+    );
+    assert(
+      invalidTierData.plan.id === null,
+      '[BLOCKER 1 REGRESSION] Corrupted or invalid tier records do not fabricate subscription IDs'
+    );
+
+    // Test 6.3: Active Paid Subscription Resolution
+    await adminClient.from('subscriptions').update({
+      tier: 'pro',
+      status: 'active',
+      provider_subscription_id: 'sub_stripe_authentic_pro_123',
+      current_period_start: '2026-11-13T00:00:00.000Z',
+      current_period_end: '2026-12-13T00:00:00.000Z',
+    }).eq('workspace_id', '3af1cc83-b7e7-4ce6-b422-d84d326aaf31');
+
+    const activePaidRes = await subscriptionRouteHandler();
+    const activePaidData = await activePaidRes.json();
+
+    assert(
+      activePaidData.plan.tier === 'pro' &&
+      activePaidData.plan.status === 'active' &&
+      activePaidData.plan.isPaid === true &&
+      activePaidData.plan.id === 'sub_stripe_authentic_pro_123' &&
+      activePaidData.plan.currentPeriodEnd === '2026-12-13T00:00:00.000Z',
+      '[BLOCKER 1 REGRESSION] Authentic active paid subscriptions correctly resolve tier, status, isPaid, and period end'
+    );
+
+    // Test 6.4: Canceled Subscription Resolution
+    await adminClient.from('subscriptions').update({
+      tier: 'pro',
+      status: 'canceled',
+      provider_subscription_id: 'sub_stripe_authentic_pro_123',
+    }).eq('workspace_id', '3af1cc83-b7e7-4ce6-b422-d84d326aaf31');
+
+    const canceledRes = await subscriptionRouteHandler();
+    const canceledData = await canceledRes.json();
+
+    assert(
+      canceledData.plan.tier === 'free' &&
+      canceledData.plan.status === 'canceled' &&
+      canceledData.plan.isPaid === false &&
+      canceledData.plan.id === null,
+      '[BLOCKER 1 REGRESSION] Canceled subscriptions report status="canceled", tier="free", isPaid=false, and id=null'
+    );
+
+    // Test 6.5: Database Error Handling (Never Silently Returns 0 Usage)
+    process.env.SIMULATE_DB_ERROR = 'true';
+    const dbErrRes = await subscriptionRouteHandler();
+    const dbErrData = await dbErrRes.json();
+    delete process.env.SIMULATE_DB_ERROR;
+
+    assert(
+      dbErrRes.status === 500 && dbErrData.code && dbErrData.code.includes('FAILED'),
+      '[BLOCKER 1 REGRESSION] Database query failures return HTTP 500 and never silently convert DB errors to zero usage'
     );
 
     // -------------------------------------------------------------
@@ -468,6 +584,67 @@ async function runHardenedDisablementTests() {
     assert(
       isBillingEnabled() === true,
       'Setting BILLING_ENABLED=true successfully restores billing flag'
+    );
+    process.env.BILLING_ENABLED = 'false';
+
+    // -------------------------------------------------------------
+    // TEST GROUP 9: WORKER HEARTBEAT & HEALTH API TELEMETRY
+    // -------------------------------------------------------------
+    console.log('\n--- Group 9: Worker Heartbeat Freshness & Health Status Discrimination ---');
+
+    // 9.1: Active heartbeat (<90s)
+    await adminClient.from('worker_heartbeats').upsert({
+      id: 'primary_worker',
+      mode: 'Persistent Standalone Poller',
+      last_seen_at: new Date().toISOString(),
+      uptime_seconds: 300,
+    });
+
+    const activeHealthRes = await healthRouteHandler();
+    const activeHealthData = await activeHealthRes.json();
+
+    assert(
+      activeHealthRes.status === 200 && activeHealthData.checks.worker_engine.status === 'healthy',
+      '[BLOCKER 3 REGRESSION] Active worker heartbeat (<90s) reports worker_engine: healthy'
+    );
+    assert(
+      activeHealthData.status === 'healthy',
+      '[BLOCKER 3 REGRESSION] System status reports healthy when all checks pass'
+    );
+
+    // 9.2: Stale heartbeat (>90s)
+    const staleHeartbeatTime = new Date(Date.now() - 120000).toISOString();
+    await adminClient.from('worker_heartbeats').upsert({
+      id: 'primary_worker',
+      mode: 'Persistent Standalone Poller',
+      last_seen_at: staleHeartbeatTime,
+      uptime_seconds: 120,
+    });
+
+    const staleHealthRes = await healthRouteHandler();
+    const staleHealthData = await staleHealthRes.json();
+
+    assert(
+      staleHealthData.checks.worker_engine.status === 'degraded',
+      '[BLOCKER 3 REGRESSION] Stale worker heartbeat (>90s) reports worker_engine: degraded'
+    );
+    assert(
+      staleHealthData.status === 'degraded',
+      '[BLOCKER 3 REGRESSION] Overall status reflects degraded without taking down the web API'
+    );
+    assert(
+      staleHealthRes.status === 200,
+      '[BLOCKER 3 REGRESSION] Degraded worker status maintains HTTP 200 to keep web API accessible'
+    );
+
+    // 9.3: Security check: No secrets or credentials in health payload
+    const serializedHealth = JSON.stringify(staleHealthData);
+    assert(
+      !serializedHealth.includes('sk_test') &&
+      !serializedHealth.includes('whsec_') &&
+      !serializedHealth.includes('postgres://') &&
+      !serializedHealth.includes('secret'),
+      '[BLOCKER 3 REGRESSION] Health payload strictly excludes credentials, secrets, and connection strings'
     );
 
     // Summary

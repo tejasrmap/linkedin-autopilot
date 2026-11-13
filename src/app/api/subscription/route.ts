@@ -20,36 +20,68 @@ export async function GET() {
   const admin = createAdminClient();
 
   // 1. Fetch real workspace subscription from database
-  const { data: subRecord } = await admin
+  const { data: subRecord, error: subError } = await admin
     .from('subscriptions')
     .select('*')
     .eq('workspace_id', auth.workspaceId)
     .maybeSingle();
+
+  if (subError) {
+    console.error('[Subscription] Database query error fetching subscription:', subError);
+    return NextResponse.json(
+      { error: 'Database error retrieving subscription details', code: 'SUBSCRIPTION_QUERY_FAILED' },
+      { status: 500 }
+    );
+  }
 
   // Count posts created this month
   const startOfMonth = new Date();
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
-  const { count: monthlyPostsCount } = await admin
+  const { count: monthlyPostsCount, error: postsError } = await admin
     .from('posts')
     .select('*', { count: 'exact', head: true })
     .eq('workspace_id', auth.workspaceId)
     .gte('created_at', startOfMonth.toISOString());
 
+  if (postsError) {
+    console.error('[Subscription] Database query error fetching posts count:', postsError);
+    return NextResponse.json(
+      { error: 'Failed to retrieve post usage metrics from database', code: 'POSTS_QUERY_FAILED' },
+      { status: 500 }
+    );
+  }
+
   // Count connected accounts
-  const { count: accountsCount } = await admin
+  const { count: accountsCount, error: accountsError } = await admin
     .from('social_accounts')
     .select('*', { count: 'exact', head: true })
     .eq('workspace_id', auth.workspaceId)
     .eq('connection_status', 'active');
 
+  if (accountsError) {
+    console.error('[Subscription] Database query error fetching accounts count:', accountsError);
+    return NextResponse.json(
+      { error: 'Failed to retrieve connected accounts count from database', code: 'ACCOUNTS_QUERY_FAILED' },
+      { status: 500 }
+    );
+  }
+
   // Count AI generations created this month from actual ledger
-  const { count: monthlyAiCount } = await admin
+  const { count: monthlyAiCount, error: aiError } = await admin
     .from('ai_generations')
     .select('*', { count: 'exact', head: true })
     .eq('workspace_id', auth.workspaceId)
     .gte('created_at', startOfMonth.toISOString());
+
+  if (aiError) {
+    console.error('[Subscription] Database query error fetching AI generations count:', aiError);
+    return NextResponse.json(
+      { error: 'Failed to retrieve AI usage metrics from database', code: 'USAGE_QUERY_FAILED' },
+      { status: 500 }
+    );
+  }
 
   // Tier configuration definitions
   const limits: Record<
@@ -61,32 +93,45 @@ export async function GET() {
     agency: { maxPostsPerMonth: 5000, maxAccounts: 50, aiCredits: 10000, videoSupport: true, name: 'Agency Enterprise' },
   };
 
-  // SECURE DEFAULT TIER LOGIC:
-  // - If subRecord exists with active/trialing status, preserve their paid tier.
-  // - Otherwise strictly default to 'free' (Prevents accidental free-to-paid upgrades).
-  let planTier = 'free';
-  const isActiveSub = subRecord && (subRecord.status === 'active' || subRecord.status === 'trialing');
+  const VALID_TIERS = ['free', 'pro', 'agency'] as const;
+  type ValidTier = (typeof VALID_TIERS)[number];
 
-  if (isActiveSub) {
-    const candidateTier = (subRecord.tier || subRecord.plan_id || '').toLowerCase();
-    if (limits[candidateTier]) {
-      planTier = candidateTier;
-    }
-  }
+  // STRICT TIER VALIDATION & IS_PAID DISCRIMINATION:
+  // - Validates candidate tier against explicit allow-list ('free', 'pro', 'agency').
+  // - Rejects corrupted, unknown, or fabricated tiers (falls back strictly to 'free').
+  // - isPaid is strictly true ONLY if subRecord is active/trialing AND the tier is 'pro' | 'agency'.
+  const candidateTier = (subRecord?.tier || subRecord?.plan_id || '').toLowerCase();
+  const isCandidateTierValid = (VALID_TIERS as readonly string[]).includes(candidateTier);
+  const isActiveStatus = subRecord && (subRecord.status === 'active' || subRecord.status === 'trialing');
+
+  const isPaid = Boolean(isActiveStatus && isCandidateTierValid && candidateTier !== 'free');
+  const planTier: ValidTier = isPaid ? (candidateTier as ValidTier) : 'free';
 
   const currentTierLimits = limits[planTier];
   const billingActive = isBillingEnabled();
 
   // ZERO-FABRICATION RENEWAL DATE:
-  // - If an authoritative current_period_end exists in the database, return it.
-  // - Otherwise strictly return null. Never fabricate arbitrary 30-day renewal estimates.
-  const authoritativeRenewal = subRecord?.current_period_end || null;
+  // - If an authoritative current_period_end exists for an active paid subscription, return it.
+  // - Otherwise strictly return null. Never fabricate arbitrary renewal estimates.
+  const authoritativeRenewal = isPaid ? (subRecord?.current_period_end || null) : null;
 
   // SUBSCRIPTION STATUS DISCRIMINATION:
   // - Accurately distinguishes active paid subscription ('active' | 'trialing') from free tier ('free') or past paid ('canceled').
-  const resolvedStatus = isActiveSub
-    ? subRecord.status
-    : (subRecord?.status && subRecord.status !== 'active' ? subRecord.status : 'free');
+  let resolvedStatus = 'free';
+  if (isPaid) {
+    resolvedStatus = subRecord!.status;
+  } else if (subRecord?.status && subRecord.status !== 'active') {
+    resolvedStatus = subRecord.status;
+  } else {
+    resolvedStatus = 'free';
+  }
+
+  // ZERO-FABRICATION SUBSCRIPTION ID:
+  // - Never fabricate synthetic subscription IDs like 'sub_free' or 'sub_pro'.
+  // - Returns genuine provider/stripe subscription ID from database, or null.
+  const authoritativeSubId = isPaid
+    ? (subRecord?.provider_subscription_id || subRecord?.stripe_subscription_id || null)
+    : null;
 
   return NextResponse.json({
     billingEnabled: billingActive,
@@ -94,12 +139,12 @@ export async function GET() {
       ? null
       : 'Stripe payments and plan changes are temporarily paused. Existing subscription capabilities remain active.',
     plan: {
-      id: subRecord?.provider_subscription_id || (isActiveSub ? `sub_${planTier}` : null),
+      id: authoritativeSubId,
       name: currentTierLimits.name,
       tier: planTier,
       status: resolvedStatus,
-      isPaid: Boolean(isActiveSub),
-      currentPeriodStart: subRecord?.current_period_start || null,
+      isPaid,
+      currentPeriodStart: isPaid ? (subRecord?.current_period_start || null) : null,
       currentPeriodEnd: authoritativeRenewal,
       renewsAt: authoritativeRenewal,
     },

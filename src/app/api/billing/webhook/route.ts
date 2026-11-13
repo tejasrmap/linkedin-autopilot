@@ -168,25 +168,37 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Stale lock recovery: Reclaim crashed or timed-out processing event
-        const { data: reclaimed } = await admin
+        const staleCutoffIso = new Date(Date.now() - staleThresholdMs).toISOString();
+
+        // Stale lock recovery: Atomic CAS reclamation.
+        // Reclamation MUST check that the record is STILL stale at the moment of update.
+        // If another concurrent request reclaimed it a fraction of a second earlier,
+        // updated_at will no longer match the stale condition and this update will affect 0 rows.
+        let reclaimQuery = admin
           .from('stripe_events')
           .update({
             status: 'processing',
             updated_at: new Date().toISOString(),
           })
           .eq('event_id', event.id)
-          .eq('status', 'processing')
-          .select()
-          .maybeSingle();
+          .eq('status', 'processing');
+
+        if (existingEvent.updated_at) {
+          reclaimQuery = reclaimQuery.lte('updated_at', staleCutoffIso);
+        } else {
+          reclaimQuery = reclaimQuery.lte('created_at', staleCutoffIso);
+        }
+
+        const { data: reclaimed } = await reclaimQuery.select().maybeSingle();
 
         if (reclaimed) {
           shouldProcess = true;
         } else {
-          return NextResponse.json({ received: true, deduplicated: true });
+          return NextResponse.json({ received: true, deduplicated: true, in_flight: true });
         }
       } else if (existingEvent.status === 'failed') {
         // Retry handling: Reclaim previously failed event for re-execution
+        // Must check that status is STILL 'failed' at the moment of update so only ONE concurrent retry acquires the lock
         const { data: reclaimed } = await admin
           .from('stripe_events')
           .update({
@@ -195,11 +207,14 @@ export async function POST(req: NextRequest) {
             error_message: null,
           })
           .eq('event_id', event.id)
+          .eq('status', 'failed')
           .select()
           .maybeSingle();
 
         if (reclaimed) {
           shouldProcess = true;
+        } else {
+          return NextResponse.json({ received: true, deduplicated: true });
         }
       }
     } else if (insertError) {

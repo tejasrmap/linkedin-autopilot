@@ -46,18 +46,77 @@ export async function GET() {
     checks.linkedin_api = { status: 'degraded', latencyMs: Date.now() - liStart, message: err.message };
   }
 
-  // 3. Queue / Worker Status
-  checks.worker_engine = {
-    status: 'healthy',
-    message: process.env.REDIS_URL ? 'BullMQ Redis Active' : 'Persistent Database Poller Active',
-  };
+  // 3. Queue / Worker Live Heartbeat Verification
+  // Explicitly queries public.worker_heartbeats to verify background daemon pulse
+  const workerStart = Date.now();
+  const WORKER_HEARTBEAT_THRESHOLD_SECONDS = 90; // Stale after 90s without pulse
 
-  const isHealthy = Object.values(checks).every((c) => c.status !== 'unhealthy');
+  try {
+    const admin = createAdminClient();
+    const { data: heartbeat, error: hbError } = await admin
+      .from('worker_heartbeats')
+      .select('id, mode, last_seen_at, uptime_seconds')
+      .eq('id', 'primary_worker')
+      .maybeSingle();
+
+    const workerLatency = Date.now() - workerStart;
+
+    if (hbError) {
+      checks.worker_engine = {
+        status: 'degraded',
+        latencyMs: workerLatency,
+        message: 'Database query failed when reading worker heartbeat',
+      };
+    } else if (!heartbeat || !heartbeat.last_seen_at) {
+      checks.worker_engine = {
+        status: 'degraded',
+        latencyMs: workerLatency,
+        message: 'No worker heartbeat record found. Background worker is not registered or running.',
+      };
+    } else {
+      const lastSeenTime = new Date(heartbeat.last_seen_at).getTime();
+      const ageSeconds = Math.max(0, Math.floor((Date.now() - lastSeenTime) / 1000));
+
+      if (isNaN(lastSeenTime) || ageSeconds > WORKER_HEARTBEAT_THRESHOLD_SECONDS) {
+        checks.worker_engine = {
+          status: 'degraded',
+          latencyMs: workerLatency,
+          message: `Worker heartbeat is stale (${ageSeconds}s old; threshold is ${WORKER_HEARTBEAT_THRESHOLD_SECONDS}s). Worker may be stopped.`,
+        };
+      } else {
+        checks.worker_engine = {
+          status: 'healthy',
+          latencyMs: workerLatency,
+          message: `Worker active (${heartbeat.mode || 'polling'}, last seen ${ageSeconds}s ago)`,
+        };
+      }
+    }
+  } catch (err: any) {
+    checks.worker_engine = {
+      status: 'unhealthy',
+      latencyMs: Date.now() - workerStart,
+      message: err.message || 'Worker check failed',
+    };
+  }
+
+  // ACCURATE HEALTH STATUS DISCRIMINATION:
+  // - API health is governed by database connectivity.
+  // - Worker health reports degraded if heartbeat is missing/stale without downing the web API.
+  const isApiUnhealthy = checks.database?.status === 'unhealthy';
+  const allChecksHealthy = Object.values(checks).every((c) => c.status === 'healthy');
+
+  let overallStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+  if (isApiUnhealthy) {
+    overallStatus = 'unhealthy';
+  } else if (!allChecksHealthy) {
+    overallStatus = 'degraded';
+  }
+
   const totalLatency = Date.now() - startTime;
 
   return NextResponse.json(
     {
-      status: isHealthy ? 'healthy' : 'degraded',
+      status: overallStatus,
       service: 'LinkedIn Autopilot SaaS',
       version: '1.0.0',
       timestamp: new Date().toISOString(),
@@ -65,7 +124,7 @@ export async function GET() {
       totalLatencyMs: totalLatency,
       checks,
     },
-    { status: isHealthy ? 200 : 503 }
+    { status: isApiUnhealthy ? 503 : 200 }
   );
 }
 
