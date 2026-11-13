@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import {
@@ -76,19 +77,10 @@ function ComposerContent() {
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchAccounts();
-    // Default scheduled date to tomorrow at 10:00 AM
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setScheduledDate(tomorrow.toISOString().split('T')[0]);
-    setScheduledTime('10:00');
-  }, []);
-
   const memberAccounts = accounts.filter((a) => a.account_type === 'member');
   const orgAccounts = accounts.filter((a) => a.account_type === 'organization');
 
-  const fetchAccounts = async () => {
+  const fetchAccounts = useCallback(async () => {
     try {
       const res = await fetch('/api/linkedin/accounts');
       if (res.ok) {
@@ -109,7 +101,16 @@ function ComposerContent() {
     } finally {
       setAccountsLoading(false);
     }
-  };
+  }, [selectedAccount, toast]);
+
+  useEffect(() => {
+    fetchAccounts();
+    // Default scheduled date to tomorrow at 10:00 AM
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setScheduledDate(tomorrow.toISOString().split('T')[0]);
+    setScheduledTime('10:00');
+  }, [fetchAccounts]);
 
   const handleDestinationSwitch = (type: 'member' | 'organization') => {
     setDestinationType(type);
@@ -386,7 +387,14 @@ function ComposerContent() {
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold flex items-center justify-center text-xs shadow-sm">
                       {memberAccounts[0].profile_image_url ? (
-                        <img src={memberAccounts[0].profile_image_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                        <Image
+                          src={memberAccounts[0].profile_image_url}
+                          alt={memberAccounts[0].account_name}
+                          width={32}
+                          height={32}
+                          unoptimized
+                          className="w-8 h-8 rounded-full object-cover"
+                        />
                       ) : (
                         memberAccounts[0].account_name[0]
                       )}
@@ -594,9 +602,12 @@ function ComposerContent() {
               {destinationType === 'organization' || selectedAccObj?.account_type === 'organization' ? (
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
                   {selectedAccObj?.profile_image_url ? (
-                    <img
+                    <Image
                       src={selectedAccObj.profile_image_url}
-                      alt=""
+                      alt={selectedAccObj.account_name || 'Organization'}
+                      width={44}
+                      height={44}
+                      unoptimized
                       className="w-11 h-11 rounded-xl object-cover"
                     />
                   ) : (
@@ -606,9 +617,12 @@ function ComposerContent() {
               ) : (
                 <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
                   {selectedAccObj?.profile_image_url ? (
-                    <img
+                    <Image
                       src={selectedAccObj.profile_image_url}
-                      alt=""
+                      alt={selectedAccObj.account_name || 'Profile'}
+                      width={44}
+                      height={44}
+                      unoptimized
                       className="w-11 h-11 rounded-full object-cover"
                     />
                   ) : (
@@ -651,9 +665,12 @@ function ComposerContent() {
             {mediaAssets.length > 0 && mediaAssets[0].url && (
               <div className="border-t border-b border-slate-100 dark:border-slate-800/80 bg-slate-900 max-h-80 overflow-hidden flex items-center justify-center">
                 {postType === 'image' && (
-                  <img
+                  <Image
                     src={mediaAssets[0].url}
                     alt="Uploaded media preview"
+                    width={800}
+                    height={500}
+                    unoptimized
                     className="max-h-80 w-auto object-contain"
                   />
                 )}

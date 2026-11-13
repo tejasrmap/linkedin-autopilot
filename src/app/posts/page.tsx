@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useToast } from '@/components/ui/toast';
@@ -71,11 +71,7 @@ function PostsContent() {
     setActiveTab(initialTab);
   }, [initialTab]);
 
-  useEffect(() => {
-    loadPosts();
-  }, [activeTab]);
-
-  const loadPosts = async () => {
+  const loadPosts = useCallback(async () => {
     try {
       setLoading(true);
       const url = activeTab === 'all' ? '/api/posts' : `/api/posts?status=${activeTab}`;
@@ -89,7 +85,11 @@ function PostsContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, toast]);
+
+  useEffect(() => {
+    loadPosts();
+  }, [loadPosts]);
 
   const handlePublishNow = async (postId: string) => {
     setActionLoading(postId);
