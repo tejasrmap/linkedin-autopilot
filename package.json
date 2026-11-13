@@ -16,6 +16,7 @@
     "test:hardening": "tsx tests/hardening-suite.test.ts",
     "test:disablement": "tsx tests/stripe-disablement.test.ts",
     "test:postgres": "tsx tests/staging-postgres-integration.test.ts",
+    "db:verify-migrations": "tsx scripts/verify-migrations.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {
