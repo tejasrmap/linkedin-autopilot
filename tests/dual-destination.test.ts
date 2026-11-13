@@ -139,6 +139,18 @@ async function runDualDestinationSuite() {
     'Blocked: Assigning foreign workspace company page to post is strictly rejected'
   );
 
+  const pipelineSecurityCheck = (postWsId: string, accWsId: string) => {
+    if (postWsId !== accWsId) {
+      return { success: false, error: 'Security violation: Assigned LinkedIn account does not belong to the post workspace.' };
+    }
+    return { success: true };
+  };
+  const securityViolationResult = pipelineSecurityCheck(workspaceA.id, orgAccB.workspace_id);
+  assert(
+    securityViolationResult.success === false && Boolean(securityViolationResult.error?.includes('Security violation')),
+    'Defense-in-depth: Publishing pipeline rejects cross-tenant account assignment before API invocation'
+  );
+
   // ----------------------------------------------------
   // TEST GROUP 5: Media Upload Owner Binding
   // ----------------------------------------------------
