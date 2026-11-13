@@ -22,25 +22,34 @@ Copy `.env.example` to `.env.production` on the production server:
 
 ```ini
 # Application URLs
-NEXT_PUBLIC_APP_URL=https://app.gtinnox.com
-APP_URL=https://app.gtinnox.com
+NEXT_PUBLIC_APP_URL=https://autopilot.gtinnox.in
+APP_URL=https://autopilot.gtinnox.in
 
 # Supabase Production Database
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
-SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+NEXT_PUBLIC_SUPABASE_URL=https://opkatczhnzfqcjkmxcvm.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
 
 # LinkedIn Developer Production Credentials
 LINKEDIN_CLIENT_ID=86pecf126iu1v4
 LINKEDIN_CLIENT_SECRET=your_linkedin_client_secret
-LINKEDIN_REDIRECT_URI=https://app.gtinnox.com/api/linkedin/callback
+LINKEDIN_REDIRECT_URI=https://autopilot.gtinnox.in/api/linkedin/callback
 LINKEDIN_API_VERSION=202610
 
 # Security & Encryption (32-byte / 64 hex character key)
-TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+CRON_SECRET=your_secure_cron_secret
+
+# AI Studio (Google Gemini)
+GEMINI_API_KEY=your_gemini_api_key
+
+# Commercial Billing (Stripe)
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
 
 # Queue & Background Worker
-REDIS_URL=redis://localhost:6379
+REDIS_URL=rediss://default:...@...upstash.io:6379
 ```
 
 ---
@@ -51,7 +60,7 @@ To deploy the full production stack:
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/gtinnox/linkedin-autopilot.git
+git clone https://github.com/tejasrmap/linkedin-autopilot.git
 cd linkedin-autopilot
 
 # 2. Configure production environment
@@ -71,7 +80,7 @@ docker-compose ps
 The system exposes an automated operational health check endpoint:
 
 ```bash
-curl -f https://app.gtinnox.com/api/health
+curl -f https://autopilot.gtinnox.in/api/health
 ```
 
 Expected JSON Response (`HTTP 200`):
