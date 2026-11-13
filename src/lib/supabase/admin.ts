@@ -9,6 +9,7 @@ const testStore: Record<string, any[]> = {
   social_accounts: [],
   profiles: [],
   ai_generations: [],
+  worker_heartbeats: [],
 };
 
 export function createAdminClient(): SupabaseClient {
@@ -34,18 +35,43 @@ export function createAdminClient(): SupabaseClient {
             limit: () => builder,
             order: () => builder,
             maybeSingle: async () => {
+              if (process.env.SIMULATE_DB_ERROR === 'true') {
+                return { data: null, error: { message: 'connection failure: database unreachable', code: '08006' } };
+              }
               const rows = testStore[table] || [];
-              const match = rows.find((r) => filters.every((f) => r[f.col] === f.val));
+              const match = rows.find((r) => filters.every((f) => {
+                if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'gte') return r[f.col] >= f.val;
+                return r[f.col] === f.val;
+              }));
               return { data: match || null, error: null };
             },
             single: async () => {
+              if (process.env.SIMULATE_DB_ERROR === 'true') {
+                return { data: null, error: { message: 'connection failure: database unreachable', code: '08006' } };
+              }
               const rows = testStore[table] || [];
-              const match = rows.find((r) => filters.every((f) => r[f.col] === f.val));
+              const match = rows.find((r) => filters.every((f) => {
+                if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'gte') return r[f.col] >= f.val;
+                return r[f.col] === f.val;
+              }));
               return { data: match || null, error: match ? null : new Error('Not found') };
             },
             then: (resolve: any, reject: any) => {
+              if (process.env.SIMULATE_DB_ERROR === 'true') {
+                return Promise.resolve({
+                  data: null,
+                  count: null,
+                  error: { message: 'connection failure: database unreachable', code: '08006' },
+                }).then(resolve, reject);
+              }
               const rows = testStore[table] || [];
-              const filtered = rows.filter((r) => filters.every((f) => r[f.col] === f.val));
+              const filtered = rows.filter((r) => filters.every((f) => {
+                if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'gte') return r[f.col] >= f.val;
+                return r[f.col] === f.val;
+              }));
               return Promise.resolve({
                 data: filtered,
                 count: filtered.length,
@@ -94,31 +120,74 @@ export function createAdminClient(): SupabaseClient {
               }),
             };
           },
+          upsert: (record: any) => {
+            const rows = (testStore[table] = testStore[table] || []);
+            const existingIndex = rows.findIndex((r) => r.id === record.id);
+            if (existingIndex >= 0) {
+              rows[existingIndex] = { ...rows[existingIndex], ...record };
+            } else {
+              rows.push({ ...record });
+            }
+            return {
+              data: record,
+              error: null,
+              select: () => ({
+                maybeSingle: async () => ({ data: record, error: null }),
+              }),
+            };
+          },
           update: (record: any) => {
-            const updateFilters: Array<{ col: string; val: any }> = [];
+            const updateFilters: Array<{ col: string; val: any; op: 'eq' | 'lte' | 'gte' }> = [];
+            const matchesFilters = (r: any) => {
+              return updateFilters.every((f) => {
+                if (f.op === 'lte') return r[f.col] <= f.val;
+                if (f.op === 'gte') return r[f.col] >= f.val;
+                return r[f.col] === f.val;
+              });
+            };
+            const executeUpdate = () => {
+              const rows = testStore[table] || [];
+              const matches = rows.filter(matchesFilters);
+              matches.forEach((m) => Object.assign(m, record));
+              return matches;
+            };
             const updateBuilder: any = {
               eq: (col: string, val: any) => {
-                updateFilters.push({ col, val });
+                updateFilters.push({ col, val, op: 'eq' });
+                return updateBuilder;
+              },
+              lte: (col: string, val: any) => {
+                updateFilters.push({ col, val, op: 'lte' });
+                return updateBuilder;
+              },
+              gte: (col: string, val: any) => {
+                updateFilters.push({ col, val, op: 'gte' });
                 return updateBuilder;
               },
               select: () => ({
                 maybeSingle: async () => {
                   const rows = testStore[table] || [];
-                  const match = rows.find((r) => updateFilters.every((f) => r[f.col] === f.val));
+                  const match = rows.find(matchesFilters);
                   if (match) {
                     Object.assign(match, record);
+                    return { data: { ...match }, error: null };
                   }
-                  return { data: match || null, error: null };
+                  return { data: null, error: null };
                 },
                 single: async () => {
                   const rows = testStore[table] || [];
-                  const match = rows.find((r) => updateFilters.every((f) => r[f.col] === f.val));
+                  const match = rows.find(matchesFilters);
                   if (match) {
                     Object.assign(match, record);
+                    return { data: { ...match }, error: null };
                   }
-                  return { data: match || null, error: match ? null : new Error('Not found') };
+                  return { data: null, error: new Error('Not found') };
                 },
               }),
+              then: (resolve: any, reject: any) => {
+                const matches = executeUpdate();
+                return Promise.resolve({ data: matches, error: null }).then(resolve, reject);
+              },
             };
             return updateBuilder;
           },
