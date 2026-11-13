@@ -23,8 +23,8 @@ The application now operates entirely on:
 
 ```mermaid
 flowchart TD
-    VC["Vercel Cron Trigger (* * * * *)"] -->|HTTP GET /api/cron/publish| API["Serverless Route Handler (maxDuration: 60s)"]
-    API --> AUTH{"Auth Verification (x-vercel-cron or CRON_SECRET)"}
+    CRON["Scheduled Trigger (Supabase pg_cron / Edge / External / Vercel Pro)"] -->|HTTP GET /api/cron/publish| API["Serverless Route Handler (maxDuration: 60s)"]
+    API --> AUTH{"Auth Verification (x-vercel-cron, Bearer, or ?key=)"}
     AUTH -->|Unauthorized| REJ["HTTP 401 Unauthorized"]
     AUTH -->|Authorized| HB["1. Emit Telemetry to worker_heartbeats (id: 'primary_worker')"]
     HB --> REC["2. Reclaim Stale Processing Locks (>5m in 'processing')"]
@@ -41,13 +41,14 @@ flowchart TD
 
 ### Key Technical Implementations:
 
-1. **Vercel Cron Integration (`vercel.json`)**:
-   - Configured `{ "crons": [{ "path": "/api/cron/publish", "schedule": "* * * * *" }] }`.
-   - Fires natively every minute without keeping any persistent server running.
+1. **Triggering the Serverless Scheduler**:
+   - The publishing engine lives at `/api/cron/publish` (with dynamic execution and `maxDuration = 60`).
+   - Triggering frequency: Every minute (`* * * * *`).
+   - On Vercel Pro, high-frequency crons can be configured directly. On free/hobby environments, high-frequency cron definitions in `vercel.json` are restricted by Vercel's daily cap; therefore, recurring 1-minute invocations are executed via Supabase `pg_cron` + `pg_net` or a standard webhook ping to `/api/cron/publish?key=<CRON_SECRET>`.
 
 2. **Secure Cron Invocations (`src/app/api/cron/publish/route.ts`)**:
    - Securely accepts Vercel's automated `x-vercel-cron` header.
-   - Also accepts standard `Authorization: Bearer <CRON_SECRET>` and query param `?key=<CRON_SECRET>` for manual runs or external monitoring pings.
+   - Also accepts standard `Authorization: Bearer <CRON_SECRET>` and query param `?key=<CRON_SECRET>` for automated invocations or external monitoring pings.
 
 3. **Serverless Worker Telemetry Pulse**:
    - Every minute on invocation, the serverless function upserts a heartbeat row into `public.worker_heartbeats`:
@@ -111,3 +112,4 @@ If required, rolling back to a persistent daemon can be accomplished instantaneo
 1. Re-deploy `src/worker/index.ts` to Railway, Render, or a VPS with `npm run worker`.
 2. Delete `vercel.json` or remove the cron definition.
 3. No database schema changes were made; all existing posts, schedules, and accounts remain 100% compatible.
+
