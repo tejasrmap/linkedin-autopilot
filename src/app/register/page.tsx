@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { GTInnoXLogo } from '@/components/brand/gtinnox-logo';
 import {
   User,
   Lock,
@@ -82,8 +83,8 @@ export default function RegisterPage() {
         <div className="hidden lg:flex lg:col-span-7 flex-col justify-between p-8 xl:p-12 border-r border-slate-800/60 bg-gradient-to-b from-slate-900/40 via-transparent to-slate-950/60 backdrop-blur-sm h-full overflow-hidden">
           {/* Top Brand Logo */}
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-base shadow-lg shadow-blue-500/30 ring-1 ring-white/20">
-              LP
+            <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/60 p-1 flex items-center justify-center shadow-lg shadow-indigo-500/20 ring-1 ring-white/10">
+              <GTInnoXLogo className="w-full h-full drop-shadow" />
             </div>
             <div>
               <div className="font-bold text-sm tracking-tight text-white flex items-center gap-2">
@@ -92,7 +93,10 @@ export default function RegisterPage() {
                   v2.0 Enterprise
                 </span>
               </div>
-              <div className="text-[11px] text-slate-400">By GT InnoX LLP</div>
+              <div className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+                <span>By</span>
+                <span className="font-semibold bg-gradient-to-r from-cyan-400 via-indigo-400 to-pink-400 bg-clip-text text-transparent">GT InnoX LLP</span>
+              </div>
             </div>
           </div>
 
@@ -164,9 +168,9 @@ export default function RegisterPage() {
         <div className="col-span-1 lg:col-span-5 flex flex-col justify-center items-center p-6 lg:p-8 xl:p-12 relative h-full overflow-hidden">
           <div className="w-full max-w-sm space-y-4">
             {/* Mobile Header */}
-            <div className="lg:hidden text-center space-y-1 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-lg mx-auto shadow-lg shadow-blue-500/30">
-                LP
+            <div className="lg:hidden text-center space-y-2 mb-2">
+              <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-700/60 p-1.5 flex items-center justify-center mx-auto shadow-lg shadow-indigo-500/20">
+                <GTInnoXLogo className="w-full h-full drop-shadow" />
               </div>
               <h1 className="text-lg font-bold tracking-tight text-white">
                 LinkedIn Autopilot

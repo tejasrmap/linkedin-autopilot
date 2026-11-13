@@ -3,6 +3,7 @@
 import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { GTInnoXLogo } from '@/components/brand/gtinnox-logo';
 import {
   LayoutDashboard,
   PenSquare,
@@ -139,8 +140,8 @@ export function Sidebar() {
     <aside className="w-64 flex-shrink-0 flex flex-col border-r border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-xl h-screen sticky top-0 select-none z-30 transition-colors">
       {/* Brand Header */}
       <div className="h-16 flex items-center px-5 border-b border-slate-200/80 dark:border-slate-800/80 gap-3">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-600 flex items-center justify-center text-white font-bold text-base shadow-md shadow-blue-500/25 ring-2 ring-white/10">
-          LP
+        <div className="w-10 h-10 rounded-xl bg-slate-900/90 dark:bg-slate-950 border border-slate-700/60 p-1 flex items-center justify-center shadow-lg shadow-indigo-500/10 flex-shrink-0 group">
+          <GTInnoXLogo className="w-full h-full drop-shadow-md transition-transform group-hover:scale-105" />
         </div>
         <div className="min-w-0">
           <div className="font-bold text-sm tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
@@ -149,7 +150,10 @@ export function Sidebar() {
               PRO
             </span>
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">by GT InnoX LLP</div>
+          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
+            <span>by</span>
+            <span className="font-semibold bg-gradient-to-r from-cyan-400 via-indigo-400 to-pink-400 bg-clip-text text-transparent">GT InnoX LLP</span>
+          </div>
         </div>
       </div>
 

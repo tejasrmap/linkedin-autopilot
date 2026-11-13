@@ -6,7 +6,20 @@ import { AppShell } from '@/components/layout/app-shell';
 
 export const metadata: Metadata = {
   title: 'LinkedIn Autopilot | GT InnoX LLP',
-  description: 'Enterprise LinkedIn Scheduling & AI Content Generation Platform',
+  description: 'Enterprise LinkedIn Scheduling & AI Content Generation Platform by GT InnoX LLP',
+  icons: {
+    icon: [
+      { url: '/gtinnox-icon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/gtinnox-logo.png', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/gtinnox-icon.svg', type: 'image/svg+xml' },
+      { url: '/gtinnox-logo.png', type: 'image/png' },
+    ],
+    shortcut: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({
