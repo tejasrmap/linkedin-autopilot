@@ -7,6 +7,8 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 export async function GET() {
   const startTime = Date.now();
@@ -236,6 +238,13 @@ export async function GET() {
       totalLatencyMs: totalLatency,
       checks,
     },
-    { status: isApiUnhealthy ? 503 : 200 }
+    {
+      status: isApiUnhealthy ? 503 : 200,
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    }
   );
 }

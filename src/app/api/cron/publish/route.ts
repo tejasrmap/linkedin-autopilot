@@ -163,7 +163,7 @@ async function handleCronRequest(request: Request) {
                     updated_at: nowIso,
                   })
                   .eq('id', job.id)
-                  .eq('status', 'processing');
+                  .in('status', ['failed', 'processing']);
               }
             } else {
               // Terminal failure reached after MAX_ATTEMPTS
