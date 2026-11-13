@@ -134,3 +134,4 @@ When GT InnoX LLP is ready to resume commercial transactions:
 2. **Redeploy / Promote Branch:**
    * Merge `feature/disable-stripe-billing` into `main` (or toggle the environment variable on the existing deployment).
    * Vercel will immediately re-enable live Stripe checkout sessions, customer portal access, and automatic webhook subscription updates.
+

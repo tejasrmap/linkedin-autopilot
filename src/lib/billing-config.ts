@@ -33,3 +33,4 @@ export const BILLING_DISABLED_RESPONSE = {
   message:
     'All billing, checkout sessions, and portal access are temporarily suspended by platform administration. Existing plan limits, scheduled posts, and workspace capabilities remain fully active.',
 };
+
