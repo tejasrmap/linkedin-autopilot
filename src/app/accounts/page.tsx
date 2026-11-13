@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
@@ -64,15 +65,7 @@ function AccountsContent() {
 
   const [copiedUrnId, setCopiedUrnId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setCurrentOrigin(window.location.origin);
-    }
-    fetchAccounts();
-    fetchConnectUrl();
-  }, [requestOrg]);
-
-  const fetchAccounts = async () => {
+  const fetchAccounts = useCallback(async () => {
     try {
       const res = await fetch('/api/linkedin/accounts');
       if (res.ok) {
@@ -88,9 +81,9 @@ function AccountsContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const fetchConnectUrl = async () => {
+  const fetchConnectUrl = useCallback(async () => {
     try {
       const res = await fetch(`/api/linkedin/connect?org=${requestOrg}`);
       if (res.ok) {
@@ -100,7 +93,15 @@ function AccountsContent() {
     } catch {
       // Non-blocking
     }
-  };
+  }, [requestOrg]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setCurrentOrigin(window.location.origin);
+    }
+    fetchAccounts();
+    fetchConnectUrl();
+  }, [fetchAccounts, fetchConnectUrl]);
 
   const handleConnect = async () => {
     try {
@@ -356,9 +357,12 @@ function AccountsContent() {
                         }`}
                       >
                         {acc.profile_image_url ? (
-                          <img
+                          <Image
                             src={acc.profile_image_url}
-                            alt=""
+                            alt={acc.account_name || 'Profile'}
+                            width={48}
+                            height={48}
+                            unoptimized
                             className={`w-12 h-12 object-cover ${isOrg ? 'rounded-xl' : 'rounded-full'}`}
                           />
                         ) : isOrg ? (

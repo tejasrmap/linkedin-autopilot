@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -32,11 +33,7 @@ export default function LibraryPage() {
   const [deleting, setDeleting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchMedia();
-  }, []);
-
-  const fetchMedia = async () => {
+  const fetchMedia = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/media');
@@ -49,7 +46,11 @@ export default function LibraryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchMedia();
+  }, [fetchMedia]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -180,9 +181,12 @@ export default function LibraryPage() {
                 {/* Thumbnail */}
                 <div className="h-36 bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden relative">
                   {isImg && asset.url ? (
-                    <img
+                    <Image
                       src={asset.url}
                       alt={asset.file_name}
+                      width={300}
+                      height={200}
+                      unoptimized
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   ) : isVid ? (

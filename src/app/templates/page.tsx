@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bookmark, Plus, ArrowRight, Loader2, Sparkles, Folder, Trash2, Copy, ChevronDown } from 'lucide-react';
 import { ContentTemplate } from '@/types';
@@ -18,11 +18,7 @@ export default function TemplatesPage() {
   const [category, setCategory] = useState('Framework');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetchTemplates();
-  }, []);
-
-  const fetchTemplates = async () => {
+  const fetchTemplates = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/templates');
@@ -35,7 +31,11 @@ export default function TemplatesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
 
   const handleCreate = async () => {
     if (!title.trim() || !content.trim()) {

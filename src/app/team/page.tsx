@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users,
   ShieldCheck,
@@ -48,11 +48,7 @@ export default function TeamPage() {
   const [deleteMemberName, setDeleteMemberName] = useState<string>('');
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    fetchMembers();
-  }, []);
-
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/workspaces/members');
@@ -66,7 +62,11 @@ export default function TeamPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchMembers();
+  }, [fetchMembers]);
 
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();

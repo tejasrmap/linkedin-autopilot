@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   ShieldCheck,
@@ -29,11 +29,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [updatingTicket, setUpdatingTicket] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadAdminData();
-  }, []);
-
-  const loadAdminData = async () => {
+  const loadAdminData = useCallback(async () => {
     try {
       setLoading(true);
       const metricsRes = await fetch('/api/admin/metrics');
@@ -60,7 +56,11 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadAdminData();
+  }, [loadAdminData]);
 
   const handleUpdateTicketStatus = async (ticketId: string, newStatus: string) => {
     try {

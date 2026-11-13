@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, Shield, Key, Bell, Globe, Check, Save, ShieldCheck, Lock, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 
@@ -17,11 +17,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
       const [wsRes, brandRes] = await Promise.all([
@@ -40,7 +36,7 @@ export default function SettingsPage() {
       if (brandRes.ok) {
         const bData = await brandRes.json();
         if (bData.settings) {
-          if (!appName) setAppName(bData.settings.brand_name || '');
+          setAppName((prev) => prev || bData.settings.brand_name || '');
           setIndustry(bData.settings.industry || '');
           setBrandVoice(bData.settings.brand_voice || 'Thought leadership & inspiring');
         }
@@ -50,7 +46,11 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

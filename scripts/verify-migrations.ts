@@ -230,3 +230,4 @@ auditMigrations().catch((err) => {
   console.error('Unhandled verification error:', err);
   process.exit(1);
 });
+
