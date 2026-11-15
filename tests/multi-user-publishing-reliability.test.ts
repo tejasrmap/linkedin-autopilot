@@ -497,7 +497,7 @@ test('Multi-Tenant: Disconnected or revoked account is rejected before calling L
 // GROUP 5: SAFE PL/PGSQL PARAMETER COMPATIBILITY
 // ==============================================================
 
-test('PL/pgSQL Parameter Hardening: Mock and RPC accept both p_ prefixed and legacy parameters', async () => {
+test('PL/pgSQL Parameter Hardening: Mock and RPC accept canonical production parameters', async () => {
   const admin = createAdminClient();
   const rpcPostId = 'plpgsql-param-test-post';
   const token = '12345678-1234-4234-a234-123456789abc';
@@ -510,24 +510,25 @@ test('PL/pgSQL Parameter Hardening: Mock and RPC accept both p_ prefixed and leg
     updated_at: new Date().toISOString(),
   });
 
-  // Call with p_ prefixed parameters (migration 9 signature)
+  // Call with canonical production parameter names (migration 9 & migration 8 signature)
   const { data: claimP } = await admin.rpc('claim_post_for_publishing', {
-    p_target_post_id: rpcPostId,
-    p_new_claim_token: token,
-    p_lease_duration_seconds: 300,
+    target_post_id: rpcPostId,
+    new_claim_token: token,
+    lease_duration_seconds: 300,
   });
   assert.equal(claimP.success, true);
   assert.equal(claimP.claim_token, token);
 
-  // Call finalize with p_ prefixed parameters
+  // Call finalize with canonical production parameter names
   const { data: finP } = await admin.rpc('finalize_post_publishing', {
-    p_target_post_id: rpcPostId,
-    p_expected_claim_token: token,
-    p_provider_post_id: 'urn:li:share:plpgsql-789',
+    target_post_id: rpcPostId,
+    expected_claim_token: token,
+    provider_post_id: 'urn:li:share:plpgsql-789',
   });
   assert.equal(finP.success, true);
 
   const { data: postRecord } = await admin.from('posts').select('*').eq('id', rpcPostId).single();
+  assert.ok(postRecord);
   assert.equal(postRecord.status, 'published');
   assert.equal(postRecord.provider_post_id, 'urn:li:share:plpgsql-789');
   assert.equal(postRecord.claim_token, null);

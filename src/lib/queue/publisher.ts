@@ -319,10 +319,6 @@ export async function executePublishPipeline(
   // 1. Atomic Claim with UUID Execution Lease Token (RPC with CAS fallback)
   let post: any = null;
   const { data: claimData, error: rpcErr } = await supabase.rpc('claim_post_for_publishing', {
-    p_target_post_id: postId,
-    p_new_claim_token: claimToken,
-    p_lease_duration_seconds: leaseDurationSeconds,
-    // Dual compatibility with legacy RPC parameter names
     target_post_id: postId,
     new_claim_token: claimToken,
     lease_duration_seconds: leaseDurationSeconds,
@@ -562,11 +558,6 @@ async function finalizePublishSuccess(
 
   // Try atomic finalize RPC first
   const { data: finalizeData, error: finalizeErr } = await supabase.rpc('finalize_post_publishing', {
-    p_target_post_id: postId,
-    p_expected_claim_token: claimToken,
-    p_provider_post_id: providerPostId,
-    p_raw_response: rawResponse || null,
-    // Dual compatibility with legacy RPC parameter names
     target_post_id: postId,
     expected_claim_token: claimToken,
     provider_post_id: providerPostId,
@@ -659,11 +650,6 @@ async function markPostFailed(
 
   // Atomic retry state transition via PostgreSQL RPC
   const { data: retryData, error: rpcErr } = await supabase.rpc('handle_publishing_failure_and_retry', {
-    p_target_post_id: post.id,
-    p_expected_claim_token: activeClaimToken,
-    p_error_message: errorMsg,
-    p_max_attempts: 3,
-    // Dual compatibility with legacy RPC parameter names
     target_post_id: post.id,
     expected_claim_token: activeClaimToken,
     error_message: errorMsg,

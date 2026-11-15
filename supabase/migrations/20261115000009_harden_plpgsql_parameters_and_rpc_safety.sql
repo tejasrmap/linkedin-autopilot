@@ -1,20 +1,22 @@
 -- ====================================================================
 -- SUPABASE MIGRATION: 20261115000009_harden_plpgsql_parameters_and_rpc_safety.sql
--- LinkedIn Autopilot - Unambiguous PL/pgSQL Parameters & RPC Safety Hardening
+-- LinkedIn Autopilot - Production-Compatible RPC Safety Hardening
 -- By GT InnoX LLP
 --
--- STATUS: FORWARD-ONLY MIGRATION (UNAPPLIED IN PRODUCTION)
+-- STATUS: FORWARD-ONLY MIGRATION (CORRECTED FOR PRODUCTION COMPATIBILITY)
 -- Purpose:
--- Eliminates potential PL/pgSQL variable-vs-column collisions (e.g. provider_post_id = provider_post_id
--- and error_message = error_message) by standardizing on p_ prefixed parameters and qualified table column
--- references throughout all publishing RPC stored procedures.
+-- Preserves canonical production parameter names (target_post_id, new_claim_token,
+-- expected_claim_token, error_message, provider_post_id) to avoid PostgreSQL error 42P13
+-- (cannot change name of input parameter) during CREATE OR REPLACE FUNCTION.
+-- Eliminates internal PL/pgSQL variable-vs-column collisions by using local variable
+-- declarations (v_...) and fully qualified table column references.
 -- ====================================================================
 
--- 1. Hardened Stored Procedure: Atomic Claim with Explicit Parameter Names
+-- 1. Hardened Stored Procedure: Atomic Claim with UUID Lease Token
 CREATE OR REPLACE FUNCTION public.claim_post_for_publishing(
-    p_target_post_id UUID,
-    p_new_claim_token UUID,
-    p_lease_duration_seconds INT DEFAULT 300
+    target_post_id UUID,
+    new_claim_token UUID,
+    lease_duration_seconds INT DEFAULT 300
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -24,14 +26,14 @@ AS $$
 DECLARE
     claimed_post RECORD;
     now_ts TIMESTAMPTZ := clock_timestamp();
-    effective_lease_seconds INT := COALESCE(p_lease_duration_seconds, 300);
+    effective_lease_seconds INT := COALESCE(lease_duration_seconds, 300);
     lease_until TIMESTAMPTZ;
 BEGIN
-    IF p_target_post_id IS NULL THEN
+    IF target_post_id IS NULL THEN
         RETURN jsonb_build_object('success', false, 'reason', 'target_post_id_required');
     END IF;
 
-    IF p_new_claim_token IS NULL THEN
+    IF new_claim_token IS NULL THEN
         RETURN jsonb_build_object('success', false, 'reason', 'claim_token_required');
     END IF;
 
@@ -45,10 +47,10 @@ BEGIN
     UPDATE public.posts
     SET 
         status = 'processing',
-        claim_token = p_new_claim_token,
+        claim_token = new_claim_token,
         lease_expires_at = lease_until,
         updated_at = now_ts
-    WHERE posts.id = p_target_post_id
+    WHERE posts.id = target_post_id
       AND (
           posts.status IN ('scheduled', 'approved', 'draft')
           OR (posts.status = 'processing' AND (posts.lease_expires_at < now_ts OR posts.lease_expires_at IS NULL AND posts.updated_at < now_ts - INTERVAL '5 minutes'))
@@ -67,10 +69,10 @@ BEGIN
     UPDATE public.scheduled_jobs
     SET
         status = 'processing',
-        claim_token = p_new_claim_token,
+        claim_token = new_claim_token,
         lease_expires_at = lease_until,
         updated_at = now_ts
-    WHERE scheduled_jobs.post_id = p_target_post_id
+    WHERE scheduled_jobs.post_id = target_post_id
       AND scheduled_jobs.status IN ('scheduled', 'queued', 'processing');
 
     RETURN jsonb_build_object(
@@ -84,10 +86,10 @@ $$;
 
 -- 2. Hardened Stored Procedure: Strict Atomic Failure & Exponential Backoff Retry
 CREATE OR REPLACE FUNCTION public.handle_publishing_failure_and_retry(
-    p_target_post_id UUID,
-    p_expected_claim_token UUID,
-    p_error_message TEXT,
-    p_max_attempts INT DEFAULT 3
+    target_post_id UUID,
+    expected_claim_token UUID,
+    error_message TEXT,
+    max_attempts INT DEFAULT 3
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -98,23 +100,25 @@ DECLARE
     current_job RECORD;
     current_post RECORD;
     now_ts TIMESTAMPTZ := clock_timestamp();
+    v_error_message TEXT := error_message;
+    v_max_attempts INT := COALESCE(max_attempts, 3);
     next_attempt INT;
     backoff_minutes INT;
     retry_at TIMESTAMPTZ;
 BEGIN
     -- 1. Validate inputs
-    IF p_target_post_id IS NULL THEN
+    IF target_post_id IS NULL THEN
         RETURN jsonb_build_object('success', false, 'reason', 'target_post_id_required');
     END IF;
 
-    IF p_expected_claim_token IS NULL THEN
+    IF expected_claim_token IS NULL THEN
         RETURN jsonb_build_object('success', false, 'reason', 'expected_claim_token_required');
     END IF;
 
     -- 2. Lock post FOR UPDATE
     SELECT posts.id, posts.status, posts.claim_token, posts.lease_expires_at INTO current_post
     FROM public.posts
-    WHERE posts.id = p_target_post_id
+    WHERE posts.id = target_post_id
     FOR UPDATE;
 
     IF NOT FOUND THEN
@@ -132,7 +136,7 @@ BEGIN
     END IF;
 
     -- 5. Reject if stored claim token does not match expected claim token
-    IF current_post.claim_token <> p_expected_claim_token THEN
+    IF current_post.claim_token <> expected_claim_token THEN
         RETURN jsonb_build_object('success', false, 'reason', 'claim_token_mismatch_lease_lost');
     END IF;
 
@@ -144,7 +148,7 @@ BEGIN
     -- 7. Find and lock the primary scheduled_job
     SELECT scheduled_jobs.id, scheduled_jobs.attempts, scheduled_jobs.status INTO current_job
     FROM public.scheduled_jobs
-    WHERE scheduled_jobs.post_id = p_target_post_id
+    WHERE scheduled_jobs.post_id = target_post_id
     ORDER BY scheduled_jobs.created_at DESC
     LIMIT 1
     FOR UPDATE;
@@ -152,14 +156,14 @@ BEGIN
     -- Deterministically cancel any duplicate/older scheduled_jobs records
     UPDATE public.scheduled_jobs
     SET status = 'cancelled', updated_at = now_ts
-    WHERE scheduled_jobs.post_id = p_target_post_id
+    WHERE scheduled_jobs.post_id = target_post_id
       AND (current_job.id IS NULL OR scheduled_jobs.id <> current_job.id)
       AND scheduled_jobs.status IN ('scheduled', 'queued', 'processing');
 
     next_attempt := COALESCE(current_job.attempts, 0) + 1;
 
     -- 8. Branch based on retry threshold
-    IF next_attempt < p_max_attempts THEN
+    IF next_attempt < v_max_attempts THEN
         backoff_minutes := POWER(2, next_attempt)::INT;
         retry_at := now_ts + (backoff_minutes || ' minutes')::INTERVAL;
 
@@ -170,9 +174,9 @@ BEGIN
             scheduled_at = retry_at,
             claim_token = NULL,
             lease_expires_at = NULL,
-            error_message = 'Attempt ' || next_attempt || ' failed: ' || p_error_message || '. Retry scheduled for ' || retry_at::TEXT,
+            error_message = 'Attempt ' || next_attempt || ' failed: ' || v_error_message || '. Retry scheduled for ' || retry_at::TEXT,
             updated_at = now_ts
-        WHERE posts.id = p_target_post_id;
+        WHERE posts.id = target_post_id;
 
         IF current_job.id IS NOT NULL THEN
             UPDATE public.scheduled_jobs
@@ -182,7 +186,7 @@ BEGIN
                 attempts = next_attempt,
                 claim_token = NULL,
                 lease_expires_at = NULL,
-                last_error = p_error_message,
+                last_error = v_error_message,
                 updated_at = now_ts
             WHERE scheduled_jobs.id = current_job.id;
         ELSE
@@ -196,11 +200,11 @@ BEGIN
                 created_at,
                 updated_at
             ) VALUES (
-                p_target_post_id,
+                target_post_id,
                 'scheduled',
                 retry_at,
                 next_attempt,
-                p_error_message,
+                v_error_message,
                 now_ts,
                 now_ts
             );
@@ -220,9 +224,9 @@ BEGIN
             status = 'failed',
             claim_token = NULL,
             lease_expires_at = NULL,
-            error_message = 'Exhausted max retries (' || p_max_attempts || '): ' || p_error_message,
+            error_message = 'Exhausted max retries (' || v_max_attempts || '): ' || v_error_message,
             updated_at = now_ts
-        WHERE posts.id = p_target_post_id;
+        WHERE posts.id = target_post_id;
 
         IF current_job.id IS NOT NULL THEN
             UPDATE public.scheduled_jobs
@@ -231,7 +235,7 @@ BEGIN
                 attempts = next_attempt,
                 claim_token = NULL,
                 lease_expires_at = NULL,
-                last_error = 'Exhausted max retries (' || p_max_attempts || '): ' || p_error_message,
+                last_error = 'Exhausted max retries (' || v_max_attempts || '): ' || v_error_message,
                 updated_at = now_ts
             WHERE scheduled_jobs.id = current_job.id;
         ELSE
@@ -243,10 +247,10 @@ BEGIN
                 created_at,
                 updated_at
             ) VALUES (
-                p_target_post_id,
+                target_post_id,
                 'failed',
                 next_attempt,
-                'Exhausted max retries (' || p_max_attempts || '): ' || p_error_message,
+                'Exhausted max retries (' || v_max_attempts || '): ' || v_error_message,
                 now_ts,
                 now_ts
             );
@@ -263,10 +267,10 @@ $$;
 
 -- 3. Hardened Stored Procedure: Atomic Finalization of Successful Publishing
 CREATE OR REPLACE FUNCTION public.finalize_post_publishing(
-    p_target_post_id UUID,
-    p_expected_claim_token UUID,
-    p_provider_post_id TEXT,
-    p_raw_response JSONB DEFAULT NULL
+    target_post_id UUID,
+    expected_claim_token UUID,
+    provider_post_id TEXT,
+    raw_response JSONB DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -276,24 +280,26 @@ AS $$
 DECLARE
     current_post RECORD;
     now_ts TIMESTAMPTZ := clock_timestamp();
+    v_provider_post_id TEXT := provider_post_id;
+    v_raw_response JSONB := raw_response;
 BEGIN
     -- 1. Validate inputs
-    IF p_target_post_id IS NULL THEN
+    IF target_post_id IS NULL THEN
         RETURN jsonb_build_object('success', false, 'reason', 'target_post_id_required');
     END IF;
 
-    IF p_expected_claim_token IS NULL THEN
+    IF expected_claim_token IS NULL THEN
         RETURN jsonb_build_object('success', false, 'reason', 'expected_claim_token_required');
     END IF;
 
-    IF p_provider_post_id IS NULL OR length(trim(p_provider_post_id)) = 0 THEN
+    IF v_provider_post_id IS NULL OR length(trim(v_provider_post_id)) = 0 THEN
         RETURN jsonb_build_object('success', false, 'reason', 'provider_post_id_required');
     END IF;
 
     -- 2. Lock post FOR UPDATE
     SELECT posts.id, posts.status, posts.claim_token, posts.lease_expires_at INTO current_post
     FROM public.posts
-    WHERE posts.id = p_target_post_id
+    WHERE posts.id = target_post_id
     FOR UPDATE;
 
     IF NOT FOUND THEN
@@ -311,7 +317,7 @@ BEGIN
     END IF;
 
     -- 5. Stored claim token must strictly match expected claim token
-    IF current_post.claim_token <> p_expected_claim_token THEN
+    IF current_post.claim_token <> expected_claim_token THEN
         RETURN jsonb_build_object('success', false, 'reason', 'claim_token_mismatch_lease_lost');
     END IF;
 
@@ -320,17 +326,17 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'reason', 'lease_expired');
     END IF;
 
-    -- 7. Atomically transition post to published with unambiguous column qualification
+    -- 7. Atomically transition post to published
     UPDATE public.posts
     SET
         status = 'published',
         published_at = now_ts,
-        provider_post_id = p_provider_post_id,
+        provider_post_id = v_provider_post_id,
         claim_token = NULL,
         lease_expires_at = NULL,
         error_message = NULL,
         updated_at = now_ts
-    WHERE posts.id = p_target_post_id;
+    WHERE posts.id = target_post_id;
 
     -- 8. Atomically synchronize scheduled_jobs
     UPDATE public.scheduled_jobs
@@ -339,19 +345,19 @@ BEGIN
         claim_token = NULL,
         lease_expires_at = NULL,
         updated_at = now_ts
-    WHERE scheduled_jobs.post_id = p_target_post_id
+    WHERE scheduled_jobs.post_id = target_post_id
       AND scheduled_jobs.status IN ('processing', 'scheduled', 'queued');
 
     -- Cancel any older duplicate scheduled_jobs
     UPDATE public.scheduled_jobs
     SET status = 'cancelled', updated_at = now_ts
-    WHERE scheduled_jobs.post_id = p_target_post_id
+    WHERE scheduled_jobs.post_id = target_post_id
       AND scheduled_jobs.status NOT IN ('completed', 'cancelled');
 
     RETURN jsonb_build_object(
         'success', true,
-        'post_id', p_target_post_id,
-        'provider_post_id', p_provider_post_id,
+        'post_id', target_post_id,
+        'provider_post_id', v_provider_post_id,
         'published_at', now_ts
     );
 END;
