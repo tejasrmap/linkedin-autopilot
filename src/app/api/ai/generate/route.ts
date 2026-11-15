@@ -82,12 +82,22 @@ export async function POST(request: Request) {
 
     const customKey = request.headers.get('x-gemini-key') || undefined;
 
-    // SERVER-AUTHORITATIVE HISTORY SCOPE DERIVATION:
-    // Security Rule: Client-supplied historyScope is untrusted for privilege escalation.
-    // 1. Explicit 'unpersonalized' is permitted for any caller wishing to opt out of personalization.
-    // 2. 'workspace_brand' is strictly gated behind server-verified useBrandVoice === true.
-    // 3. Otherwise, strictly default to 'user_personal'.
-    // A client cannot obtain workspace-wide history merely by submitting historyScope: 'workspace_brand'.
+    // WORKSPACE AUTHORIZATION & SERVER-DERIVED HISTORY SCOPE:
+    // 1. Role Verification: Validates that the server-authenticated session has a legitimate workspace role.
+    const VALID_WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
+    if (!VALID_WORKSPACE_ROLES.includes(auth.role as any)) {
+      return NextResponse.json({ error: 'Forbidden: Invalid workspace membership' }, { status: 403 });
+    }
+
+    // 2. Scope Derivation Policy:
+    // - Unpersonalized: Permitted for any authenticated caller opting out of historical style context.
+    // - Workspace Brand Voice: Activated when client requests useBrandVoice === true.
+    //   Policy: Brand Voice is an organizational asset configured in brand_settings and approved posts,
+    //   intentionally accessible to all authenticated workspace members (owner, admin, editor, approver, viewer)
+    //   within their own auth.workspaceId.
+    //   Anti-Bypass Guard: A client-supplied historyScope: 'workspace_brand' parameter without useBrandVoice === true
+    //   is untrusted and ignored.
+    // - User Personal (Default): Strictly isolates history to auth.workspaceId AND auth.user.id.
     let serverDerivedScope: 'user_personal' | 'workspace_brand' | 'unpersonalized';
 
     if (validated.historyScope === 'unpersonalized') {

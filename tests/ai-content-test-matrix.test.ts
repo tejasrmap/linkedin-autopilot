@@ -454,56 +454,77 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
       }
     });
 
-    test('Legitimate brand voice request with useBrandVoice: true activates workspace_brand', async () => {
-      process.env.ALLOW_DEV_AUTH = 'true';
-      process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
-      let capturedOptions: any = null;
-      const originalGenerate = aiService.generatePostWithReport.bind(aiService);
+    const workspaceRoles = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
+    for (const role of workspaceRoles) {
+      test(`Legitimate brand voice request with useBrandVoice: true activates workspace_brand for role [${role}]`, async () => {
+        process.env.ALLOW_DEV_AUTH = 'true';
+        process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
+        process.env.TEST_AUTH_ROLE = role;
+        let capturedOptions: any = null;
+        const originalGenerate = aiService.generatePostWithReport.bind(aiService);
 
-      aiService.generatePostWithReport = async (options: any) => {
-        capturedOptions = options;
-        return {
-          content: 'Brand voice content',
-          uniquenessScore: { totalScore: 90, passed: true },
-          qualityStatus: 'passed',
-          passed: true,
-          qualityWarnings: [],
-          recommendedAction: 'publish',
-          analysis: {
-            category: 'technical',
-            secondaryCategories: [],
-            isHybrid: false,
-            technicalComplexity: 'practitioner',
-            domainTerms: ['event-pipeline'],
-            recommendedMode: 'technical',
-            recommendedNarrative: 'problem_investigation_solution',
-          },
-        } as any;
-      };
-
-      try {
-        const legitimatePayload = {
-          topic: 'Architecture overview of our distributed event pipeline',
-          useBrandVoice: true, // Legitimate brand voice flag
+        aiService.generatePostWithReport = async (options: any) => {
+          capturedOptions = options;
+          return {
+            content: `Brand voice content for ${role}`,
+            uniquenessScore: { totalScore: 90, passed: true },
+            qualityStatus: 'passed',
+            passed: true,
+            qualityWarnings: [],
+            recommendedAction: 'publish',
+            analysis: {
+              category: 'technical',
+              secondaryCategories: [],
+              isHybrid: false,
+              technicalComplexity: 'practitioner',
+              domainTerms: ['event-pipeline'],
+              recommendedMode: 'technical',
+              recommendedNarrative: 'problem_investigation_solution',
+            },
+          } as any;
         };
 
-        const req = new Request('http://localhost:3000/api/ai/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(legitimatePayload),
-        });
+        try {
+          const legitimatePayload = {
+            topic: `Architecture overview for ${role}`,
+            useBrandVoice: true, // Client request parameter requesting brand voice
+          };
 
-        const res = await generatePostRoute(req);
-        assert.strictEqual(res.status, 200);
-        assert.ok(capturedOptions, 'aiService.generatePostWithReport must be invoked');
-        assert.strictEqual(
-          capturedOptions.historyScope,
-          'workspace_brand',
-          'Legitimate brand voice request must derive workspace_brand history scope'
-        );
-      } finally {
-        aiService.generatePostWithReport = originalGenerate;
-      }
+          const req = new Request('http://localhost:3000/api/ai/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(legitimatePayload),
+          });
+
+          const res = await generatePostRoute(req);
+          assert.strictEqual(res.status, 200);
+          assert.ok(capturedOptions, 'aiService.generatePostWithReport must be invoked');
+          assert.strictEqual(
+            capturedOptions.historyScope,
+            'workspace_brand',
+            `Authenticated role [${role}] must derive workspace_brand history scope`
+          );
+        } finally {
+          aiService.generatePostWithReport = originalGenerate;
+          delete process.env.TEST_AUTH_ROLE;
+        }
+      });
+    }
+
+    test('Unauthorized/invalid workspace role cannot generate content', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
+      process.env.TEST_AUTH_ROLE = 'invalid_guest';
+
+      const req = new Request('http://localhost:3000/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: 'Attempt with forged or invalid role' }),
+      });
+
+      const res = await generatePostRoute(req);
+      assert.strictEqual(res.status, 403, 'Must return 403 Forbidden for invalid workspace membership');
+      delete process.env.TEST_AUTH_ROLE;
     });
 
     test('Explicit unpersonalized request is permitted and skips database history queries', async () => {
