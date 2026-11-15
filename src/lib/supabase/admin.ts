@@ -480,6 +480,7 @@ export function createAdminClient(): SupabaseClient {
               data: record,
               error: null,
               select: () => ({
+                single: async () => ({ data: record, error: null }),
                 maybeSingle: async () => ({ data: record, error: null }),
               }),
             };

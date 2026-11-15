@@ -100,19 +100,48 @@ export default function AIStudioPage() {
   const [schedulingBulk, setSchedulingBulk] = useState(false);
 
   // Brand Voice State
-  const [brandName, setBrandName] = useState('GT InnoX LLP');
-  const [brandIndustry, setBrandIndustry] = useState('AI & Software Engineering');
-  const [brandVoice, setBrandVoice] = useState('Visionary, rigorous, results-focused');
+  const [brandName, setBrandName] = useState('');
+  const [brandIndustry, setBrandIndustry] = useState('');
+  const [brandVoice, setBrandVoice] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [savedBrand, setSavedBrand] = useState(false);
+  const [loadingBrand, setLoadingBrand] = useState(true);
+  const [brandLoaded, setBrandLoaded] = useState(false);
+  const [brandError, setBrandError] = useState<string | null>(null);
 
   // Copy indicator state
   const [copied, setCopied] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<string | null>(null);
 
-  // Fetch connected LinkedIn accounts on mount
+  const fetchBrandSettings = async () => {
+    setLoadingBrand(true);
+    setBrandError(null);
+    try {
+      const res = await fetch('/api/brand-settings');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.settings) {
+          setBrandName(data.settings.brand_name || '');
+          setBrandIndustry(data.settings.industry || '');
+          setBrandVoice(data.settings.brand_voice || '');
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setBrandError(err.error || 'Failed to load brand settings');
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch brand settings:', err);
+      setBrandError(err.message || 'Failed to load brand settings');
+    } finally {
+      setLoadingBrand(false);
+      setBrandLoaded(true);
+    }
+  };
+
+  // Fetch connected LinkedIn accounts & brand settings on mount
   useEffect(() => {
     fetchAccounts();
+    fetchBrandSettings();
     // Default custom date to tomorrow
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -556,20 +585,31 @@ export default function AIStudioPage() {
 
   // 6. Save Brand Settings
   const handleSaveBrand = async () => {
+    if (!brandLoaded) return;
+    if (!brandName.trim()) {
+      toast.error('Brand name is required to save brand voice.');
+      return;
+    }
     try {
-      await fetch('/api/brand-settings', {
+      const res = await fetch('/api/brand-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          brandName,
-          industry: brandIndustry,
-          brandVoice,
+          brandName: brandName.trim(),
+          industry: brandIndustry.trim() || undefined,
+          brandVoice: brandVoice.trim() || undefined,
         }),
       });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to save brand settings');
+      }
       setSavedBrand(true);
+      toast.success('Brand settings saved successfully');
       setTimeout(() => setSavedBrand(false), 2000);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      toast.error(e.message || 'Failed to save brand settings');
     }
   };
 
@@ -1576,80 +1616,102 @@ export default function AIStudioPage() {
       {/* Tab 6: Brand Voice Settings */}
       {activeTab === 'brand' && (
         <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] max-w-xl space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Brand Name
-            </label>
-            <input
-              type="text"
-              value={brandName}
-              onChange={(e) => setBrandName(e.target.value)}
-              className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
-            />
-          </div>
+          {loadingBrand ? (
+            <div className="flex items-center justify-center py-10 gap-2 text-xs text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+              <span>Loading saved brand settings...</span>
+            </div>
+          ) : brandError ? (
+            <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 text-xs text-red-600 dark:text-red-400 space-y-2">
+              <p>Failed to load brand settings: {brandError}</p>
+              <button
+                onClick={fetchBrandSettings}
+                className="px-3 py-1 rounded bg-red-100 dark:bg-red-900/50 hover:bg-red-200 font-semibold text-red-700 dark:text-red-300"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Brand Name
+                </label>
+                <input
+                  type="text"
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="e.g. Acme Corp"
+                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                />
+              </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Industry & Niche
-            </label>
-            <input
-              type="text"
-              value={brandIndustry}
-              onChange={(e) => setBrandIndustry(e.target.value)}
-              className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
-            />
-          </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Industry & Niche
+                </label>
+                <input
+                  type="text"
+                  value={brandIndustry}
+                  onChange={(e) => setBrandIndustry(e.target.value)}
+                  placeholder="e.g. AI & Software Engineering"
+                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                />
+              </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Writing Style & Brand Voice
-            </label>
-            <input
-              type="text"
-              value={brandVoice}
-              onChange={(e) => setBrandVoice(e.target.value)}
-              placeholder="e.g. Bold, technical, data-driven, authentic"
-              className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
-            />
-          </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Writing Style & Brand Voice
+                </label>
+                <input
+                  type="text"
+                  value={brandVoice}
+                  onChange={(e) => setBrandVoice(e.target.value)}
+                  placeholder="e.g. Bold, technical, data-driven, authentic"
+                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                />
+              </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                <span>Google Gemini API Key (Optional)</span>
-              </span>
-              <span className="text-[10px] text-slate-400 font-normal">Stored securely in browser</span>
-            </label>
-            <input
-              type="password"
-              value={geminiApiKey}
-              onChange={(e) => {
-                setGeminiApiKey(e.target.value);
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('gemini_api_key', e.target.value);
-                }
-              }}
-              placeholder="AIzaSy... (Paste Gemini key to enable live Google Gemini 1.5 Flash)"
-              className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 font-mono"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">
-              If omitted, our high-variety built-in GT InnoX generative engine runs automatically with dynamic topic variations and non-repeating frameworks.
-            </p>
-          </div>
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Google Gemini API Key (Optional)</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">Stored securely in browser</span>
+                </label>
+                <input
+                  type="password"
+                  value={geminiApiKey}
+                  onChange={(e) => {
+                    setGeminiApiKey(e.target.value);
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('gemini_api_key', e.target.value);
+                    }
+                  }}
+                  placeholder="AIzaSy... (Paste Gemini key to enable live Google Gemini 1.5 Flash)"
+                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 font-mono"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  If omitted, our high-variety built-in GT InnoX generative engine runs automatically with dynamic topic variations and non-repeating frameworks.
+                </p>
+              </div>
 
-          <button
-            onClick={() => {
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('gemini_api_key', geminiApiKey.trim());
-              }
-              handleSaveBrand();
-            }}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-          >
-            {savedBrand ? <Check className="w-4 h-4" /> : null}
-            {savedBrand ? 'Settings & API Key Saved' : 'Save Brand Settings'}
-          </button>
+              <button
+                disabled={!brandLoaded}
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('gemini_api_key', geminiApiKey.trim());
+                  }
+                  handleSaveBrand();
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {savedBrand ? <Check className="w-4 h-4" /> : null}
+                {savedBrand ? 'Settings & API Key Saved' : 'Save Brand Settings'}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

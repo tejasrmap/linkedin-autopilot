@@ -12,20 +12,28 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 const RewriteSchema = z.object({
-  content: z.string().min(5),
+  content: z.string().min(5, 'Content must be at least 5 characters'),
   targetTone: z.enum(['professional', 'conversational', 'technical', 'educational', 'persuasive', 'storytelling']),
   improveHook: z.boolean().default(true),
 });
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const validated = RewriteSchema.parse(body);
-
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    if (requestWorkspaceId && auth.workspaceId !== requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const validated = RewriteSchema.parse(body);
 
     const rateCheck = checkRateLimit(`ai:${auth.workspaceId}`, { limit: 30, windowMs: 60000 });
     if (!rateCheck.allowed) {
@@ -66,7 +74,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ content: rewrittenContent });
   } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid request payload', details: err.errors }, { status: 400 });
+    }
     console.error('[AI Rewrite Route Error]:', err);
-    return NextResponse.json({ error: err.message || 'Internal AI rewrite error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal AI rewrite error' }, { status: 500 });
   }
 }
