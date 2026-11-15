@@ -597,32 +597,18 @@ async function runStagingPostgresIntegrationTests() {
         '[REAL POSTGRESQL LEASE] Losing worker session is strictly rejected from triggering failure/retry'
       );
 
-      // 3. Losing worker cannot finalize
+      // 3. Losing worker cannot finalize (strictly requires RPC without CAS fallback mask)
       const { data: losingFinData, error: losingFinErr } = await losingSession.rpc('finalize_post_publishing', {
         target_post_id: leasePostId,
         expected_claim_token: losingToken,
         provider_post_id: 'urn:li:share:unauthorized_loss',
       });
 
-      // If finalize_post_publishing is deployed, check failure; if not yet deployed (PGRST202), test CAS protection
-      if (!losingFinErr && losingFinData) {
-        assert(
-          losingFinData.success === false,
-          '[REAL POSTGRESQL LEASE] Losing worker session is strictly rejected from finalizing post publication'
-        );
-      } else {
-        // Fallback CAS verification: updating where claim_token = losingToken matches 0 rows
-        const { data: casLosing } = await losingSession
-          .from('posts')
-          .update({ status: 'published', claim_token: null })
-          .eq('id', leasePostId)
-          .eq('claim_token', losingToken)
-          .select('id');
-        assert(
-          !casLosing || casLosing.length === 0,
-          '[REAL POSTGRESQL LEASE] Losing worker session matches 0 rows in conditional CAS finalization'
-        );
-      }
+      assert(
+        !losingFinErr && losingFinData?.success === false,
+        '[REAL POSTGRESQL LEASE] Losing worker session is strictly rejected from finalizing post publication',
+        losingFinErr ? `RPC error: ${losingFinErr.message}` : `Unexpected response: ${JSON.stringify(losingFinData)}`
+      );
 
       // 4. NULL tokens strictly rejected
       const { data: nullTokenData } = await winningSession.rpc('handle_publishing_failure_and_retry', {
@@ -675,29 +661,17 @@ async function runStagingPostgresIntegrationTests() {
         '[REAL POSTGRESQL LEASE] Expired lease is safely and atomically reclaimed by a new worker session'
       );
 
-      // Previous owner after lease replacement: expired worker attempts finalize -> rejected
+      // Previous owner after lease replacement: expired worker attempts finalize -> rejected (strictly requires RPC)
       const { data: prevOwnerFin, error: prevFinErr } = await sessionWorkerB.rpc('finalize_post_publishing', {
         target_post_id: expiredPostId,
         expected_claim_token: expiredToken,
         provider_post_id: 'urn:li:share:prev_owner',
       });
-      if (!prevFinErr && prevOwnerFin) {
-        assert(
-          prevOwnerFin.success === false,
-          '[REAL POSTGRESQL LEASE] Previous owner after lease replacement is rejected from finalizing'
-        );
-      } else {
-        const { data: casPrev } = await sessionWorkerB
-          .from('posts')
-          .update({ status: 'published' })
-          .eq('id', expiredPostId)
-          .eq('claim_token', expiredToken)
-          .select('id');
-        assert(
-          !casPrev || casPrev.length === 0,
-          '[REAL POSTGRESQL LEASE] Previous owner after lease replacement matches 0 rows in conditional CAS'
-        );
-      }
+      assert(
+        !prevFinErr && prevOwnerFin?.success === false,
+        '[REAL POSTGRESQL LEASE] Previous owner after lease replacement is rejected from finalizing',
+        prevFinErr ? `RPC error: ${prevFinErr.message}` : `Unexpected response: ${JSON.stringify(prevOwnerFin)}`
+      );
 
       // Cleanup Group 9 test records
       await pgClient.from('posts').delete().in('id', [leasePostId, expiredPostId]);
