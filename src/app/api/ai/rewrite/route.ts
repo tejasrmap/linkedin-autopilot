@@ -1,3 +1,9 @@
+// ==============================================================
+// LINKEDIN AUTOPILOT — AI REWRITE ENDPOINT
+// CONTENT INTELLIGENCE & ACCURATE TONE REWRITING
+// BY GT INNOX LLP
+// ==============================================================
+
 import { getAuthContext } from '@/lib/auth';
 import { aiService } from '@/lib/ai/gemini';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -33,26 +39,34 @@ export async function POST(request: Request) {
       );
     }
 
+    const admin = createAdminClient();
     const customKey = request.headers.get('x-gemini-key') || undefined;
+
     const rewrittenContent = await aiService.rewritePost({
       content: validated.content,
       targetTone: validated.targetTone,
       improveHook: validated.improveHook,
+      workspaceId: auth.workspaceId,
+      userId: auth.user.id,
+      supabaseClient: admin,
       apiKey: customKey,
     });
 
-    const admin = createAdminClient();
-    await admin.from('ai_generations').insert({
-      workspace_id: auth.workspaceId,
-      user_id: auth.user.id,
-      prompt: `Rewrite to ${validated.targetTone}: ${validated.content.slice(0, 50)}...`,
-      generated_content: rewrittenContent,
-      generation_type: 'rewrite',
-    });
+    try {
+      await admin.from('ai_generations').insert({
+        workspace_id: auth.workspaceId,
+        user_id: auth.user.id,
+        prompt: `Rewrite (${validated.targetTone}): ${validated.content.slice(0, 60)}...`,
+        generated_content: rewrittenContent,
+        generation_type: 'rewrite',
+      });
+    } catch (insertErr) {
+      console.warn('[AI Rewrite] Could not persist rewrite to history ledger:', insertErr);
+    }
 
     return NextResponse.json({ content: rewrittenContent });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('[AI Rewrite Route Error]:', err);
+    return NextResponse.json({ error: err.message || 'Internal AI rewrite error' }, { status: 500 });
   }
 }
-

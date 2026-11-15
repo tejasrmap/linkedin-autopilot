@@ -48,7 +48,10 @@ export default function AIStudioPage() {
   const [tone, setTone] = useState('Thought leadership & inspiring');
   const [postLength, setPostLength] = useState<'short' | 'medium' | 'long'>('medium');
   const [contentType, setContentType] = useState('Actionable Framework');
+  const [generationMode, setGenerationMode] = useState<string>('auto');
   const [generatedPost, setGeneratedPost] = useState('');
+  const [uniquenessReport, setUniquenessReport] = useState<any>(null);
+  const [topicIntel, setTopicIntel] = useState<any>(null);
   const [loadingGenerate, setLoadingGenerate] = useState(false);
 
   // Rewrite State
@@ -160,33 +163,70 @@ export default function AIStudioPage() {
   };
 
   // 1. Generate Post
-  const handleGenerate = async () => {
+  const handleGenerate = async (overrideNarrative?: string) => {
     const activeTopic = topic.trim() || 'Why most B2B founders struggle with enterprise sales in their first year';
     if (!topic.trim()) {
       setTopic(activeTopic);
     }
     setLoadingGenerate(true);
     try {
+      const payload: any = {
+        topic: activeTopic,
+        targetAudience: audience,
+        tone,
+        length: postLength,
+        contentType,
+      };
+      if (generationMode && generationMode !== 'auto') {
+        payload.generationMode = generationMode;
+      }
+      if (overrideNarrative) {
+        payload.narrativeArc = overrideNarrative;
+      }
+
       const res = await fetch('/api/ai/generate', {
         method: 'POST',
         headers: getAiHeaders(),
-        body: JSON.stringify({
-          topic: activeTopic,
-          targetAudience: audience,
-          tone,
-          length: postLength,
-          contentType,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (res.ok) {
         setGeneratedPost(data.content);
-        toast.success('Generated high-retention post draft!');
+        if (data.uniquenessScore) setUniquenessReport(data.uniquenessScore);
+        if (data.topicAnalysis) setTopicIntel(data.topicAnalysis);
+        toast.success('Generated authentic, high-relevance post draft!');
       } else {
         toast.error(data.error || 'Failed to generate post');
       }
     } catch (e: any) {
       toast.error(e.message || 'Error communicating with AI service');
+    } finally {
+      setLoadingGenerate(false);
+    }
+  };
+
+  const handleRefineTone = async (targetTone: 'technical' | 'conversational' | 'storytelling' | 'educational') => {
+    if (!generatedPost.trim()) return;
+    setLoadingGenerate(true);
+    try {
+      const res = await fetch('/api/ai/rewrite', {
+        method: 'POST',
+        headers: getAiHeaders(),
+        body: JSON.stringify({
+          content: generatedPost,
+          targetTone,
+          improveHook: true,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.content) {
+        setGeneratedPost(data.content);
+        toast.success(`Refined post in ${targetTone} voice!`);
+      } else {
+        toast.error(data.error || 'Refinement failed');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to communicate with AI service');
     } finally {
       setLoadingGenerate(false);
     }
@@ -694,24 +734,34 @@ export default function AIStudioPage() {
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Content Type
+                  Content Mode
                 </label>
-                <input
-                  type="text"
-                  value={contentType}
-                  onChange={(e) => setContentType(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
-                />
+                <div className="relative">
+                  <select
+                    value={generationMode}
+                    onChange={(e) => setGenerationMode(e.target.value)}
+                    className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer transition-all shadow-sm"
+                  >
+                    <option value="auto">Auto-Detect Intelligence</option>
+                    <option value="technical">Technical &amp; Systems Architecture</option>
+                    <option value="educational">Educational &amp; Deep-Dive</option>
+                    <option value="analytical">Analytical Breakdown</option>
+                    <option value="storytelling">Storytelling &amp; Lessons</option>
+                    <option value="announcement">Milestone &amp; Release</option>
+                    <option value="reflective">Reflective &amp; Perspective</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                </div>
               </div>
             </div>
 
             <button
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               disabled={loadingGenerate}
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
             >
               {loadingGenerate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              Generate Post with Gemini
+              Generate Grounded Post
             </button>
           </div>
 
@@ -719,9 +769,21 @@ export default function AIStudioPage() {
           <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  AI Generated Draft
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    AI Generated Draft
+                  </span>
+                  {uniquenessReport && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Quality: {uniquenessReport.totalScore}/100
+                    </span>
+                  )}
+                  {topicIntel?.category && (
+                    <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      {topicIntel.category.replace('_', ' ')}
+                    </span>
+                  )}
+                </div>
                 {generatedPost && (
                   <button
                     onClick={() => handleCopy(generatedPost)}
@@ -737,20 +799,47 @@ export default function AIStudioPage() {
                 {loadingGenerate ? (
                   <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
                     <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                    <span>Gemini is generating your LinkedIn post...</span>
+                    <span>Analyzing topic &amp; generating grounded LinkedIn post...</span>
                   </div>
                 ) : generatedPost ? (
                   generatedPost
                 ) : (
                   <div className="flex items-center justify-center h-48 text-slate-400 text-center">
-                    Enter a topic on the left and click Generate Post.
+                    Enter a topic on the left and click Generate Grounded Post.
                   </div>
                 )}
               </div>
             </div>
 
             {generatedPost && (
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerate('architecture_tradeoffs')}
+                    disabled={loadingGenerate}
+                    className="text-[10px] px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition-colors"
+                  >
+                    🔄 Alternative Angle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRefineTone('technical')}
+                    disabled={loadingGenerate}
+                    className="text-[10px] px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition-colors"
+                  >
+                    ⚙️ More Technical
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRefineTone('storytelling')}
+                    disabled={loadingGenerate}
+                    className="text-[10px] px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition-colors"
+                  >
+                    📖 Storytelling
+                  </button>
+                </div>
+
                 <button
                   onClick={() => sendToComposer(generatedPost)}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition-colors"
