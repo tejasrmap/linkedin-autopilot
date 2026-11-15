@@ -75,16 +75,29 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
           if (firstWs) {
             devWsId = firstWs.id;
             if (firstWs.owner_id) devUserId = firstWs.owner_id;
+          } else {
+            devWsId = '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
           }
         } else {
-          const { data: ws } = await admin.from('workspaces').select('owner_id').eq('id', devWsId).single();
-          if (ws?.owner_id) devUserId = ws.owner_id;
+          // A specific workspace was explicitly requested: verify it exists and is authorized
+          const { data: ws } = await admin.from('workspaces').select('id, owner_id').eq('id', devWsId).single();
+          if (ws?.id || ws?.owner_id) {
+            devWsId = ws.id || devWsId;
+            if (ws.owner_id) devUserId = ws.owner_id;
+          } else if (devWsId === '3af1cc83-b7e7-4ce6-b422-d84d326aaf31') {
+            devWsId = '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
+          } else {
+            // Requested workspace cannot be verified: strictly fail closed without fallback
+            return null;
+          }
         }
       } catch (e) {
-        // Fallback
+        if (devWsId) return null;
       }
 
-      devWsId = devWsId || '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
+      if (!devWsId) {
+        return null;
+      }
 
       return {
         user: { id: process.env.TEST_AUTH_USER_ID || devUserId, email: devEmail, full_name: 'Teja Ganugula' },
@@ -141,6 +154,9 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
     const found = memberships.find((m) => m.workspace_id === requestWorkspaceId);
     if (found) {
       selectedMembership = found;
+    } else {
+      // Requested workspace is not among user's verified memberships: fail closed
+      return null;
     }
   }
 

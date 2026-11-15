@@ -14,6 +14,107 @@ const RequestSchema = z.object({
 const MAX_CERTIFICATE_BYTES = 10 * 1024 * 1024;
 const MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 
+/**
+ * Detects authoritative MIME type from binary magic bytes (file signature).
+ * Rejects files whose magic numbers do not match standard PDF, PNG, or JPEG signatures.
+ */
+function detectFileSignature(bytes: Buffer): 'application/pdf' | 'image/png' | 'image/jpeg' | null {
+  if (bytes.length < 3) return null;
+
+  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+
+  // JPEG magic bytes: FF D8 FF
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  // PDF magic bytes: %PDF (25 50 44 46)
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
+  ) {
+    return 'application/pdf';
+  }
+
+  return null;
+}
+
+/**
+ * Performs lightweight binary structural screening beyond magic numbers to detect truncated
+ * or corrupted files before model invocation.
+ * NOTE: This is fast structural screening of critical markers (IHDR, EOI, %%EOF), not full visual/document parsing.
+ * Deep semantic and visual parsing is performed downstream by Gemini Vision.
+ */
+function screenFormatStructure(
+  bytes: Buffer,
+  mime: 'application/pdf' | 'image/png' | 'image/jpeg'
+): { valid: boolean; error?: string } {
+  if (mime === 'image/png') {
+    // PNG must have 8 bytes header + at least one chunk (IHDR chunk is at least 25 bytes)
+    if (bytes.length < 33) {
+      return { valid: false, error: 'Malformed PNG: file is truncated or missing standard chunk structure.' };
+    }
+    const chunkType = bytes.toString('ascii', 12, 16);
+    if (chunkType !== 'IHDR') {
+      return { valid: false, error: 'Malformed PNG: first chunk must be an authoritative IHDR chunk.' };
+    }
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    if (width === 0 || height === 0) {
+      return { valid: false, error: 'Malformed PNG: image dimensions must be non-zero.' };
+    }
+    return { valid: true };
+  }
+
+  if (mime === 'image/jpeg') {
+    if (bytes.length < 16) {
+      return { valid: false, error: 'Malformed JPEG: file is truncated.' };
+    }
+    if (bytes[2] !== 0xff) {
+      return { valid: false, error: 'Malformed JPEG: missing valid segment marker after SOI.' };
+    }
+    const hasEoi = bytes.includes(Buffer.from([0xff, 0xd9]));
+    if (!hasEoi) {
+      return { valid: false, error: 'Malformed JPEG: missing standard EOI (End of Image) marker.' };
+    }
+    return { valid: true };
+  }
+
+  if (mime === 'application/pdf') {
+    if (bytes.length < 32) {
+      return { valid: false, error: 'Malformed PDF: file is truncated.' };
+    }
+    const headerStr = bytes.subarray(0, 8).toString('ascii');
+    if (!headerStr.startsWith('%PDF-')) {
+      return { valid: false, error: 'Malformed PDF: missing %PDF- version header.' };
+    }
+    const tailSearchLength = Math.min(bytes.length, 1024);
+    const tail = bytes.subarray(bytes.length - tailSearchLength).toString('latin1');
+    if (!tail.includes('%%EOF')) {
+      return { valid: false, error: 'Malformed PDF: missing %%EOF termination marker.' };
+    }
+    return { valid: true };
+  }
+
+  return { valid: true };
+}
+
 function isSafeHttpsUrl(value: string): boolean {
   if (!value) return true;
   try {
@@ -26,14 +127,33 @@ function isSafeHttpsUrl(value: string): boolean {
 
 export async function POST(request: Request) {
   try {
-    const auth = await getAuthContext();
-    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
+    if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Multi-tenant verification: If x-workspace-id is requested, user must have verified membership in it
+    if (requestWorkspaceId && auth.workspaceId !== requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
 
     const VALID_WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
     if (!VALID_WORKSPACE_ROLES.includes(auth.role as any)) {
       return NextResponse.json({ error: 'Forbidden: Invalid workspace membership' }, { status: 403 });
     }
 
+    // RATE LIMITING ARCHITECTURAL SPECIFICATION:
+    // Rate limiting is enforced using an in-memory sliding window keyed by workspace and user ID.
+    // NOTE FOR SERVERLESS DEPLOYMENTS (Vercel / AWS Lambda):
+    // In-memory rate limiting is per-container/per-instance and is not globally synchronized across
+    // multiple concurrent serverless instances. This provides zero-latency burst defense and prevents
+    // automated rapid-fire wallet drain on individual instances without external network overhead.
+    // For global distributed rate limiting across all concurrent serverless execution contexts,
+    // a centralized Redis/Upstash backend should be wired into checkRateLimit.
     const rate = checkRateLimit(`certificate-ai:${auth.workspaceId}:${auth.user.id}`, {
       limit: 5,
       windowMs: 60_000,
@@ -69,12 +189,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Certificate must be between 1 byte and 10 MB.' }, { status: 400 });
     }
 
+    const bytes = Buffer.from(await file.arrayBuffer());
+
+    // Validate true file signature against binary magic bytes
+    const detectedMime = detectFileSignature(bytes);
+    if (!detectedMime) {
+      return NextResponse.json(
+        { error: 'Invalid file signature. File content does not match supported PDF, PNG, or JPG formats.' },
+        { status: 400 }
+      );
+    }
+    if (detectedMime !== file.type) {
+      return NextResponse.json(
+        { error: `File content mismatch: declared MIME type "${file.type}" does not match file signature "${detectedMime}".` },
+        { status: 400 }
+      );
+    }
+
+    // Perform lightweight binary structural screening to reject truncated or corrupted payloads
+    const structureCheck = screenFormatStructure(bytes, detectedMime);
+    if (!structureCheck.valid) {
+      return NextResponse.json({ error: structureCheck.error || 'Malformed file structure.' }, { status: 400 });
+    }
+
     const apiKey = (request.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) {
       return NextResponse.json({ error: 'Gemini API key is not configured. Add your key in AI Studio or ask an administrator to configure GEMINI_API_KEY.' }, { status: 503 });
     }
-
-    const bytes = Buffer.from(await file.arrayBuffer());
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `You extract facts from a user's certificate and draft a LinkedIn announcement.
 Return ONLY valid JSON with this exact shape:
