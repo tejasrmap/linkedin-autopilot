@@ -29,6 +29,11 @@ export async function POST(request: Request) {
     const auth = await getAuthContext();
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const VALID_WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
+    if (!VALID_WORKSPACE_ROLES.includes(auth.role as any)) {
+      return NextResponse.json({ error: 'Forbidden: Invalid workspace membership' }, { status: 403 });
+    }
+
     const rate = checkRateLimit(`certificate-ai:${auth.workspaceId}:${auth.user.id}`, {
       limit: 5,
       windowMs: 60_000,
@@ -37,7 +42,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Too many certificate drafts. Please wait a minute and try again.' }, { status: 429 });
     }
 
-    const form = await request.formData();
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return NextResponse.json({ error: 'Invalid form submission. Upload a certificate file via multipart/form-data.' }, { status: 400 });
+    }
     const file = form.get('certificate');
     const verificationUrlValue = form.get('verificationUrl');
     const parsed = RequestSchema.safeParse({
@@ -49,7 +59,7 @@ export async function POST(request: Request) {
     if (!isSafeHttpsUrl(verificationUrl)) {
       return NextResponse.json({ error: 'Verification links must use HTTPS and must not include embedded credentials.' }, { status: 400 });
     }
-    if (!(file instanceof File)) {
+    if (!(file instanceof File) || typeof (file as any).arrayBuffer !== 'function') {
       return NextResponse.json({ error: 'Upload a certificate PDF, PNG, or JPG file.' }, { status: 400 });
     }
     if (!MIME_TYPES.has(file.type)) {
@@ -96,11 +106,29 @@ Uploaded filename (untrusted label): ${file.name}
       { text: prompt },
       { inlineData: { mimeType: file.type, data: bytes.toString('base64') } },
     ]);
-    const raw = result.response.text().trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const raw = result.response.text().trim();
+    let jsonText = raw;
+    const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (codeBlockMatch) {
+      jsonText = codeBlockMatch[1].trim();
+    } else {
+      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    }
+
     let extracted: any;
     try {
-      extracted = JSON.parse(raw);
+      extracted = JSON.parse(jsonText);
     } catch {
+      const jsonObjectMatch = jsonText.match(/\{[\s\S]*\}/);
+      if (jsonObjectMatch) {
+        try {
+          extracted = JSON.parse(jsonObjectMatch[0]);
+        } catch {
+          // fall through
+        }
+      }
+    }
+    if (!extracted || typeof extracted !== 'object') {
       console.error('[Certificate AI] Model returned invalid JSON');
       return NextResponse.json({ error: 'The certificate could not be reliably read. Try a clearer image or PDF.' }, { status: 422 });
     }
