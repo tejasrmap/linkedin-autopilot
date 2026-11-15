@@ -1,6 +1,6 @@
 // ==============================================================
-// LINKEDIN AUTOPILOT — CONTENT UNIQUENESS & SIMILARITY ENGINE
-// MULTI-DIMENSIONAL QUALITY & ANTI-REPETITION EVALUATION
+// LINKEDIN AUTOPILOT — CONTENT UNIQUENESS & QUALITY ENGINE
+// MULTI-DIMENSIONAL QUALITY, FACTUAL INTEGRITY & ARGUMENT REPETITION GUARD
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -8,22 +8,25 @@ import { SupabaseClient } from '@supabase/supabase-js';
 
 export interface UniquenessScore {
   totalScore: number; // 0 - 100
-  dimensions: {
-    topicRelevance: number; // 0 - 20
-    subjectSpecificDetail: number; // 0 - 20
-    originality: number; // 0 - 20
-    writingNaturalness: number; // 0 - 15
-    factualGrounding: number; // 0 - 15
-    audienceValue: number; // 0 - 10
-  };
+  qualityStatus: 'verified' | 'degraded' | 'failed';
   passed: boolean;
+  dimensions: {
+    topicRelevance: number; // 0 - 20 (Factual purpose & intent alignment)
+    subjectSpecificDetail: number; // 0 - 20 (Subtopic concept depth)
+    originality: number; // 0 - 20 (Non-repetition of arguments & skeletons)
+    writingNaturalness: number; // 0 - 15 (Cliché-free, human phrasing)
+    factualGrounding: number; // 0 - 15 (No fabricated claims or fake metrics)
+    audienceValue: number; // 0 - 10 (Practical actionable substance)
+  };
   maxHistoricalSimilarity: number; // 0.0 - 1.0
   reasons: string[];
   detectedRepetitions: {
     hookRepeated: boolean;
     conclusionRepeated: boolean;
+    argumentSkeletonRepeated: boolean;
     matchedPastPostSnippet?: string;
     bannedClichesDetected: string[];
+    fabricatedClaimsDetected: string[];
   };
   recommendedNarrativePivot?: string;
 }
@@ -32,12 +35,13 @@ export interface HistoricalPostSummary {
   content: string;
   hook: string;
   conclusion: string;
+  structuralPattern: string; // e.g. "bullets_3", "prose_paragraphs", "qa_framework"
   ngrams: Set<string>;
 }
 
 export class UniquenessEngine {
   /**
-   * Fetches historical posts for the tenant to build an anti-repetition corpus
+   * Fetches historical posts for the tenant to build an anti-repetition corpus.
    * Strictly enforces workspace isolation.
    */
   async getTenantHistory(
@@ -60,7 +64,7 @@ export class UniquenessEngine {
         }
       }
 
-      // Also grab recent AI generations if fewer than 10 posts
+      // Also query recent generations if fewer than 10 posts
       if (items.length < 10) {
         const { data: gens } = await supabase
           .from('ai_generations')
@@ -86,7 +90,7 @@ export class UniquenessEngine {
   }
 
   /**
-   * Evaluates a candidate post against tenant history and objective quality standards
+   * Evaluates a candidate post against topic intent, factual grounding, and tenant history
    */
   evaluateContent(
     candidate: string,
@@ -97,26 +101,47 @@ export class UniquenessEngine {
     const candidateSummary = this.summarizePost(candidate);
     const reasons: string[] = [];
     const bannedCliches = this.findBannedCliches(candidate);
+    const fabricatedClaims: string[] = [];
 
-    // 1. Topic Relevance (20 points)
-    const topicWords = topic
-      .toLowerCase()
+    const candidateLower = candidate.toLowerCase();
+    const topicLower = topic.toLowerCase();
+
+    // 1. Topic Purpose & Intent Alignment (20 points)
+    const isComparison = /\b(vs|versus|compare|comparing|trade-offs|tradeoffs)\b/i.test(topic);
+    let topicRelevanceScore = 20;
+
+    if (isComparison) {
+      const parts = topicLower.split(/\b(?:vs|versus|compare|comparing)\b/i).map((p) => p.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const optA = parts[0].split(' ').pop() || '';
+        const optB = parts[1].split(' ')[0] || '';
+        const mentionsA = candidateLower.includes(optA);
+        const mentionsB = candidateLower.includes(optB);
+
+        if (!mentionsA || !mentionsB) {
+          topicRelevanceScore -= 8;
+          reasons.push(`Prompt requests comparison between ${parts[0]} and ${parts[1]}, but post fails to address both.`);
+        }
+      }
+    }
+
+    // Verify topical keyword presence
+    const topicWords = topicLower
       .replace(/[^a-z0-9\s]/g, '')
       .split(/\s+/)
-      .filter((w) => w.length > 2);
-    const candidateLower = candidate.toLowerCase();
+      .filter((w) => w.length > 3 && !COMMON_STOP_WORDS.has(w));
 
-    let matchedTopicWords = 0;
+    let matchedWords = 0;
     for (const tw of topicWords) {
-      if (candidateLower.includes(tw)) matchedTopicWords++;
+      if (candidateLower.includes(tw)) matchedWords++;
     }
-    const topicCoverageRatio = topicWords.length > 0 ? matchedTopicWords / topicWords.length : 1.0;
-    let topicRelevanceScore = Math.min(20, Math.round(topicCoverageRatio * 20));
-    if (topicRelevanceScore < 12) {
-      reasons.push('Post does not sufficiently reference core keywords from the topic.');
+    const topicRatio = topicWords.length > 0 ? matchedWords / topicWords.length : 1.0;
+    if (topicRatio < 0.3) {
+      topicRelevanceScore = Math.max(4, topicRelevanceScore - 8);
+      reasons.push('Post diverges from the core subject requested in the prompt.');
     }
 
-    // 2. Subject-Specific Detail (20 points)
+    // 2. Subject-Specific Concept Depth (20 points)
     let domainTermHits = 0;
     for (const dt of domainTerms) {
       const dtLower = dt.toLowerCase();
@@ -125,13 +150,13 @@ export class UniquenessEngine {
         domainTermHits++;
       }
     }
-    // Specificity score based on technical/domain vocabulary and absence of vague adjectives
     let specificityScore = domainTerms.length > 0
       ? Math.min(20, Math.round((domainTermHits / Math.min(domainTerms.length, 3)) * 20))
       : 16;
+
     if (domainTermHits === 0 && domainTerms.length > 0) {
-      reasons.push('Lacks concrete subject-specific mechanics or terminology.');
-      specificityScore = Math.max(8, specificityScore - 6);
+      reasons.push('Lacks concrete subtopic mechanics or technical terminology.');
+      specificityScore = Math.max(6, specificityScore - 6);
     }
 
     // 3. Originality vs Tenant History (20 points)
@@ -139,6 +164,7 @@ export class UniquenessEngine {
     let matchedSnippet: string | undefined;
     let hookRepeated = false;
     let conclusionRepeated = false;
+    let argumentSkeletonRepeated = false;
 
     for (const past of history) {
       const sim = this.calculateNgramSimilarity(candidateSummary.ngrams, past.ngrams);
@@ -147,66 +173,82 @@ export class UniquenessEngine {
         matchedSnippet = past.content.slice(0, 100);
       }
 
-      // Check hook similarity
+      // Hook similarity
       const hookSim = this.calculateStringSimilarity(candidateSummary.hook, past.hook);
-      if (hookSim > 0.65) {
+      if (hookSim > 0.60) {
         hookRepeated = true;
       }
 
-      // Check conclusion similarity
+      // Conclusion similarity
       const conclusionSim = this.calculateStringSimilarity(candidateSummary.conclusion, past.conclusion);
-      if (conclusionSim > 0.70) {
+      if (conclusionSim > 0.65) {
         conclusionRepeated = true;
+      }
+
+      // Argument skeleton match (e.g. repeated 3-part bullet lists with colon headers)
+      if (candidateSummary.structuralPattern === past.structuralPattern && sim > 0.30) {
+        argumentSkeletonRepeated = true;
       }
     }
 
     let originalityScore = 20;
-    if (maxSim > 0.50) {
+    if (maxSim > 0.45) {
       originalityScore -= 10;
       reasons.push(`High content overlap (${Math.round(maxSim * 100)}%) with a previous post.`);
-    } else if (maxSim > 0.35) {
+    } else if (maxSim > 0.30) {
       originalityScore -= 5;
       reasons.push(`Moderate phrasing overlap (${Math.round(maxSim * 100)}%) with previous posts.`);
     }
 
     if (hookRepeated) {
-      originalityScore = Math.max(0, originalityScore - 5);
-      reasons.push('Opening hook is nearly identical to an existing post.');
+      originalityScore = Math.max(0, originalityScore - 6);
+      reasons.push('Opening hook repeats framing from an earlier post.');
     }
     if (conclusionRepeated) {
-      originalityScore = Math.max(0, originalityScore - 3);
+      originalityScore = Math.max(0, originalityScore - 4);
       reasons.push('Conclusion/CTA repeats phrasing from an earlier post.');
     }
+    if (argumentSkeletonRepeated) {
+      originalityScore = Math.max(0, originalityScore - 3);
+      reasons.push('Repeats argument structural skeleton from a previous post.');
+    }
 
-    // 4. Writing Naturalness (15 points)
+    // 4. Writing Naturalness & Anti-Clichés (15 points)
     let naturalnessScore = 15;
     if (bannedCliches.length > 0) {
-      naturalnessScore -= Math.min(8, bannedCliches.length * 3);
+      naturalnessScore -= Math.min(10, bannedCliches.length * 4);
       reasons.push(`Contains generic AI clichés: "${bannedCliches.join('", "')}".`);
     }
 
-    // Check for repetitive 3-part bullet lists with colon headers
-    const colonBulletMatches = candidate.match(/^[•\d\.\-]\s*[^:\n]+:/gm) || [];
-    if (colonBulletMatches.length >= 3 && history.some((h) => (h.content.match(/^[•\d\.\-]\s*[^:\n]+:/gm) || []).length >= 3)) {
-      naturalnessScore = Math.max(5, naturalnessScore - 3);
-      reasons.push('Repeats familiar 3-part bullet formatting from earlier posts.');
+    // 5. Factual Grounding & Anti-Fabrication (15 points)
+    let groundingScore = 15;
+    const promptHasPersonal = /\b(my|i|we|our|me|myself)\b/i.test(topic);
+
+    // Check for fabricated personal claims if prompt did not indicate personal experience
+    if (!promptHasPersonal) {
+      const personalClaims = candidate.match(/\b(i passed|we built|we spent|our team discovered|in our first year|we realized we were wrong)\b/gi);
+      if (personalClaims && personalClaims.length > 0) {
+        fabricatedClaims.push(...personalClaims);
+        groundingScore = 0;
+        topicRelevanceScore = Math.max(0, topicRelevanceScore - 10);
+        reasons.push(`Fabricated personal claims ("${personalClaims[0]}") not provided in user prompt.`);
+      }
     }
 
-    // 5. Factual Grounding (15 points)
-    let groundingScore = 15;
-    // Check for suspicious fabricated statistics (e.g. "increased by 43%", "reduced by 78%")
-    const statMatches = candidate.match(/\b\d{2,3}%\b|\b\d+x\b/g) || [];
-    const topicHasStat = topic.match(/\b\d{2,3}%\b|\b\d+x\b/g);
-    if (statMatches.length > 1 && !topicHasStat) {
-      groundingScore -= 5;
-      reasons.push('Includes specific percentage/multiplier statistics not provided in the original topic prompt.');
+    // Check for fabricated metrics (% or $ or x) not in topic
+    const statMatches = candidate.match(/\b\d{2,3}%\b|\$\d[\d,]*(?:k|m|b)?\b|\b\d+x\b/gi) || [];
+    const topicHasStat = topic.match(/\b\d{2,3}%\b|\$\d[\d,]*(?:k|m|b)?\b|\b\d+x\b/gi);
+    if (statMatches.length > 0 && !topicHasStat) {
+      fabricatedClaims.push(...statMatches);
+      groundingScore = Math.max(0, groundingScore - 8);
+      reasons.push('Includes specific quantitative statistics not provided in the original prompt.');
     }
 
     // 6. Audience Value (10 points)
     let audienceScore = 10;
-    if (candidate.length < 250) {
-      audienceScore -= 4;
-      reasons.push('Post is too short to deliver meaningful technical or professional substance.');
+    if (candidate.length < 220) {
+      audienceScore -= 5;
+      reasons.push('Post is too short to provide actionable engineering or business value.');
     }
 
     const totalScore = Math.max(
@@ -222,21 +264,35 @@ export class UniquenessEngine {
       )
     );
 
-    const passed = totalScore >= 70 && !hookRepeated && bannedCliches.length === 0;
+    // Strict pass determination
+    const passed =
+      totalScore >= 70 &&
+      !hookRepeated &&
+      bannedCliches.length === 0 &&
+      fabricatedClaims.length === 0;
+
+    let qualityStatus: 'verified' | 'degraded' | 'failed' = 'verified';
+    if (!passed) {
+      qualityStatus = totalScore < 50 || bannedCliches.length > 0 || fabricatedClaims.length > 0 ? 'failed' : 'degraded';
+    }
 
     let recommendedPivot: string | undefined;
     if (!passed) {
-      if (hookRepeated) {
-        recommendedPivot = 'Open with a concrete technical observation rather than a rhetorical question or announcement.';
+      if (fabricatedClaims.length > 0) {
+        recommendedPivot = 'Remove fabricated first-person claims; frame the post as an objective practitioner analysis.';
       } else if (bannedCliches.length > 0) {
-        recommendedPivot = 'Strip out promotional framing and focus purely on architectural trade-offs or implementation realities.';
-      } else if (maxSim > 0.40) {
-        recommendedPivot = 'Shift from a high-level overview to an explicit step-by-step diagnostic breakdown.';
+        recommendedPivot = 'Strip out promotional framing and focus purely on architectural trade-offs.';
+      } else if (hookRepeated) {
+        recommendedPivot = 'Open with a concrete technical observation rather than a rhetorical question or announcement.';
+      } else if (maxSim > 0.35) {
+        recommendedPivot = 'Shift from a high-level overview to an explicit diagnostic step-by-step breakdown.';
       }
     }
 
     return {
       totalScore,
+      qualityStatus,
+      passed,
       dimensions: {
         topicRelevance: topicRelevanceScore,
         subjectSpecificDetail: specificityScore,
@@ -245,14 +301,15 @@ export class UniquenessEngine {
         factualGrounding: groundingScore,
         audienceValue: audienceScore,
       },
-      passed,
       maxHistoricalSimilarity: maxSim,
       reasons,
       detectedRepetitions: {
         hookRepeated,
         conclusionRepeated,
+        argumentSkeletonRepeated,
         matchedPastPostSnippet: matchedSnippet,
         bannedClichesDetected: bannedCliches,
+        fabricatedClaimsDetected: fabricatedClaims,
       },
       recommendedNarrativePivot: recommendedPivot,
     };
@@ -270,10 +327,20 @@ export class UniquenessEngine {
     const hook = lines.length > 0 ? lines[0] : '';
     const conclusion = lines.length > 1 ? lines[lines.length - 1] : '';
 
+    // Determine structural pattern
+    let structuralPattern = 'prose_paragraphs';
+    const bulletCount = (content.match(/^[•\d\.\-]\s*[^:\n]+:/gm) || []).length;
+    if (bulletCount >= 3) {
+      structuralPattern = 'bullets_3_colon_headers';
+    } else if (content.includes('•') || content.includes('- ')) {
+      structuralPattern = 'bullet_list';
+    }
+
     return {
       content,
       hook,
       conclusion,
+      structuralPattern,
       ngrams: this.extractNgrams(content, 2),
     };
   }
@@ -331,6 +398,11 @@ export class UniquenessEngine {
     return detected;
   }
 }
+
+const COMMON_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'about', 'from', 'this', 'that', 'into', 'what', 'how', 'why',
+  'most', 'some', 'your', 'will', 'have', 'when', 'which', 'where', 'been',
+]);
 
 export const BANNED_CLICHES = [
   'excited to share',

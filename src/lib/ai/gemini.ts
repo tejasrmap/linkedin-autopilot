@@ -1,6 +1,7 @@
 // ==============================================================
 // LINKEDIN AUTOPILOT - GOOGLE GEMINI AI STUDIO CLIENT
 // CONTENT INTELLIGENCE, UNIQUENESS & DYNAMIC NARRATIVE ARCHITECTURE
+// STRICT QUALITY GATE CONTRACT, TRUTHFUL FALLBACK & USER ISOLATION
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -60,6 +61,9 @@ export interface GeneratePostResult {
   analysis: TopicAnalysis;
   uniquenessScore: UniquenessScore;
   retriesUsed: number;
+  passed: boolean;
+  qualityStatus: 'verified' | 'degraded' | 'failed';
+  qualityWarnings: string[];
 }
 
 export interface RewritePostOptions {
@@ -82,7 +86,8 @@ export class AIService {
   }
 
   /**
-   * Generates a post while providing complete uniqueness & quality audit telemetry
+   * Generates a post while providing complete uniqueness & quality audit telemetry.
+   * Correctly reflects degraded/failed status if quality gate rejects after retries.
    */
   async generatePostWithReport(options: GeneratePostOptions): Promise<GeneratePostResult> {
     // 1. Stage A: Topic Understanding & Domain Analysis
@@ -95,9 +100,9 @@ export class AIService {
     const mode: GenerationMode = options.generationMode || analysis.recommendedMode;
     let activeNarrative: NarrativeArc = options.narrativeArc || analysis.recommendedNarrative;
 
-    // 2. Stage E & F: Load Tenant History & Writing Profile
+    // 2. Stage E & F: Load Tenant History & User-Scoped Writing Profile
     let history: HistoricalPostSummary[] = [];
-    let profile: WritingProfile = writingProfileEngine.getDefaultProfile();
+    let profile: WritingProfile = writingProfileEngine.getDefaultProfile(options.workspaceId, options.userId);
 
     if (options.supabaseClient && options.workspaceId) {
       try {
@@ -108,7 +113,7 @@ export class AIService {
         history = fetchedHistory;
         profile = fetchedProfile;
       } catch (err) {
-        console.warn('[AIService] Error fetching historical context:', err);
+        console.warn('[AIService] Error fetching historical context, proceeding with unpersonalized fallback:', err);
       }
     }
 
@@ -142,7 +147,7 @@ export class AIService {
 
         while (gateResult.retryNeeded && retriesUsed < maxRetries) {
           retriesUsed++;
-          console.info(`[AIService] Quality gate retry #${retriesUsed} triggered. Reasons:`, gateResult.score.reasons);
+          console.info(`[AIService] Quality gate retry #${retriesUsed} triggered. Warnings:`, gateResult.qualityWarnings);
 
           // Pivot narrative arc for structural uniqueness
           activeNarrative = this.selectAlternativeNarrative(activeNarrative, analysis.category);
@@ -169,19 +174,23 @@ export class AIService {
         }
 
         if (candidatePost) {
+          // Explicitly report passed status and quality status from the evaluator
           return {
             content: gateResult.sanitizedContent,
             analysis,
             uniquenessScore: gateResult.score,
             retriesUsed,
+            passed: gateResult.passed,
+            qualityStatus: gateResult.qualityStatus,
+            qualityWarnings: gateResult.qualityWarnings,
           };
         }
       } catch (err) {
-        console.warn('[AIService] Gemini API generation error, using Grounded Intelligence Fallback:', err);
+        console.warn('[AIService] Gemini API error, falling back to Truthful Grounded Synthesis:', err);
       }
     }
 
-    // 4. Fallback Engine: Topic-grounded, factually substantive, zero-boilerplate generation
+    // 4. Fallback Engine: Topic-grounded, factually substantive, zero-fabrication synthesis
     const fallbackContent = contentIntelligence.generateGroundedFallback(
       analysis,
       mode,
@@ -200,6 +209,9 @@ export class AIService {
       analysis,
       uniquenessScore: fallbackScore,
       retriesUsed,
+      passed: fallbackScore.passed,
+      qualityStatus: fallbackScore.qualityStatus,
+      qualityWarnings: fallbackScore.reasons,
     };
   }
 
@@ -218,10 +230,10 @@ export class AIService {
       options.length === 'short'
         ? 'under 500 characters, punchy and direct'
         : options.length === 'long'
-        ? 'between 1200 and 2200 characters, comprehensive technical or strategic breakdown'
+        ? 'between 1200 and 2200 characters, comprehensive breakdown'
         : 'between 600 and 1200 characters, balanced structure';
 
-    let prompt = `You are a distinguished technical practitioner and executive writer crafting an authentic, high-impact LinkedIn post.
+    let prompt = `You are an authoritative professional writer crafting an authentic, high-impact LinkedIn post.
 You write with deep domain credibility, intellectual honesty, and natural human voice.
 NEVER sound like a generic AI ghostwriter or marketing bot.
 
@@ -233,7 +245,7 @@ TECHNICAL COMPLEXITY: ${analysis.technicalComplexity}
 PRIMARY OBJECTIVE: ${analysis.objective}
 TARGET LENGTH: ${charRange}
 
-CORE DOMAIN MECHANICS & TERMINOLOGY TO LEVERAGE:
+CORE SUBTOPIC CONCEPTS & MECHANICS:
 ${analysis.domainTerms.map((t) => `- ${t}`).join('\n')}
 
 ${contentIntelligence.buildNarrativeGuidance(narrativeArc, analysis)}
@@ -243,7 +255,7 @@ ${writingProfileEngine.formatProfilePrompt(profile)}
 
     if (options.brandVoice) {
       prompt += `
-BRAND VOICE CONSTRAINTS:
+SHARED WORKSPACE BRAND VOICE:
 - Organization: ${options.brandVoice.brandName || 'GT InnoX LLP'}
 - Industry: ${options.brandVoice.industry || analysis.industry}
 - Custom Tone Guidance: ${options.brandVoice.brandVoice || options.tone || 'Authoritative and practical'}
@@ -256,11 +268,12 @@ STRICT ANTI-GENERIC & GROUNDING RULES:
 1. ABSOLUTELY FORBIDDEN OPENING PHRASES:
    - Do NOT start with "Excited to share", "Thrilled to announce", "In today's fast-paced world", "In today's rapidly evolving", "Let's dive into", "The journey has been incredible", "Another milestone achieved", or "I'm happy to announce".
    - Start immediately with the core technical mechanism, observation, or decision.
-2. NO FABRICATED STATISTICS OR EXPERIENCES:
-   - Do not invent quantitative metrics (e.g. "improved efficiency by 43.8%") or fake anecdotes not provided in the topic prompt.
+2. NO FABRICATED PERSONAL EXPERIENCES, INCIDENTS, OR STATISTICS:
+   - Do not invent personal claims ("I passed", "We deployed", "Our team faced an outage") unless explicitly stated in the topic prompt.
+   - Do not invent fake quantitative metrics (e.g. "improved efficiency by 43.8%") not provided in the topic prompt.
 3. NO CLICHÉD THREE-PART LIST BOILERPLATE:
    - Do not default to "1. Activity is not progress... 2. Complexity is a vulnerability...".
-   - If using bullet points, each must contain concrete subject-specific mechanisms.
+   - If using bullet points, each must contain concrete, subject-specific mechanisms.
 4. VARIED NATURAL CADENCE:
    - Flow naturally between explanatory prose and structured takeaways. Avoid robotic 1-sentence paragraphs throughout.
 5. GROUNDED VALUE:
@@ -305,7 +318,8 @@ PREVIOUS ATTEMPT CORRECTION DIRECTIVES:
   }
 
   /**
-   * Rewrites an existing draft into a desired tone or structure while preserving factual core
+   * Rewrites an existing draft into a desired tone while preserving 100% of the factual core.
+   * NEVER INJECTS FABRICATED ARCHITECTURAL CLAIMS OR PERSONAL INCIDENTS.
    */
   async rewritePost(options: RewritePostOptions): Promise<string> {
     const model = getGeminiModel(options.apiKey);
@@ -322,10 +336,10 @@ ${options.content}
 """
 
 STRICT EDITING RULES:
-- Preserve the exact factual details, architecture terms, and technical mechanisms.
-- Eliminate generic fluff, filler adjectives, and corporate buzzwords.
+- Preserve the exact factual details, metrics, and domain terms from the original draft.
+- Do NOT invent new architectural systems, personal stories, or unmentioned technologies.
 - Tone target: ${options.targetTone}.
-- Use natural paragraph cadence with clean typographic spacing.
+- Use clean, natural paragraph cadence with professional spacing.
 - Return ONLY the rewritten post text with no meta-commentary.
 `;
 
@@ -334,58 +348,71 @@ STRICT EDITING RULES:
         const text = response.text().trim();
         if (text) return text;
       } catch (err) {
-        console.warn('[AIService] Gemini rewrite failed, using intelligent rewriter:', err);
+        console.warn('[AIService] Gemini rewrite failed, using faithful rewriter fallback:', err);
       }
     }
 
-    // Grounded fallback rewriter
-    const lines = options.content.trim().split('\n').filter((l) => l.trim().length > 0);
-    const coreThought = lines[0] || options.content;
-    const body = lines.slice(1).join('\n\n');
+    // Faithful rewriter fallback: refactors the user's actual text without hallucination
+    const raw = options.content.trim();
+    const paragraphs = raw.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
+    const firstPara = paragraphs[0] || raw;
+    const remainingBody = paragraphs.slice(1).join('\n\n');
 
     if (options.targetTone === 'technical') {
-      return `Technical breakdown on ${coreThought.replace(/[#*]/g, '').slice(0, 60)}:
+      return `Technical breakdown on ${firstPara.replace(/^[#*•\d\.\s-]+/, '').trim().slice(0, 80)}:
 
-Core considerations:
-• Decouple state mutations from asynchronous event processing
-• Enforce strict idempotency on network retries
-• Validate constraints at both application boundaries and the database schema
+${remainingBody || firstPara}
 
-${body || 'Building with architectural rigor ensures systems scale predictably under production pressure.'}
+Key engineering takeaway: Focus on verified constraints and explicit operational boundaries before adding complexity.
 
-What patterns does your team prioritize when hardening these pipelines?`;
+What considerations does your team prioritize when navigating this in production?`;
+    }
+
+    if (options.targetTone === 'conversational') {
+      return `${firstPara.replace(/^[#*•\d\.\s-]+/, '').trim()}
+
+${remainingBody || 'Focusing on reliable execution over superficial noise compounds results over time.'}
+
+How does your team typically handle this in your daily workflows?`;
     }
 
     if (options.targetTone === 'storytelling') {
-      return `A lesson learned from hands-on production experience:
+      return `A grounded observation from real-world execution:
 
-"${coreThought.replace(/[#*]/g, '').trim()}"
+${firstPara.replace(/^[#*•\d\.\s-]+/, '').trim()}
 
-When we first tackled this, the focus was entirely on output velocity.
-The real bottleneck turned out to be architectural clarity and eliminating avoidable complexity.
+${remainingBody}
 
-${body}
-
-Clarity in design beats premature complexity every time.`;
+Clear systems and disciplined execution consistently beat premature complexity.`;
     }
 
-    // Default professional rewrite
-    return `${coreThought}
+    if (options.targetTone === 'educational') {
+      return `An educational walkthrough of ${firstPara.replace(/^[#*•\d\.\s-]+/, '').trim().slice(0, 70)}:
 
-${body || 'Focusing on reliable execution over superficial noise compounds results over time.'}
+${remainingBody || firstPara}
 
-How does your team approach this in your current workflows?`;
+Core principle: Master the foundational mechanics before introducing higher-level abstractions.
+
+What is the biggest takeaway your team has learned in this area?`;
+    }
+
+    // Default professional rewrite preserving user draft
+    return `${firstPara}
+
+${remainingBody}
+
+How does your team evaluate this in your current projects?`;
   }
 
   /**
-   * Generates relevant hashtags for a topic or post content
+   * Generates relevant hashtags derived purely from the topic/content without hardcoded bias
    */
   async generateHashtags(topicOrContent: string, count = 5, apiKey?: string): Promise<string[]> {
     const model = getGeminiModel(apiKey);
 
     if (model) {
       try {
-        const prompt = `Based on the following LinkedIn post topic or text, provide the ${count} most effective, high-reach, industry-relevant LinkedIn hashtags.
+        const prompt = `Based on the following LinkedIn post topic or text, provide the ${count} most effective, industry-relevant LinkedIn hashtags.
 
 CONTENT:
 """
@@ -409,26 +436,29 @@ Return ONLY a JSON array of strings containing the hashtags (each starting with 
       }
     }
 
+    // Dynamic keyword extraction from the input text
     const words = topicOrContent
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
       .split(/\s+/)
-      .filter((w) => w.length > 3);
+      .filter((w) => w.length > 3 && !HASHTAG_STOP_WORDS.has(w));
 
     const tags = new Set<string>();
-    tags.add('#Engineering');
-    tags.add('#Technology');
-    tags.add('#SoftwareDevelopment');
-
-    for (const w of words.slice(0, 3)) {
+    for (const w of words) {
       tags.add('#' + w.charAt(0).toUpperCase() + w.slice(1));
+      if (tags.size >= count) break;
+    }
+
+    if (tags.size === 0) {
+      tags.add('#ProfessionalDevelopment');
+      tags.add('#IndustryInsights');
     }
 
     return Array.from(tags).slice(0, count);
   }
 
   /**
-   * Generates creative post concepts and hooks with full ready-to-publish drafts
+   * Generates diverse, industry-tailored post concepts without hardcoded templates
    */
   async generateIdeas(
     industryOrCategory: string,
@@ -439,10 +469,10 @@ Return ONLY a JSON array of strings containing the hashtags (each starting with 
 
     if (model) {
       try {
-        const prompt = `Generate ${count} compelling, diverse LinkedIn post concepts and FULL publication-ready drafts for the industry/topic: "${industryOrCategory}".
+        const prompt = `Generate ${count} compelling, diverse LinkedIn post concepts and FULL publication-ready drafts tailored specifically to: "${industryOrCategory}".
 
-Each idea must have a distinct narrative structure (e.g. Architectural Tradeoff, Real Incident Retrospective, Practical Tutorial, Mental Model).
-AVOID repetitive clichés like "90% of leaders focus on the wrong metric" or "Activity is not progress".
+Each idea must have a distinct narrative structure (e.g. Architectural Tradeoff, Problem Diagnosis, Practical Heuristic, Industry Perspective).
+AVOID repetitive clichés or identical opening lines across ideas.
 
 Return a valid JSON array of objects with the structure:
 [
@@ -453,8 +483,6 @@ Return a valid JSON array of objects with the structure:
     "fullDraft": "The complete, publication-ready LinkedIn post text ready to schedule immediately"
   }
 ]
-
-Return ONLY valid JSON.
 `;
 
         const result = await model.generateContent(prompt);
@@ -470,63 +498,70 @@ Return ONLY valid JSON.
       }
     }
 
-    // Dynamic grounded idea pool
-    const analysis = contentIntelligence.analyzeTopic(industryOrCategory);
+    // Dynamic idea pool tailored strictly to the requested domain
+    const cleanIndustry = industryOrCategory.replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'Modern Operations';
+    const tag = cleanIndustry.split(' ')[0] || 'Leadership';
+
     return [
       {
-        title: `Architectural Decisions in ${analysis.industry}`,
-        hook: `The most expensive technical decisions aren't the ones that fail immediately. They are the ones that work just well enough to incur architectural debt.`,
-        outline: `A practical breakdown of choosing decoupled event boundaries over premature microservices.`,
-        fullDraft: `The most expensive technical decisions aren't the ones that fail immediately. They are the ones that work just well enough to incur architectural debt.
+        title: `Strategic Trade-offs in ${cleanIndustry}`,
+        hook: `When building for scale in ${cleanIndustry.toLowerCase()}, the hardest part is deciding what NOT to build.`,
+        outline: `A practical breakdown of keeping systems lean and focusing engineering velocity on verified customer bottlenecks.`,
+        fullDraft: `When building for scale in ${cleanIndustry.toLowerCase()}, the hardest part is deciding what NOT to build.
 
-When building for scale, three principles keep systems maintainable:
+It is easy to add speculative features or over-engineer workflows ahead of demand. In practice:
 
-1. Validate the write path: Ensure state transitions are idempotent and safe to retry.
-2. Isolate failure domains: A slowdown in a third-party API should never degrade user-facing read paths.
-3. Keep mental models simple: If a new engineer cannot trace a transaction in 15 minutes, the abstraction is leaking.
+• Feature breadth dilutes core product clarity.
+• Complex processes introduce avoidable hand-off friction.
+• The single metric that matters is whether users complete their primary job with zero drag.
 
-Build what solves today's constraints cleanly. Refactor when real telemetry demands it.
+Simplify the foundation first. Refactor when real telemetry demands it.
 
-#Architecture #Engineering #SystemDesign`,
+What constraints does your team prioritize when scoping new deliverables?
+
+#${tag} #Strategy #Operations`,
       },
       {
-        title: `The Reality of Preparing for Certifications`,
-        hook: `Sanitized practice exams teach you how to pass a test. Production incidents teach you how the system actually works.`,
-        outline: `Why hands-on troubleshooting labs matter 10x more than memorizing multiple-choice questions.`,
-        fullDraft: `Sanitized practice exams teach you how to pass a test. Production incidents teach you how the system actually works.
-
-If you are preparing for technical credentials in ${analysis.industry}:
-
-• Break configurations intentionally in sandbox labs.
-• Inspect logs and traces when pods or instances enter crash loops.
-• Understand least-privilege security boundaries rather than using wildcard permissions.
-
-The credential is proof of study discipline. The real competence is remaining calm when production alerts fire.
-
-#ContinuousLearning #Engineering #CareerGrowth`,
-      },
-      {
-        title: `Lessons from Building Scalable Workflows`,
-        hook: `Before automating any workflow, spend three days watching the manual friction by hand.`,
+        title: `Misconception vs Reality in ${cleanIndustry}`,
+        hook: `The biggest misconception teams have about ${cleanIndustry.toLowerCase()}: assuming more tooling solves broken workflow architecture.`,
         outline: `Why digitizing an unvalidated process creates automated chaos rather than operational leverage.`,
-        fullDraft: `Before automating any workflow, spend three days watching the manual friction by hand.
+        fullDraft: `The biggest misconception teams have about ${cleanIndustry.toLowerCase()}: assuming more tooling solves broken workflow architecture.
 
-It is tempting to write code or configure complex queue orchestrations right away.
-In practice:
+Before adopting new software or adding multi-tier workflows:
 
-• 40% of steps in most manual workflows are legacy habits that can simply be deleted.
-• Complex notification rules create alert fatigue rather than faster turnaround.
-• Tight feedback loops outperform elaborate multi-tier approval chains.
+• Map the actual hand-offs by hand to identify where delays originate.
+• Eliminate legacy sign-offs that do not directly protect execution safety.
+• Ensure every deliverable has exactly one accountable owner.
 
-Simplify the workflow first. Then let background workers handle the repetition.
+A simple, well-understood workflow consistently outperforms complex toolchains that require constant intervention.
 
-#Operations #Engineering #Automation`,
+How does your team evaluate whether a process bottleneck needs new tools or simpler rules?
+
+#${tag} #Productivity #SystemThinking`,
+      },
+      {
+        title: `A Grounded Heuristic for ${cleanIndustry}`,
+        hook: `In high-velocity ${cleanIndustry.toLowerCase()} environments, tight feedback loops beat exhaustive planning every time.`,
+        outline: `How measuring cycle turnaround time helps teams catch delivery anomalies early.`,
+        fullDraft: `In high-velocity ${cleanIndustry.toLowerCase()} environments, tight feedback loops beat exhaustive planning every time.
+
+Three non-negotiables for sustainable delivery:
+
+1. Diagnose constraints early: Measure turnaround cycles to spot bottlenecks before they compound.
+2. Foster asynchronous clarity: Replace status-check meetings with clear written summaries.
+3. Establish 24-hour blocker resolution: Address impediments the same day they appear.
+
+Rigor in execution creates the bandwidth needed to innovate responsibly.
+
+What heuristic has made the biggest difference in your team's delivery velocity?
+
+#${tag} #Execution #WorkplaceExcellence`,
       },
     ].slice(0, count);
   }
 
   /**
-   * Generates a 7-day content calendar with complete publication-ready drafts
+   * Generates a 7-day content calendar with distinct, diverse formats across all days
    */
   async generateContentCalendar(
     industry: string,
@@ -546,11 +581,10 @@ Simplify the workflow first. Then let background workers handle the repetition.
 
     if (model) {
       try {
-        const prompt = `Create a high-performing 7-Day LinkedIn Content Calendar for an organization in "${industry}" with a tone of "${brandTone}".
+        const prompt = `Create a high-performing 7-Day LinkedIn Content Calendar for "${industry}" with a tone of "${brandTone}".
 
-For each day (Monday through Sunday), generate a COMPLETE, publication-ready LinkedIn post with genuine subject-specific substance.
-Ensure diverse narrative angles across the 7 days (e.g. Architecture Deep Dive, Failure Retrospective, Practical Tip, Industry Trend Analysis, Team Heuristic).
-AVOID repeating the same format or clichés across days.
+Each of the 7 days (Monday through Sunday) MUST feature a completely distinct format, theme, and opening hook.
+AVOID repeating similar hooks or phrases across days.
 
 Return ONLY a valid JSON array of 7 objects with the structure:
 [
@@ -558,7 +592,7 @@ Return ONLY a valid JSON array of 7 objects with the structure:
     "day": "Monday",
     "theme": "Theme title",
     "hook": "Opening hook",
-    "format": "Text format",
+    "format": "Format type",
     "contentType": "Category",
     "fullDraft": "Complete post content..."
   }
@@ -578,36 +612,135 @@ Return ONLY a valid JSON array of 7 objects with the structure:
       }
     }
 
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const themes = [
-      'Architectural Deep Dive & System Trade-offs',
-      'Real-World Production Retrospective',
-      'Actionable Engineering Heuristic',
-      'Industry Analysis & Technical Direction',
-      'Team Operations & Execution Culture',
-      'Practical Tooling & Optimization',
-      'Weekly Engineering Reflection',
+    const cleanInd = industry.replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'Engineering';
+    const tag = cleanInd.split(' ')[0] || 'Leadership';
+
+    return [
+      {
+        day: 'Monday',
+        theme: 'Macro Trend & Strategic Direction',
+        hook: `The landscape of ${cleanInd.toLowerCase()} is shifting toward verifiable operational simplicity.`,
+        format: 'Analytical Prose',
+        contentType: 'Strategic Perspective',
+        fullDraft: `The landscape of ${cleanInd.toLowerCase()} is shifting toward verifiable operational simplicity.
+
+Organizations that succeed in this environment share three operating traits:
+• Asynchronous documentation by default
+• Clear single-owner accountability
+• Objective telemetry over speculative assumptions
+
+Where is your team focusing its operational improvements this quarter?
+
+#${tag} #Strategy`,
+      },
+      {
+        day: 'Tuesday',
+        theme: 'Operational Deep-Dive & Architecture',
+        hook: `When evaluating systems in ${cleanInd.toLowerCase()}, the write path reveals where architectural debt is hiding.`,
+        format: 'Deep Dive + Key Mechanics',
+        contentType: 'Technical Knowledge',
+        fullDraft: `When evaluating systems in ${cleanInd.toLowerCase()}, the write path reveals where architectural debt is hiding.
+
+Three non-negotiables for resilient execution:
+1. Enforce idempotent state transitions on network retries
+2. Isolate failure domains so downstream blips don't cascade
+3. Monitor end-to-end latency at p99, not just the happy-path median
+
+How does your team test failure recovery before deploying major architecture updates?
+
+#${tag} #SystemDesign`,
+      },
+      {
+        day: 'Wednesday',
+        theme: 'Common Misconception vs Operational Reality',
+        hook: `A widespread myth in ${cleanInd.toLowerCase()}: more meetings mean tighter team alignment.`,
+        format: 'Myth Buster',
+        contentType: 'Practitioner Heuristics',
+        fullDraft: `A widespread myth in ${cleanInd.toLowerCase()}: more meetings mean tighter team alignment.
+
+In reality:
+• Status meetings often mask unclear written specifications.
+• Synchronous interruptions fragment focused engineering time.
+• High-agency teams align through written proposals and clear success metrics.
+
+Have you noticed your team's velocity change when shifting to asynchronous updates?
+
+#${tag} #Productivity`,
+      },
+      {
+        day: 'Thursday',
+        theme: 'Real-World Retrospective & Incident Analysis',
+        hook: `The most valuable insights in ${cleanInd.toLowerCase()} come from dissecting edge-case anomalies.`,
+        format: 'Incident Breakdown',
+        contentType: 'Lessons Learned',
+        fullDraft: `The most valuable insights in ${cleanInd.toLowerCase()} come from dissecting edge-case anomalies.
+
+When an unexpected bottleneck occurs:
+• Blameless post-mortems turn operational failures into team leverage.
+• Root-cause analysis should focus on process gaps, not individual blame.
+• Preventive guardrails protect future maintainers from repeating the error.
+
+What is the most enduring lesson a production issue has taught your team?
+
+#${tag} #EngineeringCulture`,
+      },
+      {
+        day: 'Friday',
+        theme: 'Practitioner Checklist & Actionable Framework',
+        hook: `Before approving changes to core ${cleanInd.toLowerCase()} workflows, run through this 3-point checklist:`,
+        format: 'Checklist Framework',
+        contentType: 'Actionable Framework',
+        fullDraft: `Before approving changes to core ${cleanInd.toLowerCase()} workflows, run through this 3-point checklist:
+
+1. Verification: Can the outcome be confirmed through metrics, logs, or automated tests?
+2. Blast Radius: What happens if downstream dependencies throttle or fail completely?
+3. Rollback Safety: Is there an explicit, tested rollback path if anomalies appear?
+
+Simple checklists prevent avoidable production surprises.
+
+What is on your team's non-negotiable pre-deploy checklist?
+
+#${tag} #Checklists`,
+      },
+      {
+        day: 'Saturday',
+        theme: 'Continuous Learning & Recommended Deep-Dive',
+        hook: `Continuous learning in ${cleanInd.toLowerCase()} requires studying foundational papers alongside current tools.`,
+        format: 'Educational Recommendation',
+        contentType: 'Continuous Learning',
+        fullDraft: `Continuous learning in ${cleanInd.toLowerCase()} requires studying foundational papers alongside current tools.
+
+Frameworks evolve rapidly, but underlying principles—state distribution, concurrency, and constraint modeling—remain remarkably durable.
+
+Investing 30 minutes a week into understanding foundational design patterns pays compounding dividends.
+
+What technical book or paper has most influenced your engineering perspective?
+
+#${tag} #Learning`,
+      },
+      {
+        day: 'Sunday',
+        theme: 'Weekly Perspective & Team Reflection',
+        hook: `Reflecting on the week in ${cleanInd.toLowerCase()}: consistency in fundamentals beats sporadic intensity every single time.`,
+        format: 'Reflective Discussion',
+        contentType: 'Personal Reflection',
+        fullDraft: `Reflecting on the week in ${cleanInd.toLowerCase()}: consistency in fundamentals beats sporadic intensity every single time.
+
+Teams that thrive don't burn out on heroic late-night fixes. They build dependable systems that make consistent delivery routine.
+
+Recharge, reflect on what worked, and head into the new week with clear priorities.
+
+What is your primary focus for the week ahead?
+
+#${tag} #Leadership`,
+      },
     ];
-
-    return days.map((day, idx) => ({
-      day,
-      theme: themes[idx],
-      hook: `A concrete observation from building in ${industry}:`,
-      format: 'Analytical Prose + Takeaways',
-      contentType: 'Technical Knowledge',
-      fullDraft: `A concrete observation from building in ${industry}:
-
-Focusing on simplicity and explicit failure handling pays compounding dividends.
-When systems are designed with clear boundaries:
-• Latency remains predictable
-• Incidents are straightforward to debug
-• Teams execute with autonomy
-
-What is your team prioritizing this week?
-
-#${industry.replace(/[^a-zA-Z0-9]/g, '')} #Engineering`,
-    }));
   }
 }
+
+const HASHTAG_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'about', 'from', 'this', 'that', 'into', 'what', 'how', 'why',
+  'most', 'some', 'your', 'will', 'have', 'when', 'which', 'where', 'been', 'their', 'there',
+]);
 
 export const aiService = new AIService();

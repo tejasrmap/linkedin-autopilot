@@ -1,6 +1,6 @@
 // ==============================================================
 // LINKEDIN AUTOPILOT — WRITING STYLE INTELLIGENCE
-// TENANT-ISOLATED HISTORICAL CORPUS STYLE EXTRACTION
+// STRICT USER-LEVEL VS WORKSPACE-LEVEL VOICE ISOLATION
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -8,6 +8,10 @@ import { SupabaseClient } from '@supabase/supabase-js';
 
 export interface WritingProfile {
   sampleCount: number;
+  isPersonalized: boolean;
+  scope: 'user_personal' | 'workspace_brand' | 'unpersonalized_fallback';
+  workspaceId: string;
+  userId?: string;
   averageSentenceLength: 'short' | 'medium' | 'long';
   averageParagraphLength: 'concise' | 'balanced' | 'detailed';
   formality: 'casual' | 'conversational' | 'balanced' | 'formal' | 'academic';
@@ -22,8 +26,8 @@ export interface WritingProfile {
 
 export class WritingProfileEngine {
   /**
-   * Analyzes the workspace's historical published and draft posts to deduce writing habits.
-   * Strictly enforces workspace isolation.
+   * Analyzes an individual user's or workspace's historical approved/published posts.
+   * Strictly enforces individual user ownership without bleeding other workspace members' styles.
    */
   async extractProfile(
     supabase: SupabaseClient,
@@ -31,51 +35,74 @@ export class WritingProfileEngine {
     userId?: string
   ): Promise<WritingProfile> {
     try {
-      // 1. Fetch recent published or draft posts for this workspace
+      // 1. Fetch recent published or approved posts
       let query = supabase
         .from('posts')
         .select('content, created_at')
-        .eq('workspace_id', workspaceId)
-        .order('created_at', { ascending: false })
-        .limit(15);
+        .eq('workspace_id', workspaceId);
 
       if (userId) {
+        // Enforce user-level ownership strictly
         query = query.eq('created_by', userId);
       }
 
-      const { data: posts, error } = await query;
+      const { data: posts, error: postErr } = await query
+        .order('created_at', { ascending: false })
+        .limit(15);
 
-      if (error || !posts || posts.length === 0) {
-        // Fall back to querying recent generations if posts table is empty
-        const { data: gens } = await supabase
-          .from('ai_generations')
-          .select('generated_content')
-          .eq('workspace_id', workspaceId)
-          .order('created_at', { ascending: false })
-          .limit(10);
-
-        if (!gens || gens.length === 0) {
-          return this.getDefaultProfile();
-        }
-
-        const samples = gens.map((g) => g.generated_content).filter(Boolean);
-        return this.computeProfileFromSamples(samples);
+      let samples: string[] = [];
+      if (!postErr && posts && posts.length > 0) {
+        samples = posts.map((p) => p.content).filter(Boolean);
       }
 
-      const samples = posts.map((p) => p.content).filter(Boolean);
-      return this.computeProfileFromSamples(samples);
+      // 2. If insufficient post samples, query ai_generations with strict user_id scoping
+      if (samples.length < 2) {
+        let genQuery = supabase
+          .from('ai_generations')
+          .select('generated_content')
+          .eq('workspace_id', workspaceId);
+
+        if (userId) {
+          // Strictly restrict generation history to the exact user
+          genQuery = genQuery.eq('user_id', userId);
+        }
+
+        const { data: gens, error: genErr } = await genQuery
+          .order('created_at', { ascending: false })
+          .limit(10);
+        if (!genErr && gens && gens.length > 0) {
+          for (const g of gens) {
+            if (g.generated_content && !samples.includes(g.generated_content)) {
+              samples.push(g.generated_content);
+            }
+          }
+        }
+      }
+
+      if (samples.length < 2) {
+        // Disclose that personalization is unavailable rather than claiming it
+        return this.getDefaultProfile(workspaceId, userId);
+      }
+
+      const scope = userId ? 'user_personal' : 'workspace_brand';
+      return this.computeProfileFromSamples(samples, workspaceId, userId, scope);
     } catch (err) {
-      console.warn('[WritingProfile] Failed to extract profile, using default:', err);
-      return this.getDefaultProfile();
+      console.warn('[WritingProfile] Failed to extract profile, using unpersonalized fallback:', err);
+      return this.getDefaultProfile(workspaceId, userId);
     }
   }
 
   /**
    * Derives linguistic patterns from real post samples
    */
-  computeProfileFromSamples(samples: string[]): WritingProfile {
+  computeProfileFromSamples(
+    samples: string[],
+    workspaceId: string = 'default',
+    userId?: string,
+    scope: 'user_personal' | 'workspace_brand' | 'unpersonalized_fallback' = 'user_personal'
+  ): WritingProfile {
     if (samples.length === 0) {
-      return this.getDefaultProfile();
+      return this.getDefaultProfile(workspaceId, userId);
     }
 
     let totalWords = 0;
@@ -168,6 +195,10 @@ export class WritingProfileEngine {
 
     return {
       sampleCount: samples.length,
+      isPersonalized: true,
+      scope,
+      workspaceId,
+      userId,
       averageSentenceLength,
       averageParagraphLength,
       formality,
@@ -183,9 +214,13 @@ export class WritingProfileEngine {
   /**
    * Default baseline writing profile when no historical posts exist
    */
-  getDefaultProfile(): WritingProfile {
+  getDefaultProfile(workspaceId = 'default', userId?: string): WritingProfile {
     return {
       sampleCount: 0,
+      isPersonalized: false,
+      scope: 'unpersonalized_fallback',
+      workspaceId,
+      userId,
       averageSentenceLength: 'medium',
       averageParagraphLength: 'balanced',
       formality: 'balanced',
@@ -199,33 +234,46 @@ export class WritingProfileEngine {
   }
 
   /**
-   * Translates writing profile into concise AI prompt constraints
+   * Translates writing profile into concise AI prompt constraints.
+   * Discloses when personalization is unavailable rather than falsely claiming it.
    */
   formatProfilePrompt(profile: WritingProfile): string {
-    const lines: string[] = ['USER WRITING PROFILE & VOICE PREFERENCES:'];
+    if (!profile.isPersonalized || profile.sampleCount === 0) {
+      return `VOICE PROFILE GUIDANCE:
+- Personal Writing Profile: Unavailable (No verified personal post history for user ${profile.userId || 'session'}).
+- Baseline Style: Neutral, objective practitioner tone without assumed personal quirks or artificial idioms.
+- Formatting Cadence: Natural paragraph flow with domain-appropriate clarity.`;
+    }
+
+    const header =
+      profile.scope === 'user_personal'
+        ? `USER PERSONAL WRITING VOICE (Derived strictly from ${profile.sampleCount} approved posts by user ${profile.userId}):`
+        : `WORKSPACE BRAND WRITING VOICE (Derived from ${profile.sampleCount} workspace posts):`;
+
+    const lines: string[] = [header];
 
     if (profile.firstPersonUsage === 'first_person_singular') {
-      lines.push('- Voice: Natural first-person singular ("I built", "I observed", "My experience").');
+      lines.push('- Voice: First-person singular ("I built", "I observed", "My experience").');
     } else if (profile.firstPersonUsage === 'first_person_plural') {
-      lines.push('- Voice: Team-oriented first-person plural ("We deployed", "Our team discovered").');
+      lines.push('- Voice: Team-oriented first-person plural ("We deployed", "Our team observed").');
     } else {
-      lines.push('- Voice: Objective practitioner voice focused on systems and results.');
+      lines.push('- Voice: Objective practitioner voice focused on systems, trade-offs, and outcomes.');
     }
 
     if (profile.formattingRhythm === 'prose_focused') {
       lines.push('- Formatting: Prefer cohesive, well-paced paragraphs over bulleted lists.');
     } else if (profile.formattingRhythm === 'bullet_focused') {
-      lines.push('- Formatting: Use clean, structured bullet points for core takeaways.');
+      lines.push('- Formatting: Structured bullet points for actionable takeaways.');
     } else {
-      lines.push('- Formatting: Natural balance of contextual paragraphs and concise bullet points.');
+      lines.push('- Formatting: Balanced mix of contextual paragraphs and concise bullet points.');
     }
 
     if (profile.emojiDensity === 'none') {
       lines.push('- Emojis: Strictly NO emojis. Maintain clean typographic professionalism.');
     } else if (profile.emojiDensity === 'sparse') {
-      lines.push('- Emojis: Sparse and functional (maximum 1-2 across the entire post).');
+      lines.push('- Emojis: Sparse and functional (maximum 1 across the post).');
     } else {
-      lines.push('- Emojis: Moderate visual accents on section headers.');
+      lines.push('- Emojis: Moderate visual accents.');
     }
 
     if (profile.hashtagPreference === 'none') {
@@ -233,7 +281,7 @@ export class WritingProfileEngine {
     } else if (profile.hashtagPreference === 'minimal') {
       lines.push('- Hashtags: Maximum 2 highly relevant hashtags at the bottom.');
     } else {
-      lines.push('- Hashtags: 3-4 industry-standard hashtags at the bottom.');
+      lines.push('- Hashtags: 3 industry-standard hashtags at the bottom.');
     }
 
     lines.push(`- Formality: ${profile.formality}. Sentence cadence: ${profile.averageSentenceLength}.`);

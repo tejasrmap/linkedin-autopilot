@@ -31,6 +31,7 @@ import {
   User,
   Clock,
   CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function AIStudioPage() {
@@ -51,6 +52,8 @@ export default function AIStudioPage() {
   const [generationMode, setGenerationMode] = useState<string>('auto');
   const [generatedPost, setGeneratedPost] = useState('');
   const [uniquenessReport, setUniquenessReport] = useState<any>(null);
+  const [qualityStatus, setQualityStatus] = useState<'verified' | 'degraded' | 'failed' | null>(null);
+  const [qualityWarnings, setQualityWarnings] = useState<string[]>([]);
   const [topicIntel, setTopicIntel] = useState<any>(null);
   const [loadingGenerate, setLoadingGenerate] = useState(false);
 
@@ -193,8 +196,17 @@ export default function AIStudioPage() {
       if (res.ok) {
         setGeneratedPost(data.content);
         if (data.uniquenessScore) setUniquenessReport(data.uniquenessScore);
+        if (data.qualityStatus) setQualityStatus(data.qualityStatus);
+        if (data.qualityWarnings) setQualityWarnings(data.qualityWarnings || []);
         if (data.topicAnalysis) setTopicIntel(data.topicAnalysis);
-        toast.success('Generated authentic, high-relevance post draft!');
+
+        if (data.qualityStatus === 'degraded') {
+          toast.info('Draft generated with degraded quality score. Please review warnings.', 'Quality Alert');
+        } else if (data.qualityStatus === 'failed') {
+          toast.error('Generated draft failed strict quality checks. Review warnings.', 'Quality Check Failed');
+        } else {
+          toast.success('Generated authentic, high-relevance post draft!');
+        }
       } else {
         toast.error(data.error || 'Failed to generate post');
       }
@@ -774,8 +786,20 @@ export default function AIStudioPage() {
                     AI Generated Draft
                   </span>
                   {uniquenessReport && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      Quality: {uniquenessReport.totalScore}/100
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
+                        qualityStatus === 'degraded'
+                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                          : qualityStatus === 'failed'
+                          ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
+                          : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      }`}
+                    >
+                      {qualityStatus === 'degraded'
+                        ? `⚠️ Quality Degraded (${uniquenessReport.totalScore}/100)`
+                        : qualityStatus === 'failed'
+                        ? `❌ Quality Rejected (${uniquenessReport.totalScore}/100)`
+                        : `✓ Verified Quality (${uniquenessReport.totalScore}/100)`}
                     </span>
                   )}
                   {topicIntel?.category && (
@@ -794,6 +818,20 @@ export default function AIStudioPage() {
                   </button>
                 )}
               </div>
+
+              {qualityWarnings.length > 0 && qualityStatus !== 'verified' && (
+                <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px] space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                    <span>Quality Warnings Detected:</span>
+                  </div>
+                  <ul className="list-disc pl-5 space-y-0.5 text-[10px] text-amber-600 dark:text-amber-400">
+                    {qualityWarnings.map((warn, i) => (
+                      <li key={i}>{warn}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="py-4 text-xs leading-relaxed whitespace-pre-wrap font-normal text-slate-800 dark:text-slate-200 min-h-[220px]">
                 {loadingGenerate ? (

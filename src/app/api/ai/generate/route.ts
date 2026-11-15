@@ -113,6 +113,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       content: result.content,
       uniquenessScore: result.uniquenessScore,
+      passed: result.passed,
+      qualityStatus: result.qualityStatus,
+      qualityWarnings: result.qualityWarnings,
       topicAnalysis: {
         category: result.analysis.category,
         secondaryCategories: result.analysis.secondaryCategories,
