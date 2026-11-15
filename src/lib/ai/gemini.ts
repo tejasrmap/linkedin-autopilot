@@ -107,7 +107,7 @@ export class AIService {
     if (options.supabaseClient && options.workspaceId) {
       try {
         const [fetchedHistory, fetchedProfile] = await Promise.all([
-          uniquenessEngine.getTenantHistory(options.supabaseClient, options.workspaceId),
+          uniquenessEngine.getTenantHistory(options.supabaseClient, options.workspaceId, 20, options.userId),
           writingProfileEngine.extractProfile(options.supabaseClient, options.workspaceId, options.userId),
         ]);
         history = fetchedHistory;

@@ -111,6 +111,31 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
       assert.strictEqual(profileB.formattingRhythm, 'prose_focused');
       assert.notStrictEqual(profileA.formattingRhythm, profileB.formattingRhythm);
     });
+
+    test('Missing userId strictly falls back to unpersonalized default profile', async () => {
+      const dummyClient: any = { from: () => { throw new Error('Should not query DB when userId is missing'); } };
+      const profile = await writingProfileEngine.extractProfile(dummyClient, 'ws-common', undefined);
+      assert.strictEqual(profile.isPersonalized, false, 'Must be unpersonalized when userId is missing');
+      assert.strictEqual(profile.scope, 'unpersonalized_fallback');
+    });
+
+    test('Query errors in extractProfile fail closed without leaking other data', async () => {
+      const errorClient: any = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => Promise.resolve({ data: null, error: { message: 'Database query timeout' } }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+      const profile = await writingProfileEngine.extractProfile(errorClient, 'ws-common', 'user-err');
+      assert.strictEqual(profile.isPersonalized, false, 'Must fail closed to unpersonalized fallback on error');
+    });
   });
 
   // Dimension 5: Different Workspaces (Strict Tenant Isolation)
@@ -135,6 +160,37 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
       const testWs = 'tenant-ws-alpha-99';
       await uniquenessEngine.getTenantHistory(mockSupabase, testWs);
       assert.strictEqual(capturedFilter, testWs, 'Query must be strictly isolated to the caller workspace_id');
+    });
+
+    test('User-scoped history applies both workspace_id and created_by filters', async () => {
+      let capturedWs = '';
+      let capturedUser = '';
+      const mockSupabase: any = {
+        from: () => ({
+          select: () => {
+            const builder: any = {
+              eq: (col: string, val: string) => {
+                if (col === 'workspace_id') capturedWs = val;
+                if (col === 'created_by') capturedUser = val;
+                return builder;
+              },
+              order: () => builder,
+              limit: () => Promise.resolve({ data: [], error: null }),
+            };
+            return builder;
+          },
+        }),
+      };
+
+      await uniquenessEngine.getTenantHistory(mockSupabase, 'ws-target', 10, 'user-target');
+      assert.strictEqual(capturedWs, 'ws-target', 'Must filter by workspace_id');
+      assert.strictEqual(capturedUser, 'user-target', 'Must filter by created_by / user_id');
+    });
+
+    test('Missing workspaceId returns empty history immediately', async () => {
+      const dummyClient: any = { from: () => { throw new Error('Should not query DB when workspaceId is empty'); } };
+      const history = await uniquenessEngine.getTenantHistory(dummyClient, '');
+      assert.deepStrictEqual(history, [], 'Must return empty array when workspaceId is missing');
     });
   });
 

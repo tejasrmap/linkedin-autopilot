@@ -47,13 +47,24 @@ export class UniquenessEngine {
   async getTenantHistory(
     supabase: SupabaseClient,
     workspaceId: string,
-    limit = 20
+    limit = 20,
+    userId?: string
   ): Promise<HistoricalPostSummary[]> {
+    if (!workspaceId || workspaceId.trim().length === 0) {
+      return [];
+    }
+
     try {
-      const { data: posts, error } = await supabase
+      let query = supabase
         .from('posts')
         .select('content')
-        .eq('workspace_id', workspaceId)
+        .eq('workspace_id', workspaceId);
+
+      if (userId) {
+        query = query.eq('created_by', userId);
+      }
+
+      const { data: posts, error } = await query
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -66,14 +77,20 @@ export class UniquenessEngine {
 
       // Also query recent generations if fewer than 10 posts
       if (items.length < 10) {
-        const { data: gens } = await supabase
+        let genQuery = supabase
           .from('ai_generations')
           .select('generated_content')
-          .eq('workspace_id', workspaceId)
+          .eq('workspace_id', workspaceId);
+
+        if (userId) {
+          genQuery = genQuery.eq('user_id', userId);
+        }
+
+        const { data: gens, error: genError } = await genQuery
           .order('created_at', { ascending: false })
           .limit(limit);
 
-        if (gens) {
+        if (!genError && gens) {
           for (const g of gens) {
             if (g.generated_content && g.generated_content.trim() && !items.includes(g.generated_content.trim())) {
               items.push(g.generated_content.trim());

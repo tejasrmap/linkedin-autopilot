@@ -34,6 +34,11 @@ export class WritingProfileEngine {
     workspaceId: string,
     userId?: string
   ): Promise<WritingProfile> {
+    if (!workspaceId || !userId) {
+      // Missing user context: strictly return unpersonalized default
+      return this.getDefaultProfile(workspaceId || 'default', userId);
+    }
+
     try {
       // 1. Fetch recent published or approved posts
       let query = supabase

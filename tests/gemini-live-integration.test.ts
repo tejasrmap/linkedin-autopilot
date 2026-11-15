@@ -20,7 +20,7 @@ describe('Gemini Live Integration Suite (Separated from Mocked/Unit Tests)', () 
       console.log('   Live model calls are skipped to avoid mocking in integration tests.');
       console.log('   Deterministic fallback tests run in tests/ai-content-uniqueness.test.ts.');
       console.log('-------------------------------------------------------------');
-      assert.ok(true, 'Live integration intentionally skipped when API key is missing');
+      t.skip('GEMINI_API_KEY is not configured in this environment. Live model integration test skipped explicitly.');
     });
     return;
   }
@@ -48,3 +48,4 @@ describe('Gemini Live Integration Suite (Separated from Mocked/Unit Tests)', () 
     assert.ok(tags.every((t) => t.startsWith('#')), 'All tags must start with #');
   });
 });
+

@@ -772,7 +772,7 @@ Every secondary index introduces write amplification: every INSERT and UPDATE mu
 
 Before introducing an index:
 - Run EXPLAIN (ANALYZE, BUFFERS) to determine whether the bottleneck is CPU filtering or disk I/O.
-- Verify filter selectivity: if a query matches more than 10-15% of total table rows, the query planner will correctly bypass the index for a sequential scan.
+- Verify filter selectivity: if a query matches a substantial fraction of table rows, the query planner will favor a sequential scan over random index page lookups.
 - Audit existing unused indexes via pg_stat_user_indexes to reclaim shared memory.
 
 The best indexing strategy is minimal, selective, and verified against actual production query plans.`;
@@ -784,7 +784,7 @@ The best indexing strategy is minimal, selective, and verified against actual pr
 Running an ALTER TABLE statement acquires an ACCESS EXCLUSIVE lock. While the operation itself may be instantaneous, any open query preceding it blocks the lock—and all incoming queries pile up behind it, exhausting the connection pool in seconds.
 
 Production migration guidelines:
-- Always set a low lock_timeout (e.g. 2-3 seconds) and retry with exponential backoff if the lock cannot be acquired immediately.
+- Always set an explicit low lock_timeout and retry with backoff if the lock cannot be acquired immediately.
 - Create indexes concurrently using CREATE INDEX CONCURRENTLY to avoid blocking table reads and writes.
 - Apply additive schema changes in phases: add the new column first, dual-write in application code, backfill asynchronously, and remove deprecated columns in a separate release.
 
@@ -871,7 +871,7 @@ When presentation components remain strictly declarative, testing becomes straig
       if (lower.includes('lock') || lower.includes('redis') || lower.includes('cas') || lower.includes('redlock')) {
         return `Distributed locking in Redis requires acknowledging the trade-offs between atomic single-instance operations (CAS) and multi-instance consensus algorithms (Redlock).
 
-When single-instance locking using SET resource_name my_random_value NX PX 30000 suffices:
+When single-instance locking with atomic key expiration suffices:
 - Always use a unique token and release locks via Lua scripts to verify token ownership before deletion.
 - Implement a renewal watchdog if processing durations can unpredictably exceed lock TTLs.
 - Evaluate whether eventual consistency or idempotent database transactions can eliminate the distributed lock entirely.
@@ -916,7 +916,7 @@ Zero-trust shifts security from brittle perimeter firewalls to continuous crypto
       if (lower.includes('churn')) {
         return `When analyzing customer retention in B2B SaaS, churn is rarely a pricing problem—it is a signal that the core workflow has not become indispensable.
 
-Customers rarely leave because a product is $50 too expensive. They leave because:
+Customers rarely churn over minor pricing differences. They leave because:
 - The product solved a peripheral problem rather than an acute, recurring operational headache.
 - Onboarding friction prevented the user from reaching the primary value milestone in their first week.
 - Feature bloat added cognitive overhead that obscured the core workflow.
