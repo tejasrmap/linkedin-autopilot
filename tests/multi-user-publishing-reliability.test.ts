@@ -711,3 +711,203 @@ test('Lease Claim Guard: Database connection error during claim_post_for_publish
   const isMissing = isRpcFunctionMissingError({ code: '08006', message: 'connection failure' }, 'claim_post_for_publishing');
   assert.equal(isMissing, false, 'Connection failure must NOT be classified as missing RPC function');
 });
+
+// ==============================================================
+// GROUP 9: ATOMIC CLAIM & SCHEDULED_JOBS CONSISTENCY
+// ==============================================================
+
+test('Atomic Claim Consistency: Claiming post without existing scheduled_jobs atomically creates authoritative processing job', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-missing-job-post-001';
+  const claimToken = 'aaaaaaaa-1111-4111-a111-aaaaaaaaaaaa';
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Immediate publish without preexisting job',
+    status: 'draft',
+    updated_at: new Date().toISOString(),
+  });
+
+  // Verify scheduled_jobs initially has no record for this post
+  const { data: initialJobs } = await admin.from('scheduled_jobs').select('*').eq('post_id', testPostId);
+  assert.equal(initialJobs?.length, 0);
+
+  // Claim post
+  const { data: claimResult, error: claimErr } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimErr, null);
+  assert.equal(claimResult.success, true);
+  assert.equal(claimResult.claim_token, claimToken);
+
+  // Verify posts table was updated
+  const { data: postRecord } = await admin.from('posts').select('*').eq('id', testPostId).single();
+  assert.ok(postRecord);
+  assert.equal(postRecord.status, 'processing');
+  assert.equal(postRecord.claim_token, claimToken);
+
+  // Verify scheduled_jobs was atomically created with matching lease token
+  const { data: createdJobs } = await admin.from('scheduled_jobs').select('*').eq('post_id', testPostId);
+  assert.ok(createdJobs && createdJobs.length === 1);
+  assert.equal(createdJobs[0].status, 'processing');
+  assert.equal(createdJobs[0].claim_token, claimToken);
+  assert.equal(createdJobs[0].lease_expires_at, postRecord.lease_expires_at);
+});
+
+test('Atomic Claim Consistency: Claiming post with existing scheduled job transitions job to processing with matching claim token', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-existing-job-post-002';
+  const claimToken = 'bbbbbbbb-2222-4222-b222-bbbbbbbbbbbb';
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Scheduled post ready to publish',
+    status: 'scheduled',
+    scheduled_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-existing-002',
+    post_id: testPostId,
+    status: 'scheduled',
+    scheduled_at: new Date().toISOString(),
+    attempts: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, true);
+
+  const { data: updatedJob } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-existing-002').single();
+  assert.ok(updatedJob);
+  assert.equal(updatedJob.status, 'processing');
+  assert.equal(updatedJob.claim_token, claimToken);
+});
+
+test('Atomic Claim Consistency: Claiming post with multiple scheduled_jobs cancels older duplicates', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-duplicate-jobs-post-003';
+  const claimToken = 'cccccccc-3333-4333-c333-cccccccccccc';
+  const now = Date.now();
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Post with duplicate jobs',
+    status: 'scheduled',
+    updated_at: new Date().toISOString(),
+  });
+
+  // Older duplicate job
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-old-003',
+    post_id: testPostId,
+    status: 'scheduled',
+    created_at: new Date(now - 10000).toISOString(),
+    updated_at: new Date(now - 10000).toISOString(),
+  });
+
+  // Newer primary job
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-new-003',
+    post_id: testPostId,
+    status: 'scheduled',
+    created_at: new Date(now).toISOString(),
+    updated_at: new Date(now).toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, true);
+
+  const { data: newJob } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-new-003').single();
+  assert.ok(newJob);
+  assert.equal(newJob.status, 'processing');
+  assert.equal(newJob.claim_token, claimToken);
+
+  const { data: oldJob } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-old-003').single();
+  assert.ok(oldJob);
+  assert.equal(oldJob.status, 'cancelled', 'Older duplicate job must be cancelled');
+});
+
+test('Atomic Claim Consistency: Rejects claim if job is already marked completed', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-completed-job-post-004';
+  const claimToken = 'dddddddd-4444-4444-d444-dddddddddddd';
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Post with completed job',
+    status: 'draft',
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-completed-004',
+    post_id: testPostId,
+    status: 'completed',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, false);
+  assert.equal(claimResult.reason, 'job_already_completed');
+});
+
+test('Atomic Claim Consistency: Rejects concurrent worker if job is in active processing with unexpired lease', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-active-job-post-005';
+  const claimToken1 = 'eeeeeeee-5555-4555-e555-eeeeeeeeeeee';
+  const claimToken2 = 'ffffffff-6666-4666-f666-ffffffffffff';
+  const futureLease = new Date(Date.now() + 180000).toISOString();
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Post concurrently claimed',
+    status: 'draft',
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-active-005',
+    post_id: testPostId,
+    status: 'processing',
+    claim_token: claimToken1,
+    lease_expires_at: futureLease,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken2,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, false);
+  assert.equal(claimResult.reason, 'job_already_processing');
+});

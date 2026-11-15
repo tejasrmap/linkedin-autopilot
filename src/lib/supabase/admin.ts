@@ -60,18 +60,54 @@ export function createAdminClient(): SupabaseClient {
             now.getTime() + (leaseDurationSeconds || 300) * 1000
           ).toISOString();
 
+          const jobs = testStore.scheduled_jobs || [];
+          const postJobs = jobs.filter((j) => j.post_id === targetPostId);
+          postJobs.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          const primaryJob = postJobs[0];
+
+          if (primaryJob) {
+            if (primaryJob.status === 'completed') {
+              return { data: { success: false, reason: 'job_already_completed' }, error: null };
+            }
+            if (
+              primaryJob.status === 'processing' &&
+              primaryJob.lease_expires_at &&
+              new Date(primaryJob.lease_expires_at).getTime() >= now.getTime()
+            ) {
+              return { data: { success: false, reason: 'job_already_processing' }, error: null };
+            }
+
+            primaryJob.status = 'processing';
+            primaryJob.claim_token = newClaimToken;
+            primaryJob.lease_expires_at = leaseUntil;
+            primaryJob.updated_at = nowIso;
+
+            // Deterministically cancel any duplicate/older active jobs
+            for (let i = 1; i < postJobs.length; i++) {
+              if (['scheduled', 'queued', 'processing'].includes(postJobs[i].status)) {
+                postJobs[i].status = 'cancelled';
+                postJobs[i].updated_at = nowIso;
+              }
+            }
+          } else {
+            // Immediate publishing or draft without preexisting job: insert authoritative job
+            jobs.push({
+              id: `job_${Date.now()}`,
+              post_id: targetPostId,
+              status: 'processing',
+              claim_token: newClaimToken,
+              lease_expires_at: leaseUntil,
+              attempts: 0,
+              scheduled_at: nowIso,
+              created_at: nowIso,
+              updated_at: nowIso,
+            });
+          }
+
           post.status = 'processing';
           post.claim_token = newClaimToken;
           post.lease_expires_at = leaseUntil;
           post.updated_at = nowIso;
-
-          const jobs = testStore.scheduled_jobs || [];
-          jobs.filter((j) => j.post_id === targetPostId).forEach((job) => {
-            job.status = 'processing';
-            job.claim_token = newClaimToken;
-            job.lease_expires_at = leaseUntil;
-            job.updated_at = nowIso;
-          });
 
           return {
             data: {
