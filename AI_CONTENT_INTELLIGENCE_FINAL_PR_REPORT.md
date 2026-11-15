@@ -21,6 +21,7 @@ This final audit and certification feature verification completes the engineerin
 | **F-02** | **Medium (Test Transparency)** | Test Runner | **Live integration test previously returned passed instead of skipped.** Refactored `tests/gemini-live-integration.test.ts` to call `t.skip()` explicitly, ensuring CI correctly marks missing-key tests as `skipped: 1`, not `pass: 1`. |
 | **F-03** | **Medium (Data Isolation)** | Database Queries | **Profile & History queries could run without user_id.** Enforced strict 3-scope architecture (`user_personal`, `workspace_brand`, `unpersonalized`). If `userId` is omitted or empty in `user_personal` mode, both `writingProfileEngine.extractProfile` and `uniquenessEngine.getTenantHistory` immediately fail closed without querying the database, preventing multi-user style contamination and cross-user style bleed. |
 | **F-04** | **Low (Factual Grounding)** | Fallback Engine | **Arbitrary numerical thresholds in fallback text.** Removed arbitrary thresholds ("10-15% selectivity", "$50 price difference") in favor of verified technical and business heuristics. |
+| **F-05** | **High (Authorization & Anti-Bypass)** | API Route | **Client-supplied `historyScope` could bypass personal isolation.** Server-authoritative scope derivation now strictly gates `workspace_brand` behind `useBrandVoice === true`. Any untrusted client attempt to pass `historyScope: 'workspace_brand'` is downgraded to `user_personal`. |
 
 ---
 
@@ -133,16 +134,16 @@ To implement the full intended 6-step workflow in a future feature PR:
 
 ```
 ======================================================================
-🧪 ALL AUTOMATED TESTS EXECUTED (166 Total Test Checks)
+🧪 ALL AUTOMATED TESTS EXECUTED (171 Total Test Checks)
 ======================================================================
 ✔ Security & Token Encryption Unit Suite (npm test):          21 / 21 PASS (0 failed)
 ✔ Multi-User Publishing Reliability (npm run test:multi-user):38 / 38 PASS (0 failed)
 ✔ Serverless Scheduler (pg_cron) (npm run test:serverless):   27 / 27 PASS (0 failed)
 ✔ AI Content Uniqueness Suite (npm run test:uniqueness):      52 / 52 PASS (0 failed)
-✔ AI Test Matrix Suite (npm run test:matrix):                 27 / 27 PASS (0 failed)
+✔ AI Test Matrix Suite (npm run test:matrix):                 32 / 32 PASS (0 failed)
 ﹣ Gemini Live Integration (npm run test:gemini-live):         1 SKIPPED (0 passed, 0 failed)
 ----------------------------------------------------------------------
-Total Tests:                                                 166 (165 passed, 1 skipped, 0 failed)
+Total Tests:                                                 171 (170 passed, 1 skipped, 0 failed)
 TypeScript Compilation (npx tsc --noEmit):                     0 errors
 ESLint Static Analysis (npm run lint):                         0 warnings, 0 errors
 Next.js Production Build (npm run build):                     45 / 45 routes compiled cleanly
@@ -151,7 +152,22 @@ Next.js Production Build (npm run build):                     45 / 45 routes com
 
 ---
 
-## 7. Remaining Risks & Recommended Actions
+## 7. PR #18 Mergeability & Conflict Verification
+
+1. **GitHub Pull Request #18 Mergeability Status:**
+   - Queried authoritative GitHub REST API (`https://api.github.com/repos/tejasrmap/linkedin-autopilot/pulls/18`).
+   - GitHub Reports: `mergeable: true`, `mergeable_state: "clean"`.
+   - Base branch: `main` (`477ac00`).
+   - Head branch: `feature/ai-content-intelligence-engine`.
+2. **Local Git Tree Verification:**
+   - `git merge-base origin/main HEAD` confirms `origin/main` (`477ac00`) is a direct ancestor of `HEAD`.
+   - `git log HEAD..origin/main` returns 0 commits (feature branch is strictly ahead of `origin/main` by linear commits).
+   - Local merge tree calculation `git merge-tree $(git merge-base origin/main HEAD) origin/main HEAD` confirms **zero conflicts**.
+   - Note on intermittent `mergeable: false` / `null`: When GitHub receives git pushes, background mergeability workers briefly report `null` or `false` while computing merge graphs. Once computed, GitHub confirms PR #18 is completely clean and mergeable.
+
+---
+
+## 8. Remaining Risks & Recommended Actions
 
 1. **Certification Workflow Completion:**
    - **Risk:** Users expecting to upload certificates will currently only find a text prompt interface in AI Studio.

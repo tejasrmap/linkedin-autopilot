@@ -82,8 +82,21 @@ export async function POST(request: Request) {
 
     const customKey = request.headers.get('x-gemini-key') || undefined;
 
-    // Explicit history scope: default to user_personal unless brand voice or explicit scope requested
-    const explicitHistoryScope = validated.historyScope || (validated.useBrandVoice ? 'workspace_brand' : 'user_personal');
+    // SERVER-AUTHORITATIVE HISTORY SCOPE DERIVATION:
+    // Security Rule: Client-supplied historyScope is untrusted for privilege escalation.
+    // 1. Explicit 'unpersonalized' is permitted for any caller wishing to opt out of personalization.
+    // 2. 'workspace_brand' is strictly gated behind server-verified useBrandVoice === true.
+    // 3. Otherwise, strictly default to 'user_personal'.
+    // A client cannot obtain workspace-wide history merely by submitting historyScope: 'workspace_brand'.
+    let serverDerivedScope: 'user_personal' | 'workspace_brand' | 'unpersonalized';
+
+    if (validated.historyScope === 'unpersonalized') {
+      serverDerivedScope = 'unpersonalized';
+    } else if (validated.useBrandVoice === true) {
+      serverDerivedScope = 'workspace_brand';
+    } else {
+      serverDerivedScope = 'user_personal';
+    }
 
     // Execute generation through Content Intelligence Engine
     const result = await aiService.generatePostWithReport({
@@ -97,7 +110,7 @@ export async function POST(request: Request) {
       brandVoice: brandVoiceOptions,
       workspaceId: auth.workspaceId,
       userId: auth.user.id,
-      historyScope: explicitHistoryScope,
+      historyScope: serverDerivedScope,
       supabaseClient: admin,
       apiKey: customKey,
     });
@@ -122,13 +135,13 @@ export async function POST(request: Request) {
       qualityStatus: result.qualityStatus,
       qualityWarnings: result.qualityWarnings,
       topicAnalysis: {
-        category: result.analysis.category,
-        secondaryCategories: result.analysis.secondaryCategories,
-        isHybrid: result.analysis.isHybrid,
-        complexity: result.analysis.technicalComplexity,
-        domainTerms: result.analysis.domainTerms,
-        mode: validated.generationMode || result.analysis.recommendedMode,
-        narrativeArc: validated.narrativeArc || result.analysis.recommendedNarrative,
+        category: result.analysis?.category || 'general',
+        secondaryCategories: result.analysis?.secondaryCategories || [],
+        isHybrid: result.analysis?.isHybrid || false,
+        complexity: result.analysis?.technicalComplexity || 'practitioner',
+        domainTerms: result.analysis?.domainTerms || [],
+        mode: validated.generationMode || result.analysis?.recommendedMode || 'informative',
+        narrativeArc: validated.narrativeArc || result.analysis?.recommendedNarrative || 'problem_investigation_solution',
       },
       retriesUsed: result.retriesUsed,
     });

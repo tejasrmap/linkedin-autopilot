@@ -12,6 +12,7 @@ import { writingProfileEngine } from '../src/lib/ai/writing-profile';
 import { uniquenessEngine } from '../src/lib/ai/uniqueness-engine';
 import { qualityGate } from '../src/lib/ai/quality-gate';
 import { aiService } from '../src/lib/ai/gemini';
+import { POST as generatePostRoute } from '../src/app/api/ai/generate/route';
 
 describe('AI Content Intelligence — Full Test Matrix', () => {
   // Dimension 1: Different Topics Across Multiple Domains
@@ -390,6 +391,261 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
       assert.strictEqual(result.qualityStatus, 'failed', 'Must report qualityStatus: failed');
       assert.strictEqual(result.passed, false, 'Must fail quality check');
       assert.ok(result.qualityWarnings.length > 0, 'Must provide actionable quality warning');
+    });
+  });
+
+  // Dimension 11: API Route Authorization & Server-Derived History Scope
+  describe('Dimension 11: API Route Authorization & Server-Derived Scope Enforcement', () => {
+    test('Client cannot obtain workspace-wide history merely by submitting historyScope: "workspace_brand"', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
+      let capturedOptions: any = null;
+      const originalGenerate = aiService.generatePostWithReport.bind(aiService);
+
+      aiService.generatePostWithReport = async (options: any) => {
+        capturedOptions = options;
+        return {
+          content: 'Test content',
+          uniquenessScore: { totalScore: 85, passed: true },
+          qualityStatus: 'passed',
+          passed: true,
+          qualityWarnings: [],
+          recommendedAction: 'publish',
+          analysis: {
+            category: 'technical',
+            secondaryCategories: [],
+            isHybrid: false,
+            technicalComplexity: 'practitioner',
+            domainTerms: ['distributed', 'idempotency'],
+            recommendedMode: 'technical',
+            recommendedNarrative: 'problem_investigation_solution',
+          },
+        } as any;
+      };
+
+      try {
+        const maliciousPayload = {
+          topic: 'Security audit on distributed transaction logs and idempotency',
+          historyScope: 'workspace_brand', // Untrusted client attempt to escalate to workspace brand history
+          useBrandVoice: false,
+        };
+
+        const req = new Request('http://localhost:3000/api/ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(maliciousPayload),
+        });
+
+        const res = await generatePostRoute(req);
+        assert.strictEqual(res.status, 200);
+        assert.ok(capturedOptions, 'aiService.generatePostWithReport must be invoked');
+        assert.strictEqual(
+          capturedOptions.historyScope,
+          'user_personal',
+          'Server MUST downgrade untrusted historyScope to user_personal when useBrandVoice is not true'
+        );
+        assert.notStrictEqual(
+          capturedOptions.historyScope,
+          'workspace_brand',
+          'Client must NOT be granted workspace_brand access without useBrandVoice'
+        );
+      } finally {
+        aiService.generatePostWithReport = originalGenerate;
+      }
+    });
+
+    test('Legitimate brand voice request with useBrandVoice: true activates workspace_brand', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
+      let capturedOptions: any = null;
+      const originalGenerate = aiService.generatePostWithReport.bind(aiService);
+
+      aiService.generatePostWithReport = async (options: any) => {
+        capturedOptions = options;
+        return {
+          content: 'Brand voice content',
+          uniquenessScore: { totalScore: 90, passed: true },
+          qualityStatus: 'passed',
+          passed: true,
+          qualityWarnings: [],
+          recommendedAction: 'publish',
+          analysis: {
+            category: 'technical',
+            secondaryCategories: [],
+            isHybrid: false,
+            technicalComplexity: 'practitioner',
+            domainTerms: ['event-pipeline'],
+            recommendedMode: 'technical',
+            recommendedNarrative: 'problem_investigation_solution',
+          },
+        } as any;
+      };
+
+      try {
+        const legitimatePayload = {
+          topic: 'Architecture overview of our distributed event pipeline',
+          useBrandVoice: true, // Legitimate brand voice flag
+        };
+
+        const req = new Request('http://localhost:3000/api/ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(legitimatePayload),
+        });
+
+        const res = await generatePostRoute(req);
+        assert.strictEqual(res.status, 200);
+        assert.ok(capturedOptions, 'aiService.generatePostWithReport must be invoked');
+        assert.strictEqual(
+          capturedOptions.historyScope,
+          'workspace_brand',
+          'Legitimate brand voice request must derive workspace_brand history scope'
+        );
+      } finally {
+        aiService.generatePostWithReport = originalGenerate;
+      }
+    });
+
+    test('Explicit unpersonalized request is permitted and skips database history queries', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
+      let capturedOptions: any = null;
+      const originalGenerate = aiService.generatePostWithReport.bind(aiService);
+
+      aiService.generatePostWithReport = async (options: any) => {
+        capturedOptions = options;
+        return {
+          content: 'Unpersonalized neutral content',
+          uniquenessScore: { totalScore: 82, passed: true },
+          qualityStatus: 'passed',
+          passed: true,
+          qualityWarnings: [],
+          recommendedAction: 'publish',
+          analysis: {
+            category: 'technical',
+            secondaryCategories: [],
+            isHybrid: false,
+            technicalComplexity: 'practitioner',
+            domainTerms: ['indexing'],
+            recommendedMode: 'informative',
+            recommendedNarrative: 'problem_investigation_solution',
+          },
+        } as any;
+      };
+
+      try {
+        const unpersonalizedPayload = {
+          topic: 'A neutral tutorial on PostgreSQL indexing strategies',
+          historyScope: 'unpersonalized', // Permitted opt-out
+        };
+
+        const req = new Request('http://localhost:3000/api/ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(unpersonalizedPayload),
+        });
+
+        const res = await generatePostRoute(req);
+        assert.strictEqual(res.status, 200);
+        assert.ok(capturedOptions, 'aiService.generatePostWithReport must be invoked');
+        assert.strictEqual(
+          capturedOptions.historyScope,
+          'unpersonalized',
+          'Permitted unpersonalized request must derive unpersonalized scope'
+        );
+      } finally {
+        aiService.generatePostWithReport = originalGenerate;
+      }
+    });
+
+    test('Default request without historyScope or useBrandVoice strictly defaults to user_personal', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
+      let capturedOptions: any = null;
+      const originalGenerate = aiService.generatePostWithReport.bind(aiService);
+
+      aiService.generatePostWithReport = async (options: any) => {
+        capturedOptions = options;
+        return {
+          content: 'Default user personal content',
+          uniquenessScore: { totalScore: 86, passed: true },
+          qualityStatus: 'passed',
+          passed: true,
+          qualityWarnings: [],
+          recommendedAction: 'publish',
+          analysis: {
+            category: 'technical',
+            secondaryCategories: [],
+            isHybrid: false,
+            technicalComplexity: 'practitioner',
+            domainTerms: ['react'],
+            recommendedMode: 'technical',
+            recommendedNarrative: 'problem_investigation_solution',
+          },
+        } as any;
+      };
+
+      try {
+        const defaultPayload = {
+          topic: 'Standard personal technical post on React server components',
+        };
+
+        const req = new Request('http://localhost:3000/api/ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(defaultPayload),
+        });
+
+        const res = await generatePostRoute(req);
+        assert.strictEqual(res.status, 200);
+        assert.ok(capturedOptions, 'aiService.generatePostWithReport must be invoked');
+        assert.strictEqual(
+          capturedOptions.historyScope,
+          'user_personal',
+          'Standard request must strictly default to user_personal scope'
+        );
+        assert.ok(capturedOptions.userId, 'Must pass authenticated userId');
+        assert.ok(capturedOptions.workspaceId, 'Must pass authenticated workspaceId');
+      } finally {
+        aiService.generatePostWithReport = originalGenerate;
+      }
+    });
+
+    test('User-personal requests strictly query posts by created_by and ai_generations by user_id', async () => {
+      let postsWsFilter = '';
+      let postsUserFilter = '';
+      let gensWsFilter = '';
+      let gensUserFilter = '';
+
+      const mockSupabase: any = {
+        from: (tbl: string) => ({
+          select: () => {
+            const builder: any = {
+              eq: (col: string, val: string) => {
+                if (tbl === 'posts' && col === 'workspace_id') postsWsFilter = val;
+                if (tbl === 'posts' && col === 'created_by') postsUserFilter = val;
+                if (tbl === 'ai_generations' && col === 'workspace_id') gensWsFilter = val;
+                if (tbl === 'ai_generations' && col === 'user_id') gensUserFilter = val;
+                return builder;
+              },
+              order: () => builder,
+              limit: () => Promise.resolve({ data: [], error: null }),
+            };
+            return builder;
+          },
+        }),
+      };
+
+      const testWs = 'ws-strict-user-check';
+      const testUser = 'user-strict-check';
+
+      await uniquenessEngine.getTenantHistory(mockSupabase, testWs, 10, 'user_personal', testUser);
+      await writingProfileEngine.extractProfile(mockSupabase, testWs, testUser, 'user_personal');
+
+      assert.strictEqual(postsWsFilter, testWs, 'posts must filter by workspace_id');
+      assert.strictEqual(postsUserFilter, testUser, 'posts must filter by created_by column');
+      assert.strictEqual(gensWsFilter, testWs, 'ai_generations must filter by workspace_id');
+      assert.strictEqual(gensUserFilter, testUser, 'ai_generations must filter by user_id column');
     });
   });
 });
