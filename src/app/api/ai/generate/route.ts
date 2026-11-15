@@ -38,13 +38,21 @@ const GenerateSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const validated = GenerateSchema.parse(body);
-
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    if (requestWorkspaceId && auth.workspaceId !== requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const validated = GenerateSchema.parse(body);
 
     // Rate limiting per workspace (30 generations per minute)
     const rateCheck = checkRateLimit(`ai:${auth.workspaceId}`, { limit: 30, windowMs: 60000 });
@@ -156,6 +164,9 @@ export async function POST(request: Request) {
       retriesUsed: result.retriesUsed,
     });
   } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid request payload', details: err.errors }, { status: 400 });
+    }
     console.error('[AI Generate Route Error]:', err);
     return NextResponse.json({ error: err.message || 'Internal AI generation error' }, { status: 500 });
   }
