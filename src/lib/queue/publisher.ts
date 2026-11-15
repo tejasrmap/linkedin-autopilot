@@ -60,58 +60,72 @@ export async function schedulePostPublishJob(
 
   const jobId = `post-${postId}-${Date.now()}`;
 
-  // Update post status in database
-  const targetStatus = delayMs > 0 ? 'scheduled' : 'processing';
-  const { error: updateErr } = await supabase
-    .from('posts')
-    .update({
-      status: targetStatus,
-      scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
-      error_message: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', postId);
+  if (delayMs > 0) {
+    // Future-scheduled post: update post to 'scheduled' and create scheduled_jobs row
+    const targetStatus = 'scheduled';
+    const { error: updateErr } = await supabase
+      .from('posts')
+      .update({
+        status: targetStatus,
+        scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
+        error_message: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', postId);
 
-  if (updateErr) {
-    return { queueJobId: null, success: false, error: updateErr.message };
-  }
-
-  // Create or update scheduled_jobs record
-  await supabase.from('scheduled_jobs').insert({
-    post_id: postId,
-    queue_job_id: jobId,
-    scheduled_at: scheduledAt ? scheduledAt.toISOString() : new Date().toISOString(),
-    status: delayMs > 0 ? 'scheduled' : 'queued',
-    attempts: 0,
-  });
-
-  // If BullMQ / Redis is enabled, add job to Redis queue
-  if (process.env.REDIS_URL) {
-    try {
-      const queue = getPublishQueue();
-      if (queue) {
-        const job = await queue.add(
-          'publish-linkedin-post',
-          { postId, workspaceId, attemptNumber: 1 },
-          {
-            jobId,
-            delay: delayMs,
-          }
-        );
-        return { queueJobId: job.id ?? jobId, success: true };
-      }
-    } catch (err: any) {
-      console.warn('[Queue] Failed to enqueue to Redis, fallback directly:', err.message);
+    if (updateErr) {
+      return { queueJobId: null, success: false, error: updateErr.message };
     }
-  }
 
-  // If immediate publish and queue is offline, execute in-process
-  if (delayMs <= 0) {
+    // Insert scheduled_jobs record for future cron processing
+    await supabase.from('scheduled_jobs').insert({
+      post_id: postId,
+      queue_job_id: jobId,
+      scheduled_at: scheduledAt ? scheduledAt.toISOString() : new Date().toISOString(),
+      status: 'scheduled',
+      attempts: 0,
+    });
+
+    // If BullMQ / Redis is enabled, add job to Redis queue with delay
+    if (process.env.REDIS_URL) {
+      try {
+        const queue = getPublishQueue();
+        if (queue) {
+          const job = await queue.add(
+            'publish-linkedin-post',
+            { postId, workspaceId, attemptNumber: 1 },
+            {
+              jobId,
+              delay: delayMs,
+            }
+          );
+          return { queueJobId: job.id ?? jobId, success: true };
+        }
+      } catch (err: any) {
+        console.warn('[Queue] Failed to enqueue to Redis, fallback directly:', err.message);
+      }
+    }
+
+    return { queueJobId: jobId, success: true };
+  } else {
+    // Immediate publishing ("Publish Now"):
+    // Do NOT preemptively set posts.status to 'processing' here!
+    // The post remains in 'draft' or 'scheduled' so executePublishPipeline's atomic claim RPC
+    // (claim_post_for_publishing) solely owns the transition into 'processing' with a verified lease token.
+
+    // Insert authoritative scheduled_jobs record with status 'scheduled'
+    await supabase.from('scheduled_jobs').insert({
+      post_id: postId,
+      queue_job_id: jobId,
+      scheduled_at: new Date().toISOString(),
+      status: 'scheduled',
+      attempts: 0,
+    });
+
+    // Execute in-process through the atomic lease claim pipeline
     const res = await executePublishPipeline(postId);
     return { queueJobId: jobId, success: res.success, error: res.error };
   }
-
-  return { queueJobId: jobId, success: true };
 }
 
 /**
@@ -246,6 +260,18 @@ export async function executePublishPipeline(
 
   if (socialAccount.connection_status !== 'active') {
     const errorMsg = `LinkedIn account "${socialAccount.account_name}" is currently ${socialAccount.connection_status}. Please reconnect.`;
+    await markPostFailed(supabase, post, errorMsg, attemptNumber, undefined, claimToken);
+    return { success: false, error: errorMsg };
+  }
+
+  // 4b. Verify required posting scope for personal member accounts
+  const normalizedScopes = (socialAccount.scopes || [])
+    .flatMap((s: string) => (typeof s === 'string' ? s.split(/[\s,]+/) : []))
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+
+  if (socialAccount.account_type === 'member' && normalizedScopes.length > 0 && !normalizedScopes.includes('w_member_social')) {
+    const errorMsg = `LinkedIn account "${socialAccount.account_name}" lacks required "w_member_social" posting scope. Please reconnect account with publishing permissions.`;
     await markPostFailed(supabase, post, errorMsg, attemptNumber, undefined, claimToken);
     return { success: false, error: errorMsg };
   }

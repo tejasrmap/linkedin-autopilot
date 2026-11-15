@@ -87,7 +87,9 @@ export async function POST(request: Request) {
     let initialStatus = validated.status;
 
     if (validated.publishNow) {
-      initialStatus = 'processing';
+      // Immediate publishing: Post is created as 'draft' so the atomic claim RPC
+      // (claim_post_for_publishing) solely owns the transition into 'processing'.
+      initialStatus = 'draft';
     } else if (validated.scheduledAt) {
       scheduledDate = new Date(validated.scheduledAt);
       if (scheduledDate.getTime() <= Date.now()) {
@@ -119,12 +121,41 @@ export async function POST(request: Request) {
     // If publishing now or scheduled, dispatch to scheduler / queue
     if (validated.publishNow || initialStatus === 'scheduled') {
       const scheduleResult = await schedulePostPublishJob(post.id, auth.workspaceId, scheduledDate);
-      return NextResponse.json({
-        post,
-        scheduled: initialStatus === 'scheduled',
-        published: validated.publishNow,
-        result: scheduleResult,
-      });
+
+      // Handle immediate publishing outcome honestly: never return HTTP 200 published:true on failure
+      if (validated.publishNow) {
+        if (!scheduleResult.success) {
+          return NextResponse.json(
+            {
+              post,
+              published: false,
+              scheduled: false,
+              error: scheduleResult.error || 'Failed to publish post to LinkedIn',
+            },
+            { status: 400 }
+          );
+        }
+
+        return NextResponse.json(
+          {
+            post,
+            published: true,
+            scheduled: false,
+            result: scheduleResult,
+          },
+          { status: 200 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          post,
+          scheduled: true,
+          published: false,
+          result: scheduleResult,
+        },
+        { status: 200 }
+      );
     }
 
     return NextResponse.json({ post }, { status: 201 });

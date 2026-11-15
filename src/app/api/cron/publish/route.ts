@@ -87,7 +87,7 @@ async function handleCronRequest(request: Request) {
 
         if (!reclaimErr && updatedPost && updatedPost.length > 0) {
           reclaimedCount++;
-          // Sync scheduled_jobs if present
+          // Sync scheduled_jobs: reconcile both 'processing' and 'queued' states
           await supabase
             .from('scheduled_jobs')
             .update({
@@ -97,7 +97,7 @@ async function handleCronRequest(request: Request) {
               updated_at: nowIso,
             })
             .eq('post_id', stale.id)
-            .eq('status', 'processing');
+            .in('status', ['processing', 'queued']);
         }
       }
       if (reclaimedCount > 0) {
