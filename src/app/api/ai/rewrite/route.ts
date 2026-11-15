@@ -78,6 +78,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid request payload', details: err.errors }, { status: 400 });
     }
     console.error('[AI Rewrite Route Error]:', err);
-    return NextResponse.json({ error: err.message || 'Internal AI rewrite error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal AI rewrite error' }, { status: 500 });
   }
 }

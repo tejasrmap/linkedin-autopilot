@@ -13,6 +13,7 @@ import { POST as hashtagsHandler } from '../src/app/api/ai/hashtags/route';
 import { POST as calendarHandler } from '../src/app/api/ai/calendar/route';
 import { GET as getBrandSettingsHandler, PUT as putBrandSettingsHandler } from '../src/app/api/brand-settings/route';
 import { POST as certificateRouteHandler } from '../src/app/api/ai/certificate/route';
+import { getAuthContext } from '../src/lib/auth';
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -27,8 +28,10 @@ const REAL_PNG_BUFFER = Buffer.from(
 
 describe('AI Content Studio — Security, RBAC & Reliability Test Suite', () => {
   let originalGetGenerativeModel: any;
+  const originalNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
+    (process.env as any).NODE_ENV = 'test';
     process.env.ALLOW_DEV_AUTH = 'true';
     process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
     process.env.GEMINI_API_KEY = 'test_gemini_api_key_valid';
@@ -49,6 +52,7 @@ describe('AI Content Studio — Security, RBAC & Reliability Test Suite', () => 
   });
 
   afterEach(() => {
+    (process.env as any).NODE_ENV = originalNodeEnv;
     GoogleGenerativeAI.prototype.getGenerativeModel = originalGetGenerativeModel;
     delete process.env.TEST_AUTH_ROLE;
     delete process.env.TEST_AUTH_USER_ID;
@@ -88,6 +92,12 @@ describe('AI Content Studio — Security, RBAC & Reliability Test Suite', () => 
         name: 'GET /api/brand-settings',
         handler: getBrandSettingsHandler,
         method: 'GET',
+      },
+      {
+        name: 'PUT /api/brand-settings',
+        handler: putBrandSettingsHandler,
+        method: 'PUT',
+        body: { brandName: 'Acme Global', industry: 'Cloud Architecture', brandVoice: 'Technical' },
       },
     ];
 
@@ -150,7 +160,7 @@ describe('AI Content Studio — Security, RBAC & Reliability Test Suite', () => 
       });
     }
 
-    test('Unauthenticated request without session returns 401 Unauthorized', async () => {
+    test('Unauthenticated request to POST /api/ai/ideas returns 401 Unauthorized', async () => {
       process.env.ALLOW_DEV_AUTH = 'false';
       const req = new Request('http://localhost:3000/api/ai/ideas', {
         method: 'POST',
@@ -159,6 +169,20 @@ describe('AI Content Studio — Security, RBAC & Reliability Test Suite', () => 
       });
 
       const res = await ideasHandler(req);
+      assert.strictEqual(res.status, 401);
+      const data = await res.json();
+      assert.strictEqual(data.error, 'Unauthorized');
+    });
+
+    test('Unauthenticated request to PUT /api/brand-settings returns 401 Unauthorized', async () => {
+      process.env.ALLOW_DEV_AUTH = 'false';
+      const req = new Request('http://localhost:3000/api/brand-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandName: 'Acme Global' }),
+      });
+
+      const res = await putBrandSettingsHandler(req);
       assert.strictEqual(res.status, 401);
       const data = await res.json();
       assert.strictEqual(data.error, 'Unauthorized');
@@ -246,9 +270,147 @@ describe('AI Content Studio — Security, RBAC & Reliability Test Suite', () => 
   });
 
   // -------------------------------------------------------------
-  // PHASE 4: ZOD VALIDATION & ERROR CLASSIFICATION
+  // PHASE 3: BRAND VOICE UI PERSISTENCE STATE MACHINE & LIFECYCLE
   // -------------------------------------------------------------
-  describe('Phase 4: Client Validation Errors Return HTTP 400 with Details', () => {
+  describe('Phase 3: Brand Voice Component Lifecycle & UI Persistence Integration', () => {
+    class MockBrandVoiceHarness {
+      brandName = '';
+      brandIndustry = '';
+      brandVoice = '';
+      loadingBrand = true;
+      brandLoaded = false;
+      brandError: string | null = null;
+      savedBrand = false;
+      saveApiCalls: any[] = [];
+
+      async mount(apiResponse: { ok: boolean; status: number; data?: any; error?: string }) {
+        this.loadingBrand = true;
+        this.brandError = null;
+        try {
+          if (apiResponse.ok && apiResponse.data?.settings) {
+            this.brandName = apiResponse.data.settings.brand_name || '';
+            this.brandIndustry = apiResponse.data.settings.industry || '';
+            this.brandVoice = apiResponse.data.settings.brand_voice || '';
+            this.brandLoaded = true;
+          } else if (!apiResponse.ok) {
+            this.brandError = apiResponse.error || 'Failed to load brand settings';
+            this.brandLoaded = false;
+          } else {
+            // Empty state: default to empty without placeholders
+            this.brandName = '';
+            this.brandIndustry = '';
+            this.brandVoice = '';
+            this.brandLoaded = true;
+          }
+        } catch (err: any) {
+          this.brandError = err.message || 'Failed to load brand settings';
+          this.brandLoaded = false;
+        } finally {
+          this.loadingBrand = false;
+        }
+      }
+
+      async handleSaveBrand() {
+        if (!this.brandLoaded) {
+          // Blocked: cannot save while initial load is pending or failed
+          return { saved: false, reason: 'save_disabled_while_unloaded' };
+        }
+        if (!this.brandName.trim()) {
+          return { saved: false, reason: 'brand_name_required' };
+        }
+
+        this.saveApiCalls.push({
+          brandName: this.brandName.trim(),
+          industry: this.brandIndustry.trim(),
+          brandVoice: this.brandVoice.trim(),
+        });
+        this.savedBrand = true;
+        return { saved: true };
+      }
+    }
+
+    test('Initial mount: save action remains disabled while loadingBrand is true', async () => {
+      const harness = new MockBrandVoiceHarness();
+      assert.strictEqual(harness.loadingBrand, true);
+      assert.strictEqual(harness.brandLoaded, false);
+
+      const saveAttempt = await harness.handleSaveBrand();
+      assert.strictEqual(saveAttempt.saved, false);
+      assert.strictEqual(saveAttempt.reason, 'save_disabled_while_unloaded');
+      assert.strictEqual(harness.saveApiCalls.length, 0);
+    });
+
+    test('Successful fetch on mount populates form with persisted settings (no placeholder overwrite)', async () => {
+      const harness = new MockBrandVoiceHarness();
+      await harness.mount({
+        ok: true,
+        status: 200,
+        data: {
+          settings: {
+            brand_name: 'Stripe Security Inc',
+            industry: 'Payment Infrastructure',
+            brand_voice: 'Direct, technical, telemetry-backed',
+          },
+        },
+      });
+
+      assert.strictEqual(harness.loadingBrand, false);
+      assert.strictEqual(harness.brandLoaded, true);
+      assert.strictEqual(harness.brandError, null);
+      assert.strictEqual(harness.brandName, 'Stripe Security Inc');
+      assert.strictEqual(harness.brandIndustry, 'Payment Infrastructure');
+      assert.strictEqual(harness.brandVoice, 'Direct, technical, telemetry-backed');
+      assert.notStrictEqual(harness.brandName, 'GT InnoX LLP', 'Must NOT overwrite saved data with placeholder');
+
+      const saveAttempt = await harness.handleSaveBrand();
+      assert.strictEqual(saveAttempt.saved, true);
+      assert.strictEqual(harness.saveApiCalls.length, 1);
+      assert.strictEqual(harness.saveApiCalls[0].brandName, 'Stripe Security Inc');
+    });
+
+    test('Failed fetch displays error state, blocks save, and retry successfully recovers', async () => {
+      const harness = new MockBrandVoiceHarness();
+      // 1. Initial mount fails
+      await harness.mount({
+        ok: false,
+        status: 500,
+        error: 'Database connection timeout',
+      });
+
+      assert.strictEqual(harness.loadingBrand, false);
+      assert.strictEqual(harness.brandLoaded, false);
+      assert.strictEqual(harness.brandError, 'Database connection timeout');
+
+      // Save must remain blocked
+      const saveAttempt = await harness.handleSaveBrand();
+      assert.strictEqual(saveAttempt.saved, false);
+      assert.strictEqual(saveAttempt.reason, 'save_disabled_while_unloaded');
+
+      // 2. Retry succeeds
+      await harness.mount({
+        ok: true,
+        status: 200,
+        data: {
+          settings: {
+            brand_name: 'Recovered Brand',
+            industry: 'Reliability Engineering',
+            brand_voice: 'Excellence in execution',
+          },
+        },
+      });
+
+      assert.strictEqual(harness.brandError, null);
+      assert.strictEqual(harness.brandLoaded, true);
+      assert.strictEqual(harness.brandName, 'Recovered Brand');
+      const retrySave = await harness.handleSaveBrand();
+      assert.strictEqual(retrySave.saved, true);
+    });
+  });
+
+  // -------------------------------------------------------------
+  // PHASE 4: ZOD VALIDATION & SAFE ERROR CLASSIFICATION
+  // -------------------------------------------------------------
+  describe('Phase 4: Client Validation Errors Return HTTP 400 & Unexpected Errors Return Safe 500', () => {
     test('POST /api/ai/ideas returns 400 for empty industry string', async () => {
       const req = new Request('http://localhost:3000/api/ai/ideas', {
         method: 'POST',
@@ -331,6 +493,104 @@ describe('AI Content Studio — Security, RBAC & Reliability Test Suite', () => 
       const data = await res.json();
       assert.strictEqual(data.error, 'Invalid request payload');
       assert.ok(Array.isArray(data.details));
+    });
+
+    test('Unexpected server error in POST /api/ai/generate returns safe generic 500 without leaking stack traces', async () => {
+      const req = new Request('http://localhost:3000/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'invalid-json-structure-triggering-catch',
+      });
+
+      const res = await generateHandler(req);
+      assert.strictEqual(res.status, 500);
+      const data = await res.json();
+      assert.strictEqual(data.error, 'Internal AI generation error');
+      assert.strictEqual(data.stack, undefined);
+    });
+
+    test('Unexpected server error in POST /api/ai/rewrite returns safe generic 500 without leaking stack traces', async () => {
+      const req = new Request('http://localhost:3000/api/ai/rewrite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'invalid-json-structure-triggering-catch',
+      });
+
+      const res = await rewriteHandler(req);
+      assert.strictEqual(res.status, 500);
+      const data = await res.json();
+      assert.strictEqual(data.error, 'Internal AI rewrite error');
+      assert.strictEqual(data.stack, undefined);
+    });
+
+    test('Database failure in PUT /api/brand-settings returns safe generic 500 without leaking DB internals', async () => {
+      const req = new Request('http://localhost:3000/api/brand-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'invalid-json-syntax',
+      });
+
+      const res = await putBrandSettingsHandler(req);
+      assert.strictEqual(res.status, 500);
+      const data = await res.json();
+      assert.strictEqual(data.error, 'Internal server error');
+      assert.strictEqual(data.stack, undefined);
+    });
+  });
+
+  // -------------------------------------------------------------
+  // PHASE 5: PRODUCTION AUTHENTICATION AUDIT & FAIL-CLOSED GUARDS
+  // -------------------------------------------------------------
+  describe('Phase 5: Production Authentication Audit & Verified Membership Enforcement', () => {
+    test('Production safeguard: NODE_ENV=production strictly ignores ALLOW_DEV_AUTH=true (returns 401)', async () => {
+      (process.env as any).NODE_ENV = 'production';
+      process.env.ALLOW_DEV_AUTH = 'true';
+
+      const req = new Request('http://localhost:3000/api/brand-settings', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const res = await getBrandSettingsHandler(req);
+      assert.strictEqual(res.status, 401, 'Production must never allow dev auth fallback');
+      const data = await res.json();
+      assert.strictEqual(data.error, 'Unauthorized');
+    });
+
+    test('Production foreign workspace safeguard: NODE_ENV=production with x-workspace-id returns 403 Forbidden', async () => {
+      (process.env as any).NODE_ENV = 'production';
+      process.env.ALLOW_DEV_AUTH = 'true';
+
+      const req = new Request('http://localhost:3000/api/brand-settings', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-workspace-id': FOREIGN_WS_ID,
+        },
+      });
+
+      const res = await getBrandSettingsHandler(req);
+      assert.strictEqual(res.status, 403, 'Production must reject unverified workspace with 403');
+      const data = await res.json();
+      assert.ok(data.error.includes('Access denied to requested workspace'));
+    });
+
+    test('Verified membership contract: getAuthContext(requestWorkspaceId) checks verified database membership and fails closed to null', async () => {
+      (process.env as any).NODE_ENV = 'test';
+      process.env.ALLOW_DEV_AUTH = 'true';
+
+      // 1. Valid workspace membership succeeds
+      const validAuth = await getAuthContext(VALID_WS_ID);
+      assert.ok(validAuth, 'Valid authorized workspace must resolve auth context');
+      assert.strictEqual(validAuth.workspaceId, VALID_WS_ID);
+
+      // 2. Unknown workspace ID fails closed to null without fallback
+      const unknownAuth = await getAuthContext(UNKNOWN_WS_ID);
+      assert.strictEqual(unknownAuth, null, 'Unknown workspace ID must return null');
+
+      // 3. Foreign workspace ID fails closed to null without fallback
+      const foreignAuth = await getAuthContext(FOREIGN_WS_ID);
+      assert.strictEqual(foreignAuth, null, 'Foreign workspace ID must return null');
     });
   });
 

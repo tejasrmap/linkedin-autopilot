@@ -94,7 +94,7 @@ export async function PUT(request: Request) {
 
     if (error) {
       console.error('[Brand Settings DB Upsert Error]:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to update brand settings' }, { status: 500 });
     }
 
     return NextResponse.json({ settings: updated });

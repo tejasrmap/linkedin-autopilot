@@ -168,6 +168,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid request payload', details: err.errors }, { status: 400 });
     }
     console.error('[AI Generate Route Error]:', err);
-    return NextResponse.json({ error: err.message || 'Internal AI generation error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal AI generation error' }, { status: 500 });
   }
 }
