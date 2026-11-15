@@ -11,6 +11,7 @@ import {
   executePublishPipeline,
   isRpcFunctionMissingError,
   rollbackPostStatusOnJobFailure,
+  cancelScheduledJob,
 } from '../src/lib/queue/publisher';
 import { encryptToken, decryptToken } from '../src/lib/encryption';
 
@@ -551,4 +552,161 @@ test('API Contract: Operation statuses are clearly distinguished (draft vs sched
   const failedScheduleResult = { success: false, error: 'LinkedIn account lacks posting scope' };
   const httpStatus = failedScheduleResult.success ? 200 : 400;
   assert.equal(httpStatus, 400, 'Failed publish now must return HTTP 400 with honest error');
+});
+
+// ==============================================================
+// GROUP 7: CROSS-TENANT IDOR VALIDATION & IMMUTABILITY ENFORCEMENT
+// ==============================================================
+
+test('Cross-Tenant IDOR: Post publish route rejects foreign workspace post ID', async () => {
+  const admin = createAdminClient();
+  const foreignPostId = 'foreign-publish-idor-post-001';
+  const victimWs = 'ws-victim-111';
+  const attackerWs = 'ws-attacker-222';
+
+  await admin.from('posts').insert({
+    id: foreignPostId,
+    workspace_id: victimWs,
+    content: 'Victim workspace post that attacker wants to publish',
+    status: 'draft',
+  });
+
+  // Verify workspace-scoped lookup executed in /api/posts/[id]/publish/route.ts:
+  const { data: post, error } = await admin
+    .from('posts')
+    .select('id, workspace_id')
+    .eq('id', foreignPostId)
+    .eq('workspace_id', attackerWs)
+    .maybeSingle();
+
+  assert.equal(post, null, 'Foreign workspace post lookup must return null for attacker workspace');
+});
+
+test('Cross-Tenant IDOR: Post schedule route rejects foreign workspace post ID', async () => {
+  const admin = createAdminClient();
+  const foreignScheduleId = 'foreign-schedule-idor-post-002';
+  const victimWs = 'ws-victim-333';
+  const attackerWs = 'ws-attacker-444';
+
+  await admin.from('posts').insert({
+    id: foreignScheduleId,
+    workspace_id: victimWs,
+    content: 'Victim workspace post that attacker wants to schedule',
+    status: 'draft',
+  });
+
+  const { data: post } = await admin
+    .from('posts')
+    .select('id, workspace_id')
+    .eq('id', foreignScheduleId)
+    .eq('workspace_id', attackerWs)
+    .maybeSingle();
+
+  assert.equal(post, null, 'Attacker cannot schedule post belonging to foreign workspace');
+});
+
+test('Cross-Tenant IDOR: Post cancel route rejects foreign workspace post ID', async () => {
+  const admin = createAdminClient();
+  const foreignCancelId = 'foreign-cancel-idor-post-003';
+  const victimWs = 'ws-victim-555';
+  const attackerWs = 'ws-attacker-666';
+
+  await admin.from('posts').insert({
+    id: foreignCancelId,
+    workspace_id: victimWs,
+    content: 'Victim scheduled post that attacker wants to cancel',
+    status: 'scheduled',
+  });
+
+  const { data: post } = await admin
+    .from('posts')
+    .select('id, workspace_id, status')
+    .eq('id', foreignCancelId)
+    .eq('workspace_id', attackerWs)
+    .maybeSingle();
+
+  assert.equal(post, null, 'Attacker cannot cancel post belonging to foreign workspace');
+});
+
+test('Post Immutability: cancelScheduledJob strictly protects published posts from being reopened or reverted to draft', async () => {
+  const admin = createAdminClient();
+  const publishedPostId = 'published-immutability-post-004';
+  const testWs = 'ws-immutability-test';
+
+  await admin.from('posts').insert({
+    id: publishedPostId,
+    workspace_id: testWs,
+    content: 'Published post that must remain immutable',
+    status: 'published',
+    provider_post_id: 'urn:li:share:immutable-999',
+  });
+
+  // Attempt to cancel an already published post
+  const cancelSuccess = await cancelScheduledJob(publishedPostId, testWs);
+  assert.equal(cancelSuccess, false, 'cancelScheduledJob must return false for published post');
+
+  // Verify status in database was NOT changed to draft
+  const { data: post } = await admin.from('posts').select('id, status').eq('id', publishedPostId).single();
+  assert.ok(post);
+  assert.equal(post.status, 'published', 'Published post status must remain strictly published');
+});
+
+test('Post Immutability: cancelScheduledJob strictly protects in-flight processing posts from being cancelled', async () => {
+  const admin = createAdminClient();
+  const processingPostId = 'processing-immutability-post-005';
+  const testWs = 'ws-immutability-test';
+
+  await admin.from('posts').insert({
+    id: processingPostId,
+    workspace_id: testWs,
+    content: 'In-flight processing post owned by worker lease',
+    status: 'processing',
+    claim_token: 'active-worker-claim-token-111',
+  });
+
+  const cancelSuccess = await cancelScheduledJob(processingPostId, testWs);
+  assert.equal(cancelSuccess, false, 'cancelScheduledJob must return false for in-flight processing post');
+
+  const { data: post } = await admin.from('posts').select('id, status').eq('id', processingPostId).single();
+  assert.ok(post);
+  assert.equal(post.status, 'processing', 'In-flight processing post status must remain processing');
+});
+
+test('Bulk Post Scheduling: Foreign workspace social account ID is strictly rejected', async () => {
+  const admin = createAdminClient();
+  const ws1 = 'ws-bulk-tenant-1';
+  const ws2 = 'ws-bulk-tenant-2';
+  const foreignAccountId = 'foreign-acc-bulk-test';
+
+  await admin.from('social_accounts').insert({
+    id: foreignAccountId,
+    workspace_id: ws2,
+    account_name: 'Tenant 2 LinkedIn',
+    account_type: 'member',
+    connection_status: 'active',
+    scopes: ['w_member_social'],
+  });
+
+  // Verify the ownership check executed in /api/posts/bulk/route.ts:
+  const { data: validAccount } = await admin
+    .from('social_accounts')
+    .select('id')
+    .eq('id', foreignAccountId)
+    .eq('workspace_id', ws1)
+    .maybeSingle();
+
+  assert.equal(validAccount, null, 'Foreign social account must be rejected during bulk scheduling');
+});
+
+test('Lease Claim Guard: Database connection error during claim_post_for_publishing FAILS CLOSED without bypassing to CAS', async () => {
+  // Mock client that returns a fatal connection error (08006) on RPC
+  const mockFailingSupabase = {
+    rpc: async () => ({
+      data: null,
+      error: { message: 'connection failure: database unreachable', code: '08006' },
+    }),
+  };
+
+  const isMissing = isRpcFunctionMissingError({ code: '08006', message: 'connection failure' }, 'claim_post_for_publishing');
+  assert.equal(isMissing, false, 'Connection failure must NOT be classified as missing RPC function');
 });

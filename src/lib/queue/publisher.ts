@@ -248,20 +248,33 @@ export async function schedulePostPublishJob(
 }
 
 /**
- * Cancels a scheduled publishing job
+ * Cancels a scheduled publishing job with status validation and optional workspace scoping.
+ * Posts that are currently processing or already published are strictly immutable and cannot be cancelled.
  */
-export async function cancelScheduledJob(postId: string): Promise<boolean> {
+export async function cancelScheduledJob(postId: string, workspaceId?: string): Promise<boolean> {
   const supabase = createAdminClient();
 
-  // Update post status
-  await supabase
+  // Atomically update post status back to draft ONLY if it is currently scheduled or pending_approval.
+  // Published or in-flight processing posts must never be cancelled or reverted to draft!
+  let query = supabase
     .from('posts')
     .update({
       status: 'draft',
       scheduled_at: null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', postId);
+    .eq('id', postId)
+    .in('status', ['scheduled', 'pending_approval']);
+
+  if (workspaceId) {
+    query = query.eq('workspace_id', workspaceId);
+  }
+
+  const { data: cancelledPost, error: cancelErr } = await query.select('id');
+
+  if (cancelErr || !cancelledPost || cancelledPost.length === 0) {
+    return false;
+  }
 
   // Update scheduled_jobs table
   await supabase
@@ -306,10 +319,14 @@ export async function executePublishPipeline(
   // 1. Atomic Claim with UUID Execution Lease Token (RPC with CAS fallback)
   let post: any = null;
   const { data: claimData, error: rpcErr } = await supabase.rpc('claim_post_for_publishing', {
+    p_target_post_id: postId,
+    p_new_claim_token: claimToken,
+    p_lease_duration_seconds: leaseDurationSeconds,
+    // Dual compatibility with legacy RPC parameter names
     target_post_id: postId,
     new_claim_token: claimToken,
     lease_duration_seconds: leaseDurationSeconds,
-  });
+  } as any);
 
   if (!rpcErr && claimData) {
     if (!claimData.success) {
@@ -326,8 +343,9 @@ export async function executePublishPipeline(
       return { success: false, error: 'Failed to retrieve claimed post record.' };
     }
     post = fetchedPost;
-  } else {
-    // Fallback if RPC is not yet applied: conditional CAS update
+  } else if (rpcErr && isRpcFunctionMissingError(rpcErr, 'claim_post_for_publishing')) {
+    // Fallback ONLY if the RPC function genuinely does not exist in the database schema (e.g. unapplied migration)
+    console.warn(`[Publisher] claim_post_for_publishing RPC missing (${rpcErr.code || rpcErr.message}); falling back to verified CAS update`);
     const { data: casPost, error: lockErr } = await supabase
       .from('posts')
       .update({
@@ -345,6 +363,23 @@ export async function executePublishPipeline(
       return { success: false, error: 'Post is already processing or has already been published.' };
     }
     post = casPost;
+
+    // Synchronize scheduled_jobs record conditionally
+    await supabase
+      .from('scheduled_jobs')
+      .update({
+        status: 'processing',
+        claim_token: claimToken,
+        lease_expires_at: new Date(Date.now() + leaseDurationSeconds * 1000).toISOString(),
+        updated_at: nowIso,
+      })
+      .eq('post_id', postId)
+      .in('status', ['scheduled', 'queued', 'processing']);
+  } else {
+    // Network failure, DB timeout, permission error, or unexpected SQL exception: FAIL CLOSED
+    const rpcErrMsg = rpcErr?.message || 'Unknown database RPC error during claim';
+    console.error(`[Publisher] Fatal database error during claim_post_for_publishing for post ${postId}:`, rpcErr);
+    return { success: false, error: `Database claim failure: ${rpcErrMsg}` };
   }
 
   // 3. Count attempt number

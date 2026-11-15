@@ -39,8 +39,24 @@ export async function POST(request: Request) {
 
     const admin = createAdminClient();
 
-    // Verify social account
+    // Verify default social account belongs to this workspace if supplied
     const defaultAccountId = body.socialAccountId;
+    if (defaultAccountId) {
+      const { data: validDefault } = await admin
+        .from('social_accounts')
+        .select('id')
+        .eq('id', defaultAccountId)
+        .eq('workspace_id', auth.workspaceId)
+        .maybeSingle();
+
+      if (!validDefault) {
+        return NextResponse.json(
+          { error: 'Invalid default social account: Account does not belong to this workspace.' },
+          { status: 403 }
+        );
+      }
+    }
+
     const results: Array<{ id?: string; content: string; status: string; error?: string }> = [];
 
     for (const item of items) {
@@ -50,6 +66,26 @@ export async function POST(request: Request) {
       }
 
       const accountId = item.socialAccountId || defaultAccountId;
+
+      // If item specifies an explicit account different from default, verify workspace ownership
+      if (accountId && accountId !== defaultAccountId) {
+        const { data: validItemAccount } = await admin
+          .from('social_accounts')
+          .select('id')
+          .eq('id', accountId)
+          .eq('workspace_id', auth.workspaceId)
+          .maybeSingle();
+
+        if (!validItemAccount) {
+          results.push({
+            content: item.content,
+            status: 'failed',
+            error: 'Invalid social account: Account does not belong to this workspace.',
+          });
+          continue;
+        }
+      }
+
       const scheduledTime = item.scheduledAt ? new Date(item.scheduledAt) : null;
       const initialStatus = scheduledTime && scheduledTime.getTime() > Date.now() ? 'scheduled' : 'draft';
 

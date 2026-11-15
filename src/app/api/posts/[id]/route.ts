@@ -101,9 +101,20 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  await cancelScheduledJob(params.id);
-
   const admin = createAdminClient();
+  const { data: post, error: postErr } = await admin
+    .from('posts')
+    .select('id, workspace_id')
+    .eq('id', params.id)
+    .eq('workspace_id', auth.workspaceId)
+    .maybeSingle();
+
+  if (postErr || !post) {
+    return NextResponse.json({ error: 'Post not found or inaccessible.' }, { status: 404 });
+  }
+
+  await cancelScheduledJob(params.id, auth.workspaceId);
+
   const { error } = await admin
     .from('posts')
     .delete()
