@@ -14,7 +14,7 @@ import {
   NarrativeArc,
   TopicAnalysis,
 } from './content-intelligence';
-import { writingProfileEngine, WritingProfile } from './writing-profile';
+import { writingProfileEngine, WritingProfile, HistoryScope } from './writing-profile';
 import {
   uniquenessEngine,
   UniquenessScore,
@@ -45,6 +45,7 @@ export interface GeneratePostOptions {
   narrativeArc?: NarrativeArc;
   workspaceId?: string;
   userId?: string;
+  historyScope?: HistoryScope;
   supabaseClient?: SupabaseClient;
   apiKey?: string;
   brandVoice?: {
@@ -100,15 +101,38 @@ export class AIService {
     const mode: GenerationMode = options.generationMode || analysis.recommendedMode;
     let activeNarrative: NarrativeArc = options.narrativeArc || analysis.recommendedNarrative;
 
+    // Resolve explicit history scope architecture
+    const requestedScope = options.historyScope;
+    let activeScope: HistoryScope;
+    if (requestedScope === 'unpersonalized') {
+      activeScope = 'unpersonalized';
+    } else if (requestedScope === 'workspace_brand') {
+      activeScope = 'workspace_brand';
+    } else {
+      // Default scope is user_personal. If userId is not provided, fail closed to unpersonalized
+      activeScope = options.userId ? 'user_personal' : 'unpersonalized';
+    }
+
     // 2. Stage E & F: Load Tenant History & User-Scoped Writing Profile
     let history: HistoricalPostSummary[] = [];
     let profile: WritingProfile = writingProfileEngine.getDefaultProfile(options.workspaceId, options.userId);
 
-    if (options.supabaseClient && options.workspaceId) {
+    if (options.supabaseClient && options.workspaceId && activeScope !== 'unpersonalized') {
       try {
         const [fetchedHistory, fetchedProfile] = await Promise.all([
-          uniquenessEngine.getTenantHistory(options.supabaseClient, options.workspaceId, 20, options.userId),
-          writingProfileEngine.extractProfile(options.supabaseClient, options.workspaceId, options.userId),
+          uniquenessEngine.getTenantHistory(
+            options.supabaseClient,
+            options.workspaceId,
+            20,
+            activeScope,
+            options.userId
+          ),
+          writingProfileEngine.extractProfile(
+            options.supabaseClient,
+            options.workspaceId,
+            options.userId,
+            activeScope
+          ),
         ]);
         history = fetchedHistory;
         profile = fetchedProfile;

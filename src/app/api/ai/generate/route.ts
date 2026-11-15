@@ -33,6 +33,7 @@ const GenerateSchema = z.object({
     ])
     .optional(),
   narrativeArc: z.string().optional(),
+  historyScope: z.enum(['user_personal', 'workspace_brand', 'unpersonalized']).optional(),
 });
 
 export async function POST(request: Request) {
@@ -81,6 +82,9 @@ export async function POST(request: Request) {
 
     const customKey = request.headers.get('x-gemini-key') || undefined;
 
+    // Explicit history scope: default to user_personal unless brand voice or explicit scope requested
+    const explicitHistoryScope = validated.historyScope || (validated.useBrandVoice ? 'workspace_brand' : 'user_personal');
+
     // Execute generation through Content Intelligence Engine
     const result = await aiService.generatePostWithReport({
       topic: validated.topic,
@@ -93,6 +97,7 @@ export async function POST(request: Request) {
       brandVoice: brandVoiceOptions,
       workspaceId: auth.workspaceId,
       userId: auth.user.id,
+      historyScope: explicitHistoryScope,
       supabaseClient: admin,
       apiKey: customKey,
     });

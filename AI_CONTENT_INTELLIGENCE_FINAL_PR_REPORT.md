@@ -19,7 +19,7 @@ This final audit and certification feature verification completes the engineerin
 |---|---|---|---|
 | **F-01** | **High (Feature Scope)** | Certification Pipeline | **Certification upload, URL extraction & OCR/Vision pipeline does NOT exist.** In the current implementation, certifications only exist as a text prompt categorization and synthesis mode. Documented full gap analysis and future architecture below. |
 | **F-02** | **Medium (Test Transparency)** | Test Runner | **Live integration test previously returned passed instead of skipped.** Refactored `tests/gemini-live-integration.test.ts` to call `t.skip()` explicitly, ensuring CI correctly marks missing-key tests as `skipped: 1`, not `pass: 1`. |
-| **F-03** | **Medium (Data Isolation)** | Database Queries | **Profile & History queries could run without user_id.** Enforced strict fail-closed check: if `userId` is omitted or empty, `writingProfileEngine.extractProfile` immediately returns unpersonalized fallback without querying the database, preventing multi-user style contamination. |
+| **F-03** | **Medium (Data Isolation)** | Database Queries | **Profile & History queries could run without user_id.** Enforced strict 3-scope architecture (`user_personal`, `workspace_brand`, `unpersonalized`). If `userId` is omitted or empty in `user_personal` mode, both `writingProfileEngine.extractProfile` and `uniquenessEngine.getTenantHistory` immediately fail closed without querying the database, preventing multi-user style contamination and cross-user style bleed. |
 | **F-04** | **Low (Factual Grounding)** | Fallback Engine | **Arbitrary numerical thresholds in fallback text.** Removed arbitrary thresholds ("10-15% selectivity", "$50 price difference") in favor of verified technical and business heuristics. |
 
 ---
@@ -58,14 +58,27 @@ Inspection of `supabase/migrations/20261112000000_init_schema.sql` confirms the 
 - `public.posts`: `workspace_id UUID NOT NULL REFERENCES public.workspaces(id)`, `created_by UUID NOT NULL REFERENCES public.profiles(id)`
 - `public.ai_generations`: `workspace_id UUID NOT NULL REFERENCES public.workspaces(id)`, `user_id UUID NOT NULL REFERENCES public.profiles(id)`
 
-### Query Hardening
-1. **`writingProfileEngine.extractProfile`:**
-   - **Fail-Closed on Missing User ID:** If `!workspaceId || !userId`, returns `getDefaultProfile(workspaceId, userId)` immediately with `isPersonalized: false` and `scope: 'unpersonalized_fallback'`. It does not execute database queries that could aggregate other users' posts in the workspace.
-   - **User-Scoped Queries:** `posts` is strictly filtered by `.eq('created_by', userId)`, and `ai_generations` is strictly filtered by `.eq('user_id', userId)`.
-   - **Query Error Safety:** If any query error occurs (`postErr` or `genErr`), it catches the error and safely falls back to unpersonalized default. Query errors cannot leak other users' posts.
-2. **`uniquenessEngine.getTenantHistory`:**
-   - Accepts `userId?: string` parameter. If `userId` is provided, filters `posts` by `created_by = userId` and `ai_generations` by `user_id = userId`.
-   - If `workspaceId` is missing or empty, returns `[]` immediately without querying.
+### Query Hardening & History Scoping Architecture
+1. **Explicit History Scopes:**
+   - **`user_personal` (Default):** Requires `workspaceId` AND `userId`. Filters `public.posts` by `workspace_id = workspaceId AND created_by = userId` and `public.ai_generations` by `workspace_id = workspaceId AND user_id = userId`. If `userId` is missing, empty, or undefined, it strictly **fails closed** immediately without querying the database (returning `[]` for history and unpersonalized default profile).
+   - **`workspace_brand`:** Requires `workspaceId` and MUST be explicitly requested by the caller (e.g. `historyScope: 'workspace_brand'` or `useBrandVoice: true`). Queries workspace-wide baseline posts across all members without user restriction.
+   - **`unpersonalized`:** Returns empty history (`[]`) and unpersonalized default profile immediately with zero database round-trips.
+2. **`writingProfileEngine.extractProfile`:**
+   - Implements `HistoryScope` (`user_personal`, `workspace_brand`, `unpersonalized`).
+   - If `!workspaceId || scope === 'unpersonalized'`, immediately returns unpersonalized profile.
+   - If `scope === 'user_personal'` and `!userId`, immediately returns unpersonalized profile without querying database.
+   - User-scoped queries: `posts` is strictly filtered by `.eq('created_by', userId)` and `ai_generations` is strictly filtered by `.eq('user_id', userId)`.
+   - Query Error Safety: Any database error (`postErr` or `genErr`) is caught and fails closed to unpersonalized default.
+3. **`uniquenessEngine.getTenantHistory`:**
+   - Implements `HistoryScope` with multi-signature backwards compatibility.
+   - If `scope === 'user_personal'` and `!userId`, immediately returns `[]` without querying database.
+   - If `scope === 'workspace_brand'`, executes workspace-wide query.
+   - If `scope === 'unpersonalized'`, skips database queries completely.
+   - Schema verified: `posts` queries `.eq('created_by', userId)` (never `user_id`); `ai_generations` queries `.eq('user_id', userId)`.
+   - Database query errors fail closed to `[]`.
+4. **All Production Call Sites Hardened:**
+   - `src/app/api/ai/generate/route.ts` defaults to `user_personal` with `auth.user.id`, switching to `workspace_brand` only when explicitly specified or when `useBrandVoice` is enabled.
+   - `src/lib/ai/gemini.ts` orchestrates history loading using `activeScope`, defaulting to `user_personal` and failing closed to `unpersonalized` if `userId` is not present.
 
 ---
 
@@ -120,16 +133,16 @@ To implement the full intended 6-step workflow in a future feature PR:
 
 ```
 ======================================================================
-🧪 ALL AUTOMATED TESTS EXECUTED (160 Total Test Checks)
+🧪 ALL AUTOMATED TESTS EXECUTED (166 Total Test Checks)
 ======================================================================
 ✔ Security & Token Encryption Unit Suite (npm test):          21 / 21 PASS (0 failed)
 ✔ Multi-User Publishing Reliability (npm run test:multi-user):38 / 38 PASS (0 failed)
 ✔ Serverless Scheduler (pg_cron) (npm run test:serverless):   27 / 27 PASS (0 failed)
 ✔ AI Content Uniqueness Suite (npm run test:uniqueness):      52 / 52 PASS (0 failed)
-✔ AI Test Matrix Suite (npm run test:matrix):                 21 / 21 PASS (0 failed)
+✔ AI Test Matrix Suite (npm run test:matrix):                 27 / 27 PASS (0 failed)
 ﹣ Gemini Live Integration (npm run test:gemini-live):         1 SKIPPED (0 passed, 0 failed)
 ----------------------------------------------------------------------
-Total Tests:                                                 160 (159 passed, 1 skipped, 0 failed)
+Total Tests:                                                 166 (165 passed, 1 skipped, 0 failed)
 TypeScript Compilation (npx tsc --noEmit):                     0 errors
 ESLint Static Analysis (npm run lint):                         0 warnings, 0 errors
 Next.js Production Build (npm run build):                     45 / 45 routes compiled cleanly

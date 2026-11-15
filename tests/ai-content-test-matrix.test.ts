@@ -112,10 +112,55 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
       assert.notStrictEqual(profileA.formattingRhythm, profileB.formattingRhythm);
     });
 
-    test('Missing userId strictly falls back to unpersonalized default profile', async () => {
-      const dummyClient: any = { from: () => { throw new Error('Should not query DB when userId is missing'); } };
-      const profile = await writingProfileEngine.extractProfile(dummyClient, 'ws-common', undefined);
+    test('Missing userId in personal mode strictly falls back to unpersonalized default profile without querying database', async () => {
+      const dummyClient: any = { from: () => { throw new Error('FAIL: Should not query DB when userId is missing in user_personal mode'); } };
+      const profile = await writingProfileEngine.extractProfile(dummyClient, 'ws-common', undefined, 'user_personal');
       assert.strictEqual(profile.isPersonalized, false, 'Must be unpersonalized when userId is missing');
+      assert.strictEqual(profile.scope, 'unpersonalized_fallback');
+    });
+
+    test('Explicit workspace_brand mode queries workspace-level profile without requiring userId', async () => {
+      let queriedTable = '';
+      let capturedWorkspace = '';
+      let capturedUser: string | null = null;
+      const brandClient: any = {
+        from: (tbl: string) => {
+          queriedTable = tbl;
+          return {
+            select: () => {
+              const builder: any = {
+                eq: (col: string, val: string) => {
+                  if (col === 'workspace_id') capturedWorkspace = val;
+                  if (col === 'created_by') capturedUser = val;
+                  return builder;
+                },
+                order: () => builder,
+                limit: () => Promise.resolve({
+                  data: [
+                    { content: 'Brand post 1: Reliable systems require clean contracts.' },
+                    { content: 'Brand post 2: Architecture guidelines for distributed engineering.' },
+                  ],
+                  error: null,
+                }),
+              };
+              return builder;
+            },
+          };
+        },
+      };
+
+      const profile = await writingProfileEngine.extractProfile(brandClient, 'ws-brand-1', undefined, 'workspace_brand');
+      assert.strictEqual(queriedTable, 'posts');
+      assert.strictEqual(capturedWorkspace, 'ws-brand-1');
+      assert.strictEqual(capturedUser, null, 'Workspace brand query must not restrict to a single user');
+      assert.strictEqual(profile.scope, 'workspace_brand');
+      assert.strictEqual(profile.isPersonalized, true);
+    });
+
+    test('Explicit unpersonalized mode skips database queries completely', async () => {
+      const dummyClient: any = { from: () => { throw new Error('FAIL: Should not query DB in unpersonalized mode'); } };
+      const profile = await writingProfileEngine.extractProfile(dummyClient, 'ws-common', 'user-xyz', 'unpersonalized');
+      assert.strictEqual(profile.isPersonalized, false);
       assert.strictEqual(profile.scope, 'unpersonalized_fallback');
     });
 
@@ -136,11 +181,57 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
       const profile = await writingProfileEngine.extractProfile(errorClient, 'ws-common', 'user-err');
       assert.strictEqual(profile.isPersonalized, false, 'Must fail closed to unpersonalized fallback on error');
     });
+
+    test('Fallback to ai_generations verifies user_id column schema', async () => {
+      let postsTableChecked = false;
+      let gensUserFilter = '';
+      const fallbackClient: any = {
+        from: (tbl: string) => {
+          if (tbl === 'posts') {
+            postsTableChecked = true;
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    order: () => ({
+                      limit: () => Promise.resolve({ data: [], error: null }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (tbl === 'ai_generations') {
+            const builder: any = {
+              eq: (col: string, val: string) => {
+                if (col === 'user_id') gensUserFilter = val;
+                return builder;
+              },
+              order: () => builder,
+              limit: () => Promise.resolve({
+                data: [
+                  { generated_content: 'AI sample 1: Verifying user isolation.' },
+                  { generated_content: 'AI sample 2: Verifying ai_generations column user_id.' },
+                ],
+                error: null,
+              }),
+            };
+            return { select: () => builder };
+          }
+          throw new Error(`Unexpected table ${tbl}`);
+        },
+      };
+
+      const profile = await writingProfileEngine.extractProfile(fallbackClient, 'ws-test', 'user-gen-target', 'user_personal');
+      assert.strictEqual(postsTableChecked, true, 'Must query posts first');
+      assert.strictEqual(gensUserFilter, 'user-gen-target', 'ai_generations must filter by user_id column');
+      assert.strictEqual(profile.isPersonalized, true);
+    });
   });
 
   // Dimension 5: Different Workspaces (Strict Tenant Isolation)
   describe('Dimension 5: Different Workspaces Have Strictly Isolated History', () => {
-    test('Tenant history query enforces workspace_id filtering', async () => {
+    test('Tenant history query with explicit workspace_brand enforces workspace_id filtering', async () => {
       let capturedFilter = '';
       const mockSupabase: any = {
         from: () => ({
@@ -158,7 +249,7 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
       };
 
       const testWs = 'tenant-ws-alpha-99';
-      await uniquenessEngine.getTenantHistory(mockSupabase, testWs);
+      await uniquenessEngine.getTenantHistory(mockSupabase, testWs, 20, 'workspace_brand');
       assert.strictEqual(capturedFilter, testWs, 'Query must be strictly isolated to the caller workspace_id');
     });
 
@@ -182,9 +273,40 @@ describe('AI Content Intelligence — Full Test Matrix', () => {
         }),
       };
 
-      await uniquenessEngine.getTenantHistory(mockSupabase, 'ws-target', 10, 'user-target');
+      await uniquenessEngine.getTenantHistory(mockSupabase, 'ws-target', 10, 'user_personal', 'user-target');
       assert.strictEqual(capturedWs, 'ws-target', 'Must filter by workspace_id');
-      assert.strictEqual(capturedUser, 'user-target', 'Must filter by created_by / user_id');
+      assert.strictEqual(capturedUser, 'user-target', 'Must filter by created_by for posts');
+    });
+
+    test('Missing userId in user_personal mode strictly returns empty history without querying database', async () => {
+      const dummyClient: any = { from: () => { throw new Error('FAIL: Should not query DB when userId missing in user_personal mode'); } };
+      const history = await uniquenessEngine.getTenantHistory(dummyClient, 'ws-target', 20, 'user_personal', undefined);
+      assert.deepStrictEqual(history, [], 'Must return empty array immediately without querying database');
+    });
+
+    test('Explicit unpersonalized scope strictly returns empty history without querying database', async () => {
+      const dummyClient: any = { from: () => { throw new Error('FAIL: Should not query DB in unpersonalized mode'); } };
+      const history = await uniquenessEngine.getTenantHistory(dummyClient, 'ws-target', 20, 'unpersonalized', 'user-target');
+      assert.deepStrictEqual(history, [], 'Must return empty array immediately without querying database');
+    });
+
+    test('Database errors in tenant history fail closed returning empty history', async () => {
+      const errorClient: any = {
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => Promise.resolve({ data: null, error: { message: 'Database connection failed' } }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      const history = await uniquenessEngine.getTenantHistory(errorClient, 'ws-target', 20, 'user_personal', 'user-target');
+      assert.deepStrictEqual(history, [], 'Database errors must fail closed to empty history');
     });
 
     test('Missing workspaceId returns empty history immediately', async () => {

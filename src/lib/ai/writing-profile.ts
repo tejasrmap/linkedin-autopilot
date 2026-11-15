@@ -6,6 +6,8 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 
+export type HistoryScope = 'user_personal' | 'workspace_brand' | 'unpersonalized';
+
 export interface WritingProfile {
   sampleCount: number;
   isPersonalized: boolean;
@@ -28,54 +30,86 @@ export class WritingProfileEngine {
   /**
    * Analyzes an individual user's or workspace's historical approved/published posts.
    * Strictly enforces individual user ownership without bleeding other workspace members' styles.
+   * 
+   * Explicit History Scopes:
+   * - 'user_personal': requires workspaceId and userId; filter by workspace_id and created_by / user_id.
+   * - 'workspace_brand': requires workspaceId and must be explicitly requested.
+   * - 'unpersonalized': no database history query; immediately returns unpersonalized fallback.
    */
   async extractProfile(
     supabase: SupabaseClient,
     workspaceId: string,
-    userId?: string
+    userId?: string,
+    scope: HistoryScope = 'user_personal'
   ): Promise<WritingProfile> {
-    if (!workspaceId || !userId) {
-      // Missing user context: strictly return unpersonalized default
+    if (!workspaceId || scope === 'unpersonalized') {
+      // Unpersonalized mode or missing workspace: strictly return unpersonalized default
       return this.getDefaultProfile(workspaceId || 'default', userId);
+    }
+
+    if (scope === 'user_personal') {
+      if (!userId || userId.trim().length === 0) {
+        // STRICT: Missing userId in user_personal mode must NEVER silently fall back to workspace-wide history!
+        // Immediately return unpersonalized default profile without querying database.
+        return this.getDefaultProfile(workspaceId, userId);
+      }
+    } else if (scope === 'workspace_brand') {
+      // Allowed only when explicitly requested; analyzes workspace-wide baseline
+    } else {
+      // Unknown scope fails closed
+      return this.getDefaultProfile(workspaceId, userId);
     }
 
     try {
       // 1. Fetch recent published or approved posts
+      // Schema note: public.posts references public.profiles via created_by (NOT user_id)
       let query = supabase
         .from('posts')
         .select('content, created_at')
         .eq('workspace_id', workspaceId);
 
-      if (userId) {
+      if (scope === 'user_personal') {
         // Enforce user-level ownership strictly
-        query = query.eq('created_by', userId);
+        query = query.eq('created_by', userId!);
       }
 
       const { data: posts, error: postErr } = await query
         .order('created_at', { ascending: false })
         .limit(15);
 
+      if (postErr) {
+        console.warn('[WritingProfile] Database query error fetching posts, failing closed to default:', postErr);
+        return this.getDefaultProfile(workspaceId, userId);
+      }
+
       let samples: string[] = [];
-      if (!postErr && posts && posts.length > 0) {
+      if (posts && posts.length > 0) {
         samples = posts.map((p) => p.content).filter(Boolean);
       }
 
-      // 2. If insufficient post samples, query ai_generations with strict user_id scoping
+      // 2. If insufficient post samples, query ai_generations with strict scoping
+      // Schema note: public.ai_generations references public.profiles via user_id
       if (samples.length < 2) {
         let genQuery = supabase
           .from('ai_generations')
           .select('generated_content')
           .eq('workspace_id', workspaceId);
 
-        if (userId) {
+        if (scope === 'user_personal') {
           // Strictly restrict generation history to the exact user
-          genQuery = genQuery.eq('user_id', userId);
+          genQuery = genQuery.eq('user_id', userId!);
         }
 
         const { data: gens, error: genErr } = await genQuery
           .order('created_at', { ascending: false })
           .limit(10);
-        if (!genErr && gens && gens.length > 0) {
+
+        if (genErr) {
+          console.warn('[WritingProfile] Database query error fetching ai_generations, failing closed to default:', genErr);
+          return this.getDefaultProfile(workspaceId, userId);
+        }
+
+        if (gens && gens.length > 0) {
           for (const g of gens) {
             if (g.generated_content && !samples.includes(g.generated_content)) {
               samples.push(g.generated_content);
@@ -89,8 +123,8 @@ export class WritingProfileEngine {
         return this.getDefaultProfile(workspaceId, userId);
       }
 
-      const scope = userId ? 'user_personal' : 'workspace_brand';
-      return this.computeProfileFromSamples(samples, workspaceId, userId, scope);
+      const resultingScope = scope === 'workspace_brand' ? 'workspace_brand' : 'user_personal';
+      return this.computeProfileFromSamples(samples, workspaceId, userId, resultingScope);
     } catch (err) {
       console.warn('[WritingProfile] Failed to extract profile, using unpersonalized fallback:', err);
       return this.getDefaultProfile(workspaceId, userId);

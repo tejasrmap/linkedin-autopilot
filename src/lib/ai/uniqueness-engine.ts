@@ -5,6 +5,7 @@
 // ==============================================================
 
 import { SupabaseClient } from '@supabase/supabase-js';
+import { HistoryScope } from './writing-profile';
 
 export interface UniquenessScore {
   totalScore: number; // 0 - 100
@@ -42,55 +43,104 @@ export interface HistoricalPostSummary {
 export class UniquenessEngine {
   /**
    * Fetches historical posts for the tenant to build an anti-repetition corpus.
-   * Strictly enforces workspace isolation.
+   * Strictly enforces workspace isolation and user history boundaries.
+   *
+   * Explicit History Scopes:
+   * - 'user_personal': requires workspaceId and userId; filters posts by (workspace_id, created_by) and ai_generations by (workspace_id, user_id).
+   * - 'workspace_brand': requires workspaceId and must be explicitly requested.
+   * - 'unpersonalized': returns [] without querying the database.
    */
   async getTenantHistory(
     supabase: SupabaseClient,
     workspaceId: string,
     limit = 20,
-    userId?: string
+    scopeOrUserId: HistoryScope | string = 'user_personal',
+    userIdParam?: string
   ): Promise<HistoricalPostSummary[]> {
     if (!workspaceId || workspaceId.trim().length === 0) {
       return [];
     }
 
+    // Resolve scope and userId safely across invocation signatures
+    let scope: HistoryScope = 'user_personal';
+    let userId: string | undefined = undefined;
+
+    if (scopeOrUserId === 'workspace_brand' || scopeOrUserId === 'unpersonalized' || scopeOrUserId === 'user_personal') {
+      scope = scopeOrUserId;
+      userId = userIdParam;
+    } else if (typeof scopeOrUserId === 'string' && scopeOrUserId.trim().length > 0) {
+      // Legacy or direct call passing userId as 4th parameter
+      scope = 'user_personal';
+      userId = scopeOrUserId;
+    }
+
+    if (scope === 'unpersonalized') {
+      // Unpersonalized scope: strictly skip all database history queries
+      return [];
+    }
+
+    if (scope === 'user_personal') {
+      if (!userId || userId.trim().length === 0) {
+        // STRICT: Never silently interpret a missing userId as workspace-wide access!
+        // Immediately return [] without executing any database query.
+        return [];
+      }
+    } else if (scope === 'workspace_brand') {
+      // Explicitly requested brand mode: queries workspace-wide history across all members
+    } else {
+      // Unknown scope fails closed
+      return [];
+    }
+
     try {
+      // Schema note: public.posts references profiles via created_by (NOT user_id)
       let query = supabase
         .from('posts')
         .select('content')
         .eq('workspace_id', workspaceId);
 
-      if (userId) {
-        query = query.eq('created_by', userId);
+      if (scope === 'user_personal') {
+        query = query.eq('created_by', userId!);
       }
 
       const { data: posts, error } = await query
         .order('created_at', { ascending: false })
         .limit(limit);
 
+      if (error) {
+        console.warn('[UniquenessEngine] Database error querying posts for history, failing closed:', error);
+        return [];
+      }
+
       const items: string[] = [];
-      if (!error && posts) {
+      if (posts) {
         for (const p of posts) {
           if (p.content && p.content.trim()) items.push(p.content.trim());
         }
       }
 
       // Also query recent generations if fewer than 10 posts
+      // Schema note: public.ai_generations references profiles via user_id
       if (items.length < 10) {
         let genQuery = supabase
           .from('ai_generations')
           .select('generated_content')
           .eq('workspace_id', workspaceId);
 
-        if (userId) {
-          genQuery = genQuery.eq('user_id', userId);
+        if (scope === 'user_personal') {
+          genQuery = genQuery.eq('user_id', userId!);
         }
 
         const { data: gens, error: genError } = await genQuery
           .order('created_at', { ascending: false })
           .limit(limit);
 
-        if (!genError && gens) {
+        if (genError) {
+          console.warn('[UniquenessEngine] Database error querying ai_generations, failing closed:', genError);
+          return [];
+        }
+
+        if (gens) {
           for (const g of gens) {
             if (g.generated_content && g.generated_content.trim() && !items.includes(g.generated_content.trim())) {
               items.push(g.generated_content.trim());

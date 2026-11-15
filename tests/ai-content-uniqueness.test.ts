@@ -280,7 +280,14 @@ What is your team's checklist before approving a schema migration?`;
       };
 
       const testWsId = '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
-      await uniquenessEngine.getTenantHistory(mockSupabase, testWsId);
+
+      // 1. In personal mode without userId, it must fail closed and NOT query database
+      const personalMissingHistory = await uniquenessEngine.getTenantHistory(mockSupabase, testWsId, 20, 'user_personal');
+      assert.deepStrictEqual(personalMissingHistory, [], 'Missing userId must return empty without querying DB');
+      assert.strictEqual(capturedWorkspaceFilter, null, 'Must not query database when userId is missing in personal mode');
+
+      // 2. Explicit workspace_brand queries workspace-level history
+      await uniquenessEngine.getTenantHistory(mockSupabase, testWsId, 20, 'workspace_brand');
 
       assert.strictEqual(
         capturedWorkspaceFilter,
