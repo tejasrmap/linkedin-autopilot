@@ -151,7 +151,14 @@ function AIStudioContent() {
     setLoadingBrand(true);
     setBrandError(null);
     try {
-      const res = await fetch('/api/brand-settings');
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        try {
+          const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+          if (ws?.id) headers['x-workspace-id'] = String(ws.id);
+        } catch {}
+      }
+      const res = await fetch('/api/brand-settings', { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.settings) {
@@ -191,6 +198,12 @@ function AIStudioContent() {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (geminiApiKey.trim()) {
       headers['x-gemini-key'] = geminiApiKey.trim();
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+        if (ws?.id) headers['x-workspace-id'] = String(ws.id);
+      } catch {}
     }
     return headers;
   };

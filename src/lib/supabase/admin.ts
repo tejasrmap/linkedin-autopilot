@@ -346,7 +346,18 @@ export function createAdminClient(): SupabaseClient {
               if (f.op === 'lt') return r[f.col] < f.val;
               if (f.op === 'gte') return r[f.col] >= f.val;
               if (f.op === 'gt') return r[f.col] > f.val;
+              if (f.op === 'neq') return r[f.col] !== f.val;
               if (f.op === 'in') return Array.isArray(f.val) && f.val.includes(r[f.col]);
+              if (f.op === 'eq') {
+                if (f.col === 'updated_at' || f.col.endsWith('_at')) {
+                  const t1 = new Date(r[f.col]).getTime();
+                  const t2 = new Date(f.val).getTime();
+                  if (!isNaN(t1) && !isNaN(t2)) {
+                    return t1 === t2;
+                  }
+                }
+                return r[f.col] === f.val;
+              }
               return r[f.col] === f.val;
             })
           );
@@ -356,6 +367,10 @@ export function createAdminClient(): SupabaseClient {
           const builder: any = {
             eq: (col: string, val: any) => {
               filters.push({ col, val, op: 'eq' });
+              return builder;
+            },
+            neq: (col: string, val: any) => {
+              filters.push({ col, val, op: 'neq' });
               return builder;
             },
             gte: (col: string, val: any) => {
@@ -486,14 +501,25 @@ export function createAdminClient(): SupabaseClient {
             };
           },
           update: (record: any) => {
-            const updateFilters: Array<{ col: string; val: any; op: 'eq' | 'lte' | 'lt' | 'gte' | 'gt' | 'in' }> = [];
+            const updateFilters: Array<{ col: string; val: any; op: 'eq' | 'lte' | 'lt' | 'gte' | 'gt' | 'in' | 'neq' }> = [];
             const matchesFilters = (r: any) => {
               return updateFilters.every((f) => {
                 if (f.op === 'lte') return r[f.col] <= f.val;
                 if (f.op === 'lt') return r[f.col] < f.val;
                 if (f.op === 'gte') return r[f.col] >= f.val;
                 if (f.op === 'gt') return r[f.col] > f.val;
+                if (f.op === 'neq') return r[f.col] !== f.val;
                 if (f.op === 'in') return Array.isArray(f.val) && f.val.includes(r[f.col]);
+                if (f.op === 'eq') {
+                  if (f.col === 'updated_at' || f.col.endsWith('_at')) {
+                    const t1 = new Date(r[f.col]).getTime();
+                    const t2 = new Date(f.val).getTime();
+                    if (!isNaN(t1) && !isNaN(t2)) {
+                      return t1 === t2;
+                    }
+                  }
+                  return r[f.col] === f.val;
+                }
                 return r[f.col] === f.val;
               });
             };
@@ -506,6 +532,10 @@ export function createAdminClient(): SupabaseClient {
             const updateBuilder: any = {
               eq: (col: string, val: any) => {
                 updateFilters.push({ col, val, op: 'eq' });
+                return updateBuilder;
+              },
+              neq: (col: string, val: any) => {
+                updateFilters.push({ col, val, op: 'neq' });
                 return updateBuilder;
               },
               in: (col: string, val: any[]) => {

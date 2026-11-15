@@ -389,6 +389,8 @@ function ComposerContent() {
   };
 
   const handleSavePost = async (publishNow = false, asDraft = false) => {
+    if (submitting) return;
+
     if (!content.trim()) {
       toast.error('Please enter post content.');
       return;
@@ -436,6 +438,12 @@ function ComposerContent() {
               expectedUpdatedAt: lastSavedUpdatedAt || undefined,
             }),
           });
+          if (res.status === 409) {
+            setSaveStatus('conflict');
+            toast.error('Conflict: Draft was modified in another session. Local edits preserved.');
+            setSubmitting(false);
+            return;
+          }
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'Failed to update draft');
           setLastSavedUpdatedAt(data.post.updated_at);
@@ -489,8 +497,15 @@ function ComposerContent() {
               mediaAssets,
               scheduledAt: finalScheduledAt,
               timezone,
+              expectedUpdatedAt: lastSavedUpdatedAt || undefined,
             }),
           });
+          if (updateRes.status === 409) {
+            setSaveStatus('conflict');
+            toast.error('Conflict: Draft was modified in another session. Please reload or review before scheduling.');
+            setSubmitting(false);
+            return;
+          }
           if (!updateRes.ok) {
             const err = await updateRes.json();
             throw new Error(err.error || 'Failed to update draft before scheduling');
@@ -558,8 +573,15 @@ function ComposerContent() {
               socialAccountId: selectedAccount || null,
               postType,
               mediaAssets,
+              expectedUpdatedAt: lastSavedUpdatedAt || undefined,
             }),
           });
+          if (updateRes.status === 409) {
+            setSaveStatus('conflict');
+            toast.error('Conflict: Draft was modified in another session. Please reload or review before publishing.');
+            setSubmitting(false);
+            return;
+          }
           if (!updateRes.ok) {
             const err = await updateRes.json();
             throw new Error(err.error || 'Failed to update draft before publishing');

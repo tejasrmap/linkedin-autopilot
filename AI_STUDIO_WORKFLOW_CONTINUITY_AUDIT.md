@@ -94,31 +94,52 @@ CREATE TABLE IF NOT EXISTS public.posts (
 
 ## 4. Architecture Implementation Plan
 
-### 4.1 Server-Side Hardening (`/api/posts` & `/api/posts/[id]`)
-1. **Workspace Header Support**:
-   - Extract `request.headers.get('x-workspace-id')` in all routes (`POST /api/posts`, `GET /api/posts`, `GET /api/posts/[id]`, `PATCH /api/posts/[id]`, `DELETE /api/posts/[id]`).
-   - Pass to `getAuthContext(requestWorkspaceId)`. If the user is not a verified member of the requested workspace, fail closed with `HTTP 403 Forbidden`.
+### 4.1 Server-Side Hardening (`/api/posts`, `/api/posts/[id]`, `/schedule`, `/publish`, `/cancel`)
+1. **Workspace Header Support & Fail-Closed Enforcement**:
+   - Extract `request.headers.get('x-workspace-id')` across all routes:
+     - `POST /api/posts`, `GET /api/posts`
+     - `GET /api/posts/[id]`, `PATCH /api/posts/[id]`, `DELETE /api/posts/[id]`
+     - `POST /api/posts/[id]/schedule`, `POST /api/posts/[id]/publish`, `POST /api/posts/[id]/cancel`
+   - Pass to `getAuthContext(requestWorkspaceId)`. If the user is not a verified member of the requested workspace, strictly fail closed with `HTTP 403 Forbidden`.
+   - All queries strictly filter by `workspace_id = auth.workspaceId` and return `HTTP 404 Not Found` if a post belongs to a foreign workspace (preventing information disclosure).
 2. **RBAC Enforcements**:
-   - Creating or modifying posts (`POST /api/posts`, `PATCH /api/posts/[id]`, `DELETE /api/posts/[id]`) requires role in `['owner', 'admin', 'editor', 'approver']`.
+   - Creating, modifying, scheduling, publishing, cancelling, or deleting posts requires a role in `['owner', 'admin', 'editor', 'approver']`.
    - `viewer` role is strictly rejected with `HTTP 403 Forbidden: Permission denied`.
-3. **Optimistic Concurrency Control**:
-   - In `PATCH /api/posts/[id]`, accept optional `expectedUpdatedAt: string`.
-   - If provided and the stored `updated_at` in the database is newer than `expectedUpdatedAt` (beyond a 1000ms threshold), reject with `HTTP 409 Conflict` and return the server's current record.
+3. **Atomic Compare-And-Swap (CAS) Concurrency Control**:
+   - Rather than a non-atomic "read-then-write" pattern which is vulnerable to race conditions between checking and updating, `PATCH /api/posts/[id]` executes a single atomic database statement:
+     ```sql
+     UPDATE posts
+     SET content = $1, ..., updated_at = NOW()
+     WHERE id = $2 AND workspace_id = $3 AND updated_at = $4 (AND status != 'published')
+     RETURNING *;
+     ```
+   - In PostgreSQL, this statement acquires a row-level write lock and evaluates the WHERE predicates atomically.
+   - If another session updated the row concurrently, `updated_at` no longer matches, 0 rows are updated, and PostgREST returns null.
+   - When 0 rows are updated, the handler inspects the database scoped strictly to `auth.workspaceId`:
+     - If the post does not exist or belongs to a foreign workspace -> returns `HTTP 404 Not Found` (zero data leak).
+     - If the post is published and client requested draft status -> returns `HTTP 400 Bad Request`.
+     - If `updated_at` differs from `expectedUpdatedAt` -> returns `HTTP 409 Conflict` with `code: 'CONCURRENT_MODIFICATION'`, `serverUpdatedAt`, and `serverPost`.
+   - If `expectedUpdatedAt` is omitted, the query executes without the timestamp filter, following the authoritative last-write-wins backward-compatibility path.
+   - An architectural proposal migration is documented in `supabase/migrations/20261116000012_atomic_draft_optimistic_locking.sql`.
 4. **Draft Immutability Guards**:
-   - Reject attempts to downgrade a `published` post back to `draft`.
+   - Rejection of downgrading `published` posts back to `draft` is enforced atomically via `.neq('status', 'published')`.
 
-### 4.2 Client-Side Draft Persistence & Autosave Engine
-1. **State Machine**:
-   - Save statuses: `'saved'`, `'saving'`, `'unsaved'`, `'error'`, `'conflict'`, `'offline'`.
-2. **Autosave Engine**:
+### 4.2 Client-Side Draft Persistence & Composer Lifecycle Audit
+1. **Submission Guard & Debouncing**:
+   - Rapid repeated clicks on Save, Schedule, or Publish are blocked by `if (submitting) return;` at the very start of `handleSavePost` and `disabled={submitting}` on buttons.
+2. **Fail-Closed Composer Contract**:
+   - When a draft exists (`draftId` is set), all Save, Schedule, and Publish preparation actions strictly issue `PATCH /api/posts/${draftId}`.
+   - If `PATCH` fails (HTTP 409 conflict, network error, or 500), Composer throws/halts. It **NEVER** silently falls back to `POST /api/posts`.
+   - In conflict situations (HTTP 409), Composer preserves local content, flags the status badge as `'conflict'`, and leaves `localStorage` intact so the user can review or reconcile without data loss.
+   - Local storage cache (`localStorage.removeItem(storageKey)`) is only cleared **AFTER** the server response confirms success (`res.ok`).
+3. **Autosave Engine**:
    - Debounced at 1,500ms.
-   - Saves immediately to localized storage (`sessionStorage` / `localStorage` scoped by `autopilot_draft_${workspaceId}_${userId}`) to protect against crash/refresh before network round-trip.
+   - Saves immediately to localized storage (`localStorage` scoped by `autopilot_draft_${workspaceId}_${userId}`) to protect against crash/refresh before network round-trip.
    - If `draftId` is null, calls `POST /api/posts` with `status: 'draft'`, obtains `post.id`, and updates browser URL via `window.history.replaceState` to `/composer?draftId=${id}`.
    - If `draftId` exists, calls `PATCH /api/posts/${draftId}` with updated fields and `expectedUpdatedAt`.
-   - On manual Save, Schedule, or Publish, the existing `draftId` is updated rather than creating a duplicate.
-3. **Save Status Indicator UI**:
-   - Visible badge in Composer indicating real-time sync state.
-   - Retry trigger on network failure.
+   - On manual Save, Schedule, or Publish, the existing `draftId` is updated in-place rather than creating duplicate rows.
+4. **Save Status Indicator UI**:
+   - Visible badge in Composer indicating real-time sync state: `saved`, `saving`, `unsaved`, `error`, `conflict`.
    - Conflict notification on concurrent modification.
 
 ### 4.3 Bidirectional Two-Way Integration (Composer <-> AI Studio)

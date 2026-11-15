@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Calendar as CalendarIcon,
@@ -32,13 +32,21 @@ export default function CalendarPage() {
   // Day detail popover modal for days with multiple posts
   const [selectedDayPosts, setSelectedDayPosts] = useState<{ day: number; posts: Post[] } | null>(null);
 
-  useEffect(() => {
-    fetchPosts();
+  const getWorkspaceHeader = useCallback((): Record<string, string> => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+      return ws.id ? { 'x-workspace-id': String(ws.id) } : {};
+    } catch {
+      return {};
+    }
   }, []);
 
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async () => {
     try {
-      const res = await fetch('/api/posts');
+      const res = await fetch('/api/posts', {
+        headers: getWorkspaceHeader(),
+      });
       if (res.ok) {
         const data = await res.json();
         const p = data.posts || [];
@@ -50,7 +58,11 @@ export default function CalendarPage() {
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [getWorkspaceHeader]);
+
+  useEffect(() => {
+    fetchPosts();
+  }, [fetchPosts]);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
