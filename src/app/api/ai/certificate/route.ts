@@ -56,10 +56,12 @@ function detectFileSignature(bytes: Buffer): 'application/pdf' | 'image/png' | '
 }
 
 /**
- * Performs structural format validation beyond magic numbers to detect truncated,
- * malformed, or internally corrupted files before model invocation.
+ * Performs lightweight binary structural screening beyond magic numbers to detect truncated
+ * or corrupted files before model invocation.
+ * NOTE: This is fast structural screening of critical markers (IHDR, EOI, %%EOF), not full visual/document parsing.
+ * Deep semantic and visual parsing is performed downstream by Gemini Vision.
  */
-function validateFormatStructure(
+function screenFormatStructure(
   bytes: Buffer,
   mime: 'application/pdf' | 'image/png' | 'image/jpeg'
 ): { valid: boolean; error?: string } {
@@ -127,7 +129,12 @@ export async function POST(request: Request) {
   try {
     const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
     const auth = await getAuthContext(requestWorkspaceId);
-    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Multi-tenant verification: If x-workspace-id is requested, user must have verified membership in it
     if (requestWorkspaceId && auth.workspaceId !== requestWorkspaceId) {
@@ -199,8 +206,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate internal format structure to reject corrupted or truncated payloads
-    const structureCheck = validateFormatStructure(bytes, detectedMime);
+    // Perform lightweight binary structural screening to reject truncated or corrupted payloads
+    const structureCheck = screenFormatStructure(bytes, detectedMime);
     if (!structureCheck.valid) {
       return NextResponse.json({ error: structureCheck.error || 'Malformed file structure.' }, { status: 400 });
     }

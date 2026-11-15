@@ -66,9 +66,9 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
   });
 
   // -------------------------------------------------------------
-  // TASK 1: ACTUAL FILE SIGNATURES (MAGIC BYTES) VALIDATION
+  // TASK 1: FILE SIGNATURES & LIGHTWEIGHT STRUCTURAL SCREENING
   // -------------------------------------------------------------
-  describe('Task 1: File Signatures (Magic Bytes) Verification', () => {
+  describe('Task 1: File Signatures and Lightweight Structural Screening', () => {
     test('1a. Rejects HTML/text disguised as PNG with 400 Bad Request', async () => {
       const formData = new FormData();
       const disguisedFile = new File([Buffer.from('<html><body>malware</body></html>')], 'fake.png', {
@@ -123,7 +123,7 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.ok(data.error.includes('File content mismatch'));
     });
 
-    test('1d. Accepts authentic PNG with valid PNG signature', async () => {
+    test('1d. Accepts authentic PNG passing magic header and IHDR chunk screening', async () => {
       const formData = new FormData();
       const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
       formData.append('certificate', file);
@@ -137,7 +137,7 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.strictEqual(res.status, 200);
     });
 
-    test('1e. Accepts authentic JPEG with valid JPEG signature', async () => {
+    test('1e. Accepts authentic JPEG passing magic header and EOI marker screening', async () => {
       const formData = new FormData();
       const file = new File([REAL_JPEG_BUFFER], 'cert.jpg', { type: 'image/jpeg' });
       formData.append('certificate', file);
@@ -151,7 +151,7 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.strictEqual(res.status, 200);
     });
 
-    test('1f. Accepts authentic PDF with valid PDF signature', async () => {
+    test('1f. Accepts authentic PDF passing %PDF- and %%EOF trailer screening', async () => {
       const formData = new FormData();
       const file = new File([REAL_PDF_BUFFER], 'cert.pdf', { type: 'application/pdf' });
       formData.append('certificate', file);
@@ -165,7 +165,7 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.strictEqual(res.status, 200);
     });
 
-    test('1g. Rejects truncated PNG (<33 bytes) despite valid 8-byte magic header', async () => {
+    test('1g. Structural screening rejects truncated PNG (<33 bytes) despite valid 8-byte magic header', async () => {
       const formData = new FormData();
       const truncatedPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00]);
       const file = new File([truncatedPng], 'truncated.png', { type: 'image/png' });
@@ -182,9 +182,8 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.ok(data.error.includes('Malformed PNG'));
     });
 
-    test('1h. Rejects PNG with missing/corrupted IHDR initial chunk', async () => {
+    test('1h. Structural screening rejects PNG with missing/corrupted IHDR initial chunk', async () => {
       const formData = new FormData();
-      // 8-byte header followed by fake chunk type 'XXXX'
       const fakeChunkPng = Buffer.concat([
         Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
         Buffer.from([0x00, 0x00, 0x00, 0x0d, 0x58, 0x58, 0x58, 0x58]),
@@ -204,9 +203,8 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.ok(data.error.includes('first chunk must be an authoritative IHDR chunk'));
     });
 
-    test('1i. Rejects JPEG missing standard EOI marker', async () => {
+    test('1i. Structural screening rejects JPEG missing standard EOI marker', async () => {
       const formData = new FormData();
-      // Valid header and segment but truncated before EOI
       const truncatedJpeg = Buffer.from([
         0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x60,
       ]);
@@ -224,7 +222,7 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.ok(data.error.includes('missing standard EOI'));
     });
 
-    test('1j. Rejects PDF missing standard %%EOF termination marker', async () => {
+    test('1j. Structural screening rejects PDF missing standard %%EOF termination marker', async () => {
       const formData = new FormData();
       const corruptPdf = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntruncated-without-eof');
       const file = new File([corruptPdf], 'no_eof.pdf', { type: 'application/pdf' });
@@ -326,7 +324,22 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.ok(data.error.includes('Forbidden'));
     });
 
-    test('3c. Authorized workspace header x-workspace-id matching user workspace succeeds (200)', async () => {
+    test('3c. Missing workspace: Request without x-workspace-id succeeds with default workspace (200)', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      const formData = new FormData();
+      const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 200, 'Request without x-workspace-id must succeed with default workspace');
+    });
+
+    test('3d. Valid workspace: x-workspace-id matching authorized membership succeeds (200)', async () => {
       process.env.ALLOW_DEV_AUTH = 'true';
       const formData = new FormData();
       const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
@@ -342,7 +355,25 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.strictEqual(res.status, 200, 'Matching authorized workspace must succeed');
     });
 
-    test('3d. Cross-tenant attempt with x-workspace-id for foreign workspace strictly fails closed with 403 Forbidden', async () => {
+    test('3e. Unknown workspace: x-workspace-id for non-existent workspace strictly fails closed with 403 Forbidden', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      const formData = new FormData();
+      const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        headers: { 'x-workspace-id': 'unknown-nonexistent-ws-00000000' },
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 403, 'Unknown workspace ID request must fail closed with 403');
+      const data = await res.json();
+      assert.ok(data.error.includes('Access denied to requested workspace'));
+    });
+
+    test('3f. Foreign workspace: x-workspace-id for foreign tenant workspace strictly fails closed with 403 Forbidden', async () => {
       process.env.ALLOW_DEV_AUTH = 'true';
       const formData = new FormData();
       const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
@@ -358,6 +389,29 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.strictEqual(res.status, 403, 'Foreign workspace ID request must fail closed with 403');
       const data = await res.json();
       assert.ok(data.error.includes('Access denied to requested workspace'));
+    });
+
+    test('3g. Auth helper contract: getAuthContext strictly fails closed to null for unknown or foreign workspaces', async () => {
+      const { getAuthContext } = await import('../src/lib/auth');
+      process.env.ALLOW_DEV_AUTH = 'true';
+
+      // 1. Missing workspace: resolves default dev workspace
+      const defaultAuth = await getAuthContext(null);
+      assert.ok(defaultAuth, 'Missing workspace parameter must resolve default auth context');
+      assert.strictEqual(defaultAuth.workspaceId, '3af1cc83-b7e7-4ce6-b422-d84d326aaf31');
+
+      // 2. Valid workspace: resolves requested workspace
+      const validAuth = await getAuthContext('3af1cc83-b7e7-4ce6-b422-d84d326aaf31');
+      assert.ok(validAuth, 'Valid workspace must resolve auth context');
+      assert.strictEqual(validAuth.workspaceId, '3af1cc83-b7e7-4ce6-b422-d84d326aaf31');
+
+      // 3. Unknown workspace: must return null (NO hard-coded fallback!)
+      const unknownAuth = await getAuthContext('unknown-workspace-id-99999');
+      assert.strictEqual(unknownAuth, null, 'Unknown workspace must return null without hard-coded fallback');
+
+      // 4. Foreign workspace: must return null (NO hard-coded fallback!)
+      const foreignAuth = await getAuthContext('foreign-workspace-id-88888');
+      assert.strictEqual(foreignAuth, null, 'Foreign workspace must return null without hard-coded fallback');
     });
   });
 
