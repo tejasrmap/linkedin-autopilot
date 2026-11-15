@@ -33,6 +33,7 @@ const GenerateSchema = z.object({
     ])
     .optional(),
   narrativeArc: z.string().optional(),
+  historyScope: z.enum(['user_personal', 'workspace_brand', 'unpersonalized']).optional(),
 });
 
 export async function POST(request: Request) {
@@ -81,6 +82,32 @@ export async function POST(request: Request) {
 
     const customKey = request.headers.get('x-gemini-key') || undefined;
 
+    // WORKSPACE AUTHORIZATION & SERVER-DERIVED HISTORY SCOPE:
+    // 1. Role Verification: Validates that the server-authenticated session has a legitimate workspace role.
+    const VALID_WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
+    if (!VALID_WORKSPACE_ROLES.includes(auth.role as any)) {
+      return NextResponse.json({ error: 'Forbidden: Invalid workspace membership' }, { status: 403 });
+    }
+
+    // 2. Scope Derivation Policy:
+    // - Unpersonalized: Permitted for any authenticated caller opting out of historical style context.
+    // - Workspace Brand Voice: Activated when client requests useBrandVoice === true.
+    //   Policy: Brand Voice is an organizational asset configured in brand_settings and approved posts,
+    //   intentionally accessible to all authenticated workspace members (owner, admin, editor, approver, viewer)
+    //   within their own auth.workspaceId.
+    //   Anti-Bypass Guard: A client-supplied historyScope: 'workspace_brand' parameter without useBrandVoice === true
+    //   is untrusted and ignored.
+    // - User Personal (Default): Strictly isolates history to auth.workspaceId AND auth.user.id.
+    let serverDerivedScope: 'user_personal' | 'workspace_brand' | 'unpersonalized';
+
+    if (validated.historyScope === 'unpersonalized') {
+      serverDerivedScope = 'unpersonalized';
+    } else if (validated.useBrandVoice === true) {
+      serverDerivedScope = 'workspace_brand';
+    } else {
+      serverDerivedScope = 'user_personal';
+    }
+
     // Execute generation through Content Intelligence Engine
     const result = await aiService.generatePostWithReport({
       topic: validated.topic,
@@ -93,6 +120,7 @@ export async function POST(request: Request) {
       brandVoice: brandVoiceOptions,
       workspaceId: auth.workspaceId,
       userId: auth.user.id,
+      historyScope: serverDerivedScope,
       supabaseClient: admin,
       apiKey: customKey,
     });
@@ -113,14 +141,17 @@ export async function POST(request: Request) {
     return NextResponse.json({
       content: result.content,
       uniquenessScore: result.uniquenessScore,
+      passed: result.passed,
+      qualityStatus: result.qualityStatus,
+      qualityWarnings: result.qualityWarnings,
       topicAnalysis: {
-        category: result.analysis.category,
-        secondaryCategories: result.analysis.secondaryCategories,
-        isHybrid: result.analysis.isHybrid,
-        complexity: result.analysis.technicalComplexity,
-        domainTerms: result.analysis.domainTerms,
-        mode: validated.generationMode || result.analysis.recommendedMode,
-        narrativeArc: validated.narrativeArc || result.analysis.recommendedNarrative,
+        category: result.analysis?.category || 'general',
+        secondaryCategories: result.analysis?.secondaryCategories || [],
+        isHybrid: result.analysis?.isHybrid || false,
+        complexity: result.analysis?.technicalComplexity || 'practitioner',
+        domainTerms: result.analysis?.domainTerms || [],
+        mode: validated.generationMode || result.analysis?.recommendedMode || 'informative',
+        narrativeArc: validated.narrativeArc || result.analysis?.recommendedNarrative || 'problem_investigation_solution',
       },
       retriesUsed: result.retriesUsed,
     });

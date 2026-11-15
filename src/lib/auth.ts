@@ -89,7 +89,7 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
       return {
         user: { id: devUserId, email: devEmail, full_name: 'Teja Ganugula' },
         workspaceId: devWsId,
-        role: 'owner',
+        role: (process.env.TEST_AUTH_ROLE as WorkspaceRole) || 'owner',
         isPlatformAdmin: isPlatformAdmin(devEmail),
       };
     }

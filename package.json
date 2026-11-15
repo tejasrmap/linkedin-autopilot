@@ -21,6 +21,8 @@
     "test:serverless": "tsx --test tests/serverless-scheduler.test.ts",
     "test:multi-user": "tsx --test tests/multi-user-publishing-reliability.test.ts",
     "test:uniqueness": "tsx --test tests/ai-content-uniqueness.test.ts",
+    "test:matrix": "tsx --test tests/ai-content-test-matrix.test.ts",
+    "test:gemini-live": "tsx --test tests/gemini-live-integration.test.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {

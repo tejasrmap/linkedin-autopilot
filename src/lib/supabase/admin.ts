@@ -9,6 +9,7 @@ const testStore: Record<string, any[]> = {
   social_accounts: [],
   profiles: [],
   ai_generations: [],
+  brand_settings: [],
   worker_heartbeats: [],
   scheduler_execution_logs: [],
   post_publish_attempts: [],
