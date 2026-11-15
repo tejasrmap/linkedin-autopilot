@@ -12,7 +12,7 @@
 -- declarations (v_...) and fully qualified table column references.
 -- ====================================================================
 
--- 1. Hardened Stored Procedure: Atomic Claim with UUID Lease Token
+-- 1. Hardened Stored Procedure: Atomic Claim with UUID Lease Token and Synchronized Job Transition
 CREATE OR REPLACE FUNCTION public.claim_post_for_publishing(
     target_post_id UUID,
     new_claim_token UUID,
@@ -24,11 +24,15 @@ SECURITY DEFINER
 SET search_path = public, extensions
 AS $$
 DECLARE
-    claimed_post RECORD;
+    current_post RECORD;
+    current_job RECORD;
     now_ts TIMESTAMPTZ := clock_timestamp();
     effective_lease_seconds INT := COALESCE(lease_duration_seconds, 300);
     lease_until TIMESTAMPTZ;
+    is_post_eligible BOOLEAN;
+    rows_affected INT;
 BEGIN
+    -- 1. Validate inputs
     IF target_post_id IS NULL THEN
         RETURN jsonb_build_object('success', false, 'reason', 'target_post_id_required');
     END IF;
@@ -43,43 +47,130 @@ BEGIN
 
     lease_until := now_ts + (effective_lease_seconds || ' seconds')::INTERVAL;
 
-    -- Atomically lock and transition post if eligible or stale
+    -- 2. Lock post FOR UPDATE in public.posts (primary deadlock-free lock order: posts -> scheduled_jobs)
+    SELECT posts.id, posts.workspace_id, posts.content, posts.post_type, 
+           posts.media_assets, posts.social_account_id, posts.created_by, 
+           posts.status, posts.claim_token, posts.lease_expires_at, posts.updated_at
+    INTO current_post
+    FROM public.posts
+    WHERE posts.id = target_post_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'reason', 'post_not_found');
+    END IF;
+
+    -- 3. Validate post eligibility
+    -- Eligible if in ('scheduled', 'approved', 'draft') OR stale 'processing'
+    is_post_eligible := (
+        current_post.status IN ('scheduled', 'approved', 'draft')
+        OR (
+            current_post.status = 'processing' AND (
+                current_post.lease_expires_at < now_ts
+                OR (current_post.lease_expires_at IS NULL AND current_post.updated_at < now_ts - INTERVAL '5 minutes')
+            )
+        )
+    );
+
+    IF NOT is_post_eligible THEN
+        RETURN jsonb_build_object('success', false, 'reason', 'already_processing_or_completed');
+    END IF;
+
+    -- 4. Lock latest scheduled_jobs record FOR UPDATE if one exists
+    SELECT scheduled_jobs.id, scheduled_jobs.status, scheduled_jobs.claim_token, 
+           scheduled_jobs.lease_expires_at, scheduled_jobs.updated_at, scheduled_jobs.attempts
+    INTO current_job
+    FROM public.scheduled_jobs
+    WHERE scheduled_jobs.post_id = target_post_id
+    ORDER BY scheduled_jobs.created_at DESC
+    LIMIT 1
+    FOR UPDATE;
+
+    -- 5. Validate scheduled_job eligibility if record exists
+    IF current_job.id IS NOT NULL THEN
+        -- If job was completed, post cannot be claimed
+        IF current_job.status = 'completed' THEN
+            RETURN jsonb_build_object('success', false, 'reason', 'job_already_completed');
+        END IF;
+
+        -- If job is currently in processing with an unexpired active lease, reject concurrent worker
+        IF current_job.status = 'processing' 
+           AND current_job.lease_expires_at IS NOT NULL 
+           AND current_job.lease_expires_at >= now_ts THEN
+            RETURN jsonb_build_object('success', false, 'reason', 'job_already_processing');
+        END IF;
+    END IF;
+
+    -- 6. Atomically update public.posts to 'processing' with verified lease
     UPDATE public.posts
     SET 
         status = 'processing',
         claim_token = new_claim_token,
         lease_expires_at = lease_until,
         updated_at = now_ts
-    WHERE posts.id = target_post_id
-      AND (
-          posts.status IN ('scheduled', 'approved', 'draft')
-          OR (posts.status = 'processing' AND (posts.lease_expires_at < now_ts OR posts.lease_expires_at IS NULL AND posts.updated_at < now_ts - INTERVAL '5 minutes'))
-      )
-    RETURNING posts.id, posts.workspace_id, posts.content, posts.post_type, posts.media_assets, posts.social_account_id, posts.created_by, posts.status, posts.claim_token, posts.lease_expires_at
-    INTO claimed_post;
+    WHERE posts.id = target_post_id;
 
-    IF NOT FOUND THEN
-        RETURN jsonb_build_object(
-            'success', false,
-            'reason', 'already_processing_or_completed'
-        );
+    GET DIAGNOSTICS rows_affected = ROW_COUNT;
+    IF rows_affected <> 1 THEN
+        RAISE EXCEPTION 'Atomic post claim update failed: expected 1 row, affected %', rows_affected;
     END IF;
 
-    -- Synchronize scheduled_jobs record atomically
-    UPDATE public.scheduled_jobs
-    SET
-        status = 'processing',
-        claim_token = new_claim_token,
-        lease_expires_at = lease_until,
-        updated_at = now_ts
-    WHERE scheduled_jobs.post_id = target_post_id
-      AND scheduled_jobs.status IN ('scheduled', 'queued', 'processing');
+    -- 7. Atomically synchronize or insert scheduled_jobs record
+    IF current_job.id IS NOT NULL THEN
+        -- Transition existing job to processing with verified lease token
+        UPDATE public.scheduled_jobs
+        SET
+            status = 'processing',
+            claim_token = new_claim_token,
+            lease_expires_at = lease_until,
+            updated_at = now_ts
+        WHERE scheduled_jobs.id = current_job.id;
+
+        GET DIAGNOSTICS rows_affected = ROW_COUNT;
+        IF rows_affected <> 1 THEN
+            RAISE EXCEPTION 'Atomic scheduled_job claim update failed: expected 1 row, affected %', rows_affected;
+        END IF;
+
+        -- Deterministically cancel any duplicate/older active jobs for this post
+        UPDATE public.scheduled_jobs
+        SET status = 'cancelled', updated_at = now_ts
+        WHERE scheduled_jobs.post_id = target_post_id
+          AND scheduled_jobs.id <> current_job.id
+          AND scheduled_jobs.status IN ('scheduled', 'queued', 'processing');
+    ELSE
+        -- Legitimate immediate publishing or draft without preexisting job:
+        -- Insert authoritative job record with active processing lease
+        INSERT INTO public.scheduled_jobs (
+            post_id,
+            status,
+            claim_token,
+            lease_expires_at,
+            attempts,
+            scheduled_at,
+            created_at,
+            updated_at
+        ) VALUES (
+            target_post_id,
+            'processing',
+            new_claim_token,
+            lease_until,
+            0,
+            now_ts,
+            now_ts,
+            now_ts
+        );
+
+        GET DIAGNOSTICS rows_affected = ROW_COUNT;
+        IF rows_affected <> 1 THEN
+            RAISE EXCEPTION 'Atomic scheduled_job creation failed: expected 1 row, affected %', rows_affected;
+        END IF;
+    END IF;
 
     RETURN jsonb_build_object(
         'success', true,
-        'post_id', claimed_post.id,
-        'claim_token', claimed_post.claim_token,
-        'lease_expires_at', claimed_post.lease_expires_at
+        'post_id', target_post_id,
+        'claim_token', new_claim_token,
+        'lease_expires_at', lease_until
     );
 END;
 $$;

@@ -584,6 +584,16 @@ async function runStagingPostgresIntegrationTests() {
       const losingSession = successA ? sessionWorkerB : sessionWorkerA;
       const winningSession = successA ? sessionWorkerA : sessionWorkerB;
 
+      // Verify scheduled_jobs row was atomically created/synchronized for winning session
+      const { data: jobRows } = await pgClient
+        .from('scheduled_jobs')
+        .select('*')
+        .eq('post_id', leasePostId);
+      assert(
+        Boolean(jobRows && jobRows.length === 1 && jobRows[0].claim_token === winningToken && jobRows[0].status === 'processing'),
+        '[REAL POSTGRESQL LEASE] scheduled_jobs record is guaranteed to exist and match winning claim token in processing state'
+      );
+
       // 2. Losing worker cannot retry
       const { data: losingRetryData, error: losingRetryErr } = await losingSession.rpc('handle_publishing_failure_and_retry', {
         target_post_id: leasePostId,
@@ -674,6 +684,7 @@ async function runStagingPostgresIntegrationTests() {
       );
 
       // Cleanup Group 9 test records
+      await pgClient.from('scheduled_jobs').delete().in('post_id', [leasePostId, expiredPostId]);
       await pgClient.from('posts').delete().in('id', [leasePostId, expiredPostId]);
       await pgClient.from('workspaces').delete().eq('id', wsG9);
     }
