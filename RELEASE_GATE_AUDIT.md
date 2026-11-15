@@ -146,3 +146,20 @@ To ensure a seamless production deployment without downtime or lock contention:
 4. **Proceed to Private Beta**:
    - The platform meets all Go/No-Go criteria for the 3–5 user private beta cohort.
 
+---
+
+## 7. Addendum: Multi-User Publishing Final Hardening (PR #14)
+
+**Audit Date:** November 15, 2026  
+**Target Branch:** `fix/multi-user-publishing-final-hardening`  
+**Base Commit:** `a99fb8994d4782c880637b968463e99af66d9577` (PR #13 merge)  
+
+### Verification Status:
+- **Issue A (Fail-Open Scopes):** Strictly fail-closed permission check deployed in `src/lib/queue/publisher.ts`.
+- **Issue B (Unchecked Job Persistence):** Job insert errors validated; failed inserts roll back post to `draft`.
+- **Issue C (Broad Fallbacks):** `isRpcFunctionMissingError()` restricts fallbacks to genuine missing stored procedure errors. Timeouts and permission errors fail closed.
+- **Issue D (PL/pgSQL Parameter Collision):** Forward-only migration `20261115000009_harden_plpgsql_parameters_and_rpc_safety.sql` created with unambiguous `p_` parameter names and qualified columns. Left unapplied in production.
+- **Automated Tests:** 154 passed, 0 failed across all test suites.
+- **Production Readiness Verdict:** **READY FOR REVIEW** (pending stakeholder PR approval and manual merge).
+
+

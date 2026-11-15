@@ -19,6 +19,34 @@ export interface PublishJobData {
 
 let publishQueue: Queue<PublishJobData> | null = null;
 
+/**
+ * Determines whether an error returned by Supabase RPC indicates that the stored procedure
+ * genuinely does not exist in the database schema (e.g. migration not yet applied).
+ * Any other error (network timeout, connection drop, permission denied, locking failure,
+ * SQL constraint violation) MUST NOT trigger a fallback update.
+ */
+export function isRpcFunctionMissingError(error: any): boolean {
+  if (!error) return false;
+  const code = String(error.code || '');
+  const msg = String(error.message || '').toLowerCase();
+
+  // PostgREST: PGRST202 (Could not find the function in the schema cache)
+  // PostgreSQL: 42883 (undefined_function)
+  if (code === 'PGRST202' || code === '42883') {
+    return true;
+  }
+
+  if (
+    msg.includes('could not find the function') ||
+    (msg.includes('function') && msg.includes('does not exist')) ||
+    msg.includes('schema cache')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function getPublishQueue(): Queue<PublishJobData> | null {
   try {
     if (!publishQueue) {
@@ -78,13 +106,28 @@ export async function schedulePostPublishJob(
     }
 
     // Insert scheduled_jobs record for future cron processing
-    await supabase.from('scheduled_jobs').insert({
+    const { error: jobInsertErr } = await supabase.from('scheduled_jobs').insert({
       post_id: postId,
       queue_job_id: jobId,
       scheduled_at: scheduledAt ? scheduledAt.toISOString() : new Date().toISOString(),
       status: 'scheduled',
       attempts: 0,
     });
+
+    if (jobInsertErr) {
+      console.error(`[Queue] Failed to persist scheduled_job for post ${postId}:`, jobInsertErr);
+      // Revert post back to draft to avoid orphaned post without a scheduler job
+      await supabase
+        .from('posts')
+        .update({
+          status: 'draft',
+          error_message: `Failed to persist scheduled job: ${jobInsertErr.message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', postId);
+
+      return { queueJobId: null, success: false, error: `Failed to persist scheduled job: ${jobInsertErr.message}` };
+    }
 
     // If BullMQ / Redis is enabled, add job to Redis queue with delay
     if (process.env.REDIS_URL) {
@@ -114,13 +157,27 @@ export async function schedulePostPublishJob(
     // (claim_post_for_publishing) solely owns the transition into 'processing' with a verified lease token.
 
     // Insert authoritative scheduled_jobs record with status 'scheduled'
-    await supabase.from('scheduled_jobs').insert({
+    const { error: jobInsertErr } = await supabase.from('scheduled_jobs').insert({
       post_id: postId,
       queue_job_id: jobId,
       scheduled_at: new Date().toISOString(),
       status: 'scheduled',
       attempts: 0,
     });
+
+    if (jobInsertErr) {
+      console.error(`[Queue] Failed to persist scheduled_job for Publish Now post ${postId}:`, jobInsertErr);
+      await supabase
+        .from('posts')
+        .update({
+          status: 'draft',
+          error_message: `Failed to persist publishing execution record: ${jobInsertErr.message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', postId);
+
+      return { queueJobId: null, success: false, error: `Failed to persist publishing execution record: ${jobInsertErr.message}` };
+    }
 
     // Execute in-process through the atomic lease claim pipeline
     const res = await executePublishPipeline(postId);
@@ -264,14 +321,16 @@ export async function executePublishPipeline(
     return { success: false, error: errorMsg };
   }
 
-  // 4b. Verify required posting scope for personal member accounts
-  const normalizedScopes = (socialAccount.scopes || [])
-    .flatMap((s: string) => (typeof s === 'string' ? s.split(/[\s,]+/) : []))
-    .map((s: string) => s.trim())
-    .filter(Boolean);
+  // 4b. Strictly verify required posting scope for personal member accounts (fail-closed)
+  const normalizedScopes = Array.isArray(socialAccount.scopes)
+    ? socialAccount.scopes
+        .flatMap((s: string) => (typeof s === 'string' ? s.split(/[\s,]+/) : []))
+        .map((s: string) => s.trim())
+        .filter(Boolean)
+    : [];
 
-  if (socialAccount.account_type === 'member' && normalizedScopes.length > 0 && !normalizedScopes.includes('w_member_social')) {
-    const errorMsg = `LinkedIn account "${socialAccount.account_name}" lacks required "w_member_social" posting scope. Please reconnect account with publishing permissions.`;
+  if (socialAccount.account_type === 'member' && !normalizedScopes.includes('w_member_social')) {
+    const errorMsg = `LinkedIn account "${socialAccount.account_name}" lacks verified "w_member_social" posting permission. Please reconnect or reauthorize your LinkedIn account.`;
     await markPostFailed(supabase, post, errorMsg, attemptNumber, undefined, claimToken);
     return { success: false, error: errorMsg };
   }
@@ -406,19 +465,25 @@ async function finalizePublishSuccess(
 
   // Try atomic finalize RPC first
   const { data: finalizeData, error: finalizeErr } = await supabase.rpc('finalize_post_publishing', {
+    p_target_post_id: postId,
+    p_expected_claim_token: claimToken,
+    p_provider_post_id: providerPostId,
+    p_raw_response: rawResponse || null,
+    // Dual compatibility with legacy RPC parameter names
     target_post_id: postId,
     expected_claim_token: claimToken,
     provider_post_id: providerPostId,
     raw_response: rawResponse || null,
-  });
+  } as any);
 
   if (!finalizeErr && finalizeData) {
     if (!finalizeData.success) {
       console.warn(`[Publisher] Finalization rejected for post ${postId}: ${finalizeData.reason}`);
       return { success: false, error: `Publish finalization rejected: ${finalizeData.reason}` };
     }
-  } else {
-    // Fallback only if RPC function does not exist: CAS update validating claim_token ownership
+  } else if (finalizeErr && isRpcFunctionMissingError(finalizeErr)) {
+    // Fallback ONLY if the RPC function genuinely does not exist in the database schema (e.g. unapplied migration)
+    console.warn(`[Publisher] finalize_post_publishing RPC missing (${finalizeErr.code || finalizeErr.message}); falling back to verified CAS update`);
     const { data: updatedPost, error: postUpdateErr } = await supabase
       .from('posts')
       .update({
@@ -450,6 +515,11 @@ async function finalizePublishSuccess(
       })
       .eq('post_id', postId)
       .in('status', ['processing', 'scheduled', 'queued']);
+  } else {
+    // Network failure, DB timeout, permission error, or unexpected SQL exception: FAIL CLOSED
+    const rpcErrMsg = finalizeErr?.message || 'Unknown database RPC error during finalization';
+    console.error(`[Publisher] Fatal database error during finalize_post_publishing for post ${postId}:`, finalizeErr);
+    return { success: false, error: `Database finalization failure: ${rpcErrMsg}` };
   }
 
   // Record succeeded attempt
@@ -492,11 +562,16 @@ async function markPostFailed(
 
   // Atomic retry state transition via PostgreSQL RPC
   const { data: retryData, error: rpcErr } = await supabase.rpc('handle_publishing_failure_and_retry', {
+    p_target_post_id: post.id,
+    p_expected_claim_token: activeClaimToken,
+    p_error_message: errorMsg,
+    p_max_attempts: 3,
+    // Dual compatibility with legacy RPC parameter names
     target_post_id: post.id,
     expected_claim_token: activeClaimToken,
     error_message: errorMsg,
     max_attempts: 3,
-  });
+  } as any);
 
   if (!rpcErr && retryData) {
     if (!retryData.success) {
@@ -505,9 +580,9 @@ async function markPostFailed(
       // Do NOT mutate post or scheduled_jobs - the winning worker or final state owns the row!
       return;
     }
-  } else {
-    // Fallback ONLY IF RPC does not exist (rpcErr)
-    // Even in fallback, STRICTLY enforce claim_token match to prevent overwriting winning worker!
+  } else if (rpcErr && isRpcFunctionMissingError(rpcErr)) {
+    // Fallback ONLY IF RPC genuinely does not exist in the database schema (e.g. unapplied migration)
+    console.warn(`[Publisher] handle_publishing_failure_and_retry RPC missing (${rpcErr.code || rpcErr.message}); falling back to verified CAS update`);
     const { data: updatedPost } = await supabase
       .from('posts')
       .update({
@@ -537,6 +612,11 @@ async function markPostFailed(
       })
       .eq('post_id', post.id)
       .eq('claim_token', activeClaimToken);
+  } else if (rpcErr) {
+    // Fail closed: Network error, timeout, permission denied, or unexpected SQL error
+    console.error(`[Publisher] Fatal database error during handle_publishing_failure_and_retry for post ${post.id}:`, rpcErr);
+    // Do NOT bypass concurrency controls or overwrite newer state with direct fallback
+    return;
   }
 
   await supabase.from('post_publish_attempts').insert({
