@@ -20,9 +20,10 @@ console.log('=================================================================\n
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !serviceKey) {
-  console.error('❌ Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.');
+if (!supabaseUrl || !serviceKey || !anonKey) {
+  console.error('❌ Missing NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
   process.exit(1);
 }
 
@@ -687,6 +688,212 @@ async function runStagingPostgresIntegrationTests() {
       await pgClient.from('scheduled_jobs').delete().in('post_id', [leasePostId, expiredPostId]);
       await pgClient.from('posts').delete().in('id', [leasePostId, expiredPostId]);
       await pgClient.from('workspaces').delete().eq('id', wsG9);
+    }
+
+    // -------------------------------------------------------------
+    // GROUP 10: REAL POSTGRESQL RLS WITH INDEPENDENT AUTHENTICATED SESSIONS
+    // -------------------------------------------------------------
+    console.log('\n--- Group 10: Real PostgreSQL RLS with Independent Authenticated Sessions ---');
+
+    const emailUserA = `rls_user_a_${Date.now()}@example.com`;
+    const emailUserB = `rls_user_b_${Date.now()}@example.com`;
+    const testPassword = 'TestAuthPassword123!@#';
+
+    let userARecord: any = null;
+    let userBRecord: any = null;
+
+    try {
+      // 1. Create two independent authentication users in Supabase Auth
+      const { data: createdA, error: createAErr } = await pgClient.auth.admin.createUser({
+        email: emailUserA,
+        password: testPassword,
+        email_confirm: true,
+      });
+      if (createAErr) throw new Error(`Failed to create test user A: ${createAErr.message}`);
+      userARecord = createdA.user;
+
+      const { data: createdB, error: createBErr } = await pgClient.auth.admin.createUser({
+        email: emailUserB,
+        password: testPassword,
+        email_confirm: true,
+      });
+      if (createBErr) throw new Error(`Failed to create test user B: ${createBErr.message}`);
+      userBRecord = createdB.user;
+
+      // 2. Establish two independent authenticated client sessions using anon key + JWT
+      const clientA = createClient(supabaseUrl!, anonKey!, { auth: { persistSession: false } });
+      const { error: signInAErr } = await clientA.auth.signInWithPassword({
+        email: emailUserA,
+        password: testPassword,
+      });
+      if (signInAErr) throw new Error(`Failed to sign in User A: ${signInAErr.message}`);
+
+      const clientB = createClient(supabaseUrl!, anonKey!, { auth: { persistSession: false } });
+      const { error: signInBErr } = await clientB.auth.signInWithPassword({
+        email: emailUserB,
+        password: testPassword,
+      });
+      if (signInBErr) throw new Error(`Failed to sign in User B: ${signInBErr.message}`);
+
+      // 3. Set up two separate workspaces in PostgreSQL (Workspace A for User A, Workspace B for User B)
+      const wsA_RLS = `aaaaaaaa-aaaa-4aaa-aaaa-${Date.now().toString().slice(-12)}`;
+      const wsB_RLS = `bbbbbbbb-bbbb-4bbb-bbbb-${Date.now().toString().slice(-12)}`;
+
+      await pgClient.from('workspaces').insert([
+        { id: wsA_RLS, name: `RLS Workspace Alpha ${testRunId}`, slug: `ws-rls-a-${testRunId}`, owner_id: userARecord.id },
+        { id: wsB_RLS, name: `RLS Workspace Beta ${testRunId}`, slug: `ws-rls-b-${testRunId}`, owner_id: userBRecord.id },
+      ]);
+
+      await pgClient.from('workspace_members').insert([
+        { workspace_id: wsA_RLS, user_id: userARecord.id, role: 'owner' },
+        { workspace_id: wsB_RLS, user_id: userBRecord.id, role: 'owner' },
+      ]);
+
+      // Seed Workspace A assets
+      const postA_RLS = `cccccccc-cccc-4ccc-cccc-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('posts').insert({
+        id: postA_RLS,
+        workspace_id: wsA_RLS,
+        created_by: userARecord.id,
+        content: `Confidential Post Alpha ${testRunId}`,
+        status: 'draft',
+      });
+
+      const socialAccA_RLS = `dddddddd-dddd-4ddd-dddd-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('social_accounts').insert({
+        id: socialAccA_RLS,
+        workspace_id: wsA_RLS,
+        account_type: 'member',
+        account_name: 'Alpha Member Account',
+        account_urn: 'urn:li:person:alpha123',
+        encrypted_access_token: 'iv:tag:cipher_alpha',
+        token_expires_at: new Date(Date.now() + 86400000).toISOString(),
+        connection_status: 'active',
+      });
+
+      const jobA_RLS = `eeeeeeee-eeee-4eee-eeee-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('scheduled_jobs').insert({
+        id: jobA_RLS,
+        post_id: postA_RLS,
+        scheduled_at: new Date(Date.now() + 3600000).toISOString(),
+        status: 'scheduled',
+      });
+
+      await pgClient.from('post_analytics').insert({
+        post_id: postA_RLS,
+        metric_name: 'impressions',
+        metric_value: 500,
+      });
+
+      const mediaA_RLS = `ffffffff-ffff-4fff-ffff-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('media_assets').insert({
+        id: mediaA_RLS,
+        workspace_id: wsA_RLS,
+        file_name: 'alpha_confidential.png',
+        storage_path: `${wsA_RLS}/alpha.png`,
+        mime_type: 'image/png',
+        file_size: 1024,
+        created_by: userARecord.id,
+      });
+
+      const notifB_RLS = `12121212-1212-4212-1212-${Date.now().toString().slice(-12)}`;
+      await pgClient.from('notifications').insert({
+        id: notifB_RLS,
+        user_id: userBRecord.id,
+        workspace_id: wsB_RLS,
+        title: 'Confidential Beta Notification',
+        message: 'Only User B should see this',
+        type: 'info',
+      });
+
+      // TEST 10.1: Workspace B user reading Workspace A's posts
+      const { data: userBPosts } = await clientB.from('posts').select('*').eq('id', postA_RLS);
+      assert(
+        Array.isArray(userBPosts) && userBPosts.length === 0,
+        '[POSTGRES RLS SESSION] User B session strictly receives 0 rows when querying User A post'
+      );
+
+      // TEST 10.2: Workspace B user reading Workspace A's social accounts
+      const { data: userBAccounts } = await clientB.from('social_accounts').select('*').eq('id', socialAccA_RLS);
+      assert(
+        Array.isArray(userBAccounts) && userBAccounts.length === 0,
+        '[POSTGRES RLS SESSION] User B session strictly receives 0 rows when querying User A social account'
+      );
+
+      // TEST 10.3: Workspace B user accessing Workspace A's scheduled jobs
+      const { data: userBJobs } = await clientB.from('scheduled_jobs').select('*').eq('id', jobA_RLS);
+      assert(
+        Array.isArray(userBJobs) && userBJobs.length === 0,
+        '[POSTGRES RLS SESSION] User B session strictly receives 0 rows when querying User A scheduled jobs'
+      );
+
+      // TEST 10.4: Analytics isolation (User B querying post_analytics for Post A)
+      const { data: userBAnalytics } = await clientB.from('post_analytics').select('*').eq('post_id', postA_RLS);
+      assert(
+        Array.isArray(userBAnalytics) && userBAnalytics.length === 0,
+        '[POSTGRES RLS SESSION] User B session strictly receives 0 rows when querying User A post analytics'
+      );
+
+      // TEST 10.5: Notification isolation (User A querying User B's notification)
+      const { data: userANotifs } = await clientA.from('notifications').select('*').eq('id', notifB_RLS);
+      assert(
+        Array.isArray(userANotifs) && userANotifs.length === 0,
+        '[POSTGRES RLS SESSION] User A session strictly receives 0 rows when querying User B notifications'
+      );
+
+      // TEST 10.6: Media asset isolation (User B querying User A's media asset)
+      const { data: userBMedia } = await clientB.from('media_assets').select('*').eq('id', mediaA_RLS);
+      assert(
+        Array.isArray(userBMedia) && userBMedia.length === 0,
+        '[POSTGRES RLS SESSION] User B session strictly receives 0 rows when querying User A media assets'
+      );
+
+      // TEST 10.7: Unauthorized insert (User B attempting to insert post into Workspace A)
+      const { data: roguePostData, error: roguePostErr } = await clientB.from('posts').insert({
+        workspace_id: wsA_RLS,
+        content: 'Rogue insert attempt into Workspace A',
+        status: 'draft',
+      }).select();
+      assert(
+        Boolean(roguePostErr) || !roguePostData || roguePostData.length === 0,
+        '[POSTGRES RLS SESSION] User B unauthorized post insert into Workspace A is rejected by RLS'
+      );
+
+      // TEST 10.8: Unauthorized update (User B attempting to tamper with Workspace A's post)
+      const { data: updateTamperData, error: updateTamperErr } = await clientB
+        .from('posts')
+        .update({ content: 'Tampered content by User B' })
+        .eq('id', postA_RLS)
+        .select();
+      assert(
+        (!updateTamperData || updateTamperData.length === 0),
+        '[POSTGRES RLS SESSION] User B unauthorized update on Workspace A post updates 0 rows'
+      );
+
+      // TEST 10.9: Service role bypasses RLS and can query across workspaces
+      const { data: servicePosts } = await pgClient.from('posts').select('id').in('id', [postA_RLS]);
+      assert(
+        Array.isArray(servicePosts) && servicePosts.length === 1,
+        '[POSTGRES RLS SERVICE_ROLE] Service role client bypasses RLS and retrieves rows accurately'
+      );
+
+      // 4. Cleanup Group 10 PostgreSQL test records
+      await pgClient.from('notifications').delete().eq('id', notifB_RLS);
+      await pgClient.from('media_assets').delete().eq('id', mediaA_RLS);
+      await pgClient.from('post_analytics').delete().eq('post_id', postA_RLS);
+      await pgClient.from('scheduled_jobs').delete().eq('id', jobA_RLS);
+      await pgClient.from('social_accounts').delete().eq('id', socialAccA_RLS);
+      await pgClient.from('posts').delete().eq('id', postA_RLS);
+      await pgClient.from('workspace_members').delete().in('workspace_id', [wsA_RLS, wsB_RLS]);
+      await pgClient.from('workspaces').delete().in('id', [wsA_RLS, wsB_RLS]);
+    } finally {
+      // Always delete temporary auth users
+      if (userARecord?.id) {
+        await pgClient.auth.admin.deleteUser(userARecord.id);
+      }
+      if (userBRecord?.id) {
+        await pgClient.auth.admin.deleteUser(userBRecord.id);
+      }
     }
 
     console.log('\n=================================================================');

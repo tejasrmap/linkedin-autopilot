@@ -9,17 +9,25 @@
 
 ## 1. Database Migrations (Supabase Dashboard)
 
-> [!IMPORTANT]
-> The application code is fully prepared and tested, but two migrations must be executed manually in the production Supabase SQL Editor by the platform administrator before launching the beta.
+> [!NOTE]
+> **Migration 9 Status:** Verified **ALREADY INSTALLED** in production.
+> Live RPC probes confirm that canonical functions `claim_post_for_publishing`, `handle_publishing_failure_and_retry`, and `finalize_post_publishing(target_post_id, expected_claim_token, provider_post_id, raw_response)` are already deployed and operational in production PostgreSQL. **Do not re-execute Migration 9.**
 
-- [ ] **Step 1.1: Apply Migration 9 (Atomic Claim RPC Consistency)**
-  - Open Supabase SQL Editor: https://supabase.com/dashboard/project/iqfblmcyqmxoeyfexjkg/sql
-  - Paste contents of `supabase/migrations/20261115000009_harden_plpgsql_parameters_and_rpc_safety.sql`.
-  - Execute script. Confirm `claim_post_for_publishing`, `handle_publishing_failure_and_retry`, and `finalize_post_publishing` execute without error.
+> [!IMPORTANT]
+> **Migration 10 Status:** **PENDING MANUAL RUN**.
+> Only Migration 10 (`20261115000010_strict_workspace_rls_hardening.sql`) must be applied in the production Supabase SQL Editor by the platform administrator before launching the beta.
+
+- [x] **Step 1.1: Migration 9 (Atomic Claim RPC Consistency)**
+  - *Status:* **ALREADY INSTALLED & VERIFIED IN PRODUCTION**.
+  - Verified active function signatures:
+    - `public.claim_post_for_publishing(target_post_id uuid, new_claim_token uuid, lease_duration_seconds integer)`
+    - `public.handle_publishing_failure_and_retry(target_post_id uuid, expected_claim_token uuid, error_message text, max_attempts integer)`
+    - `public.finalize_post_publishing(target_post_id uuid, expected_claim_token uuid, provider_post_id text, raw_response jsonb)`
 - [ ] **Step 1.2: Apply Migration 10 (Strict Workspace RLS Hardening)**
+  - Open Supabase SQL Editor: https://supabase.com/dashboard/project/iqfblmcyqmxoeyfexjkg/sql
   - Follow the instructions in [RLS_HARDENING_DEPLOYMENT_GUIDE.md](file:///c:/Users/tejag/Downloads/GT-Scheduler/RLS_HARDENING_DEPLOYMENT_GUIDE.md).
-  - Paste contents of `supabase/migrations/20261115000010_strict_workspace_rls_hardening.sql`.
-  - Execute script.
+  - Paste full contents of `supabase/migrations/20261115000010_strict_workspace_rls_hardening.sql`.
+  - Click **Run** to execute within the atomic transaction.
   - Run verification queries in Section 4 of the guide to confirm no `USING (true)` policies remain.
 
 ---
@@ -30,6 +38,7 @@
   - Verify `TOKEN_ENCRYPTION_KEY` is set in Vercel Production Environment Variables.
   - Value must be a cryptographically secure random string of at least 32 characters.
   - Value must **NOT** be `'default-super-secret-key-32-chars!!'`.
+  - *Security Invariant:* Existing SHA-256 AES-256-GCM derivation is preserved; no token re-encryption is required.
 - [ ] **Step 2.2: CRON_SECRET**
   - Verify `CRON_SECRET` is set in Vercel Production Environment Variables.
   - Verify external cron caller (e.g., cron-job.org or Vercel Cron) passes `Authorization: Bearer <CRON_SECRET>`.
@@ -81,7 +90,9 @@
 | Gate | Criterion | Status |
 | :--- | :--- | :--- |
 | **Code Remediations** | All 5 beta-readiness security findings implemented & tested | **PASS** |
+| **Live Postgres RLS Tests** | 33/33 tests pass against real PostgreSQL with authenticated sessions | **PASS** |
 | **Automated Testing** | 38/38 multi-user tests, 27/27 scheduler tests, 44/44 disablement tests pass | **PASS** |
 | **Type Safety & Build** | `tsc --noEmit`, `next lint`, `next build` clean | **PASS** |
-| **Database Migrations** | Migrations 9 and 10 applied in production Supabase | **PENDING MANUAL RUN** |
-| **Overall Verdict** | Release Readiness Gate | **CONDITIONAL — MANUAL DATABASE ACTIONS REQUIRED** |
+| **Migration 9 Status** | Canonical atomic claim RPCs installed and verified | **VERIFIED INSTALLED** |
+| **Migration 10 Status** | Strict RLS hardening applied in production Supabase | **PENDING MANUAL RUN** |
+| **Overall Verdict** | Release Readiness Gate | **CONDITIONAL — MIGRATION 10 PENDING** |

@@ -14,6 +14,10 @@ import {
   cancelScheduledJob,
 } from '../src/lib/queue/publisher';
 import { encryptToken, decryptToken } from '../src/lib/encryption';
+import { NextRequest } from 'next/server';
+import { middleware } from '../src/middleware';
+import { GET as getAnalyticsOverview } from '../src/app/api/analytics/overview/route';
+import { POST as uploadMedia } from '../src/app/api/media/upload/route';
 
 process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
 process.env.CRON_SECRET = 'test_cron_secret_secure_123';
@@ -927,6 +931,11 @@ test('Analytics Isolation: Workspace A strictly isolates post analytics from Wor
   const postA2 = 'post-ana-a2';
   const postB1 = 'post-ana-b1';
 
+  testStore.workspaces = [
+    { id: wsA, name: 'Tenant A Workspace', owner_id: 'user-tenant-a' },
+    { id: wsB, name: 'Tenant B Workspace', owner_id: 'user-tenant-b' },
+  ];
+
   // Seed posts
   await admin.from('posts').insert([
     { id: postA1, workspace_id: wsA, content: 'Tenant A Post 1', status: 'published' },
@@ -943,47 +952,24 @@ test('Analytics Isolation: Workspace A strictly isolates post analytics from Wor
     { post_id: postB1, metric_name: 'reactions', metric_value: 88888 },
   ]);
 
-  // Simulate analytics overview logic for Workspace A
-  const { data: postsA } = await admin
-    .from('posts')
-    .select('id, status, post_type, created_at, published_at')
-    .eq('workspace_id', wsA);
+  // 1. Direct route handler invocation
+  process.env.ALLOW_DEV_AUTH = 'true';
+  const routeRes = await getAnalyticsOverview();
+  assert.equal(routeRes.status, 200, 'Route handler must return HTTP 200');
+  const routeData = await routeRes.json();
 
-  const postIdsA = (postsA || []).map((p: any) => p.id);
-  assert.equal(postIdsA.length, 2);
-  assert.ok(postIdsA.includes(postA1));
-  assert.ok(postIdsA.includes(postA2));
-  assert.ok(!postIdsA.includes(postB1));
+  assert.equal(routeData.metrics.engagement.impressions, 200, 'Overview handler must aggregate exactly 200 impressions for Workspace A');
+  assert.equal(routeData.metrics.engagement.reactions, 25, 'Overview handler must aggregate exactly 25 reactions for Workspace A');
+  assert.notEqual(routeData.metrics.engagement.impressions, 1000199, 'Workspace B 999,999 impressions must not leak into Workspace A');
 
-  // Query post_analytics strictly scoped by Workspace A's postIds
-  const { data: rowsA } = await admin
-    .from('post_analytics')
-    .select('metric_name, metric_value')
-    .in('post_id', postIdsA);
-
-  let totalImpressionsA = 0;
-  let totalReactionsA = 0;
-  for (const row of rowsA || []) {
-    const val = Number(row.metric_value) || 0;
-    if (row.metric_name === 'impressions') totalImpressionsA += val;
-    if (row.metric_name === 'reactions') totalReactionsA += val;
+  // 2. Verify database error handling returns HTTP 500
+  process.env.SIMULATE_DB_ERROR = 'true';
+  try {
+    const errRes = await getAnalyticsOverview();
+    assert.equal(errRes.status, 500, 'Overview handler must return HTTP 500 on database failure');
+  } finally {
+    delete process.env.SIMULATE_DB_ERROR;
   }
-
-  // Verify Workspace A gets exactly 200 impressions (150 + 50) and 25 reactions
-  assert.equal(totalImpressionsA, 200, 'Workspace A impressions must equal sum of its own posts');
-  assert.equal(totalReactionsA, 25, 'Workspace A reactions must equal sum of its own posts');
-
-  // Verify Tenant B's 999,999 impressions were completely excluded
-  assert.notEqual(totalImpressionsA, 1000199, 'Workspace B analytics must not leak into Workspace A');
-
-  // Verify empty workspace post handling
-  const wsEmpty = 'ws-analytics-tenant-empty';
-  const { data: postsEmpty } = await admin
-    .from('posts')
-    .select('id')
-    .eq('workspace_id', wsEmpty);
-  const postIdsEmpty = (postsEmpty || []).map((p: any) => p.id);
-  assert.equal(postIdsEmpty.length, 0);
 });
 
 test('Media Upload Reliability: Storage upload failure halts process without DB record', async () => {
@@ -991,22 +977,23 @@ test('Media Upload Reliability: Storage upload failure halts process without DB 
   const testStore = getTestStore();
   const initialMediaCount = (testStore.media_assets || []).length;
 
-  // Simulate storage failure
+  process.env.ALLOW_DEV_AUTH = 'true';
   process.env.SIMULATE_STORAGE_ERROR = 'true';
 
   try {
-    const storageResult = await admin.storage
-      .from('post-assets')
-      .upload('ws-test/fail.png', Buffer.from('fake-data'), { contentType: 'image/png' });
+    const formData = new FormData();
+    const file = new File(['mock binary content'], 'fail_image.png', { type: 'image/png' });
+    formData.append('file', file);
+    const req = new Request('http://localhost:3000/api/media/upload', {
+      method: 'POST',
+      body: formData,
+    });
 
-    assert.ok(storageResult.error, 'Storage upload should return error when failure simulated');
-
-    // Route logic halts on uploadErr:
-    if (storageResult.error) {
-      // Endpoint returns 500 without calling admin.from('media_assets').insert
-    } else {
-      await admin.from('media_assets').insert({ file_name: 'should-not-exist.png' });
-    }
+    // Invoke actual route handler directly
+    const res = await uploadMedia(req);
+    assert.equal(res.status, 500, 'Media upload handler must return HTTP 500 when storage fails');
+    const body = await res.json();
+    assert.ok(body.error.includes('Failed to upload file to storage'), 'Error message must reflect storage failure');
 
     const finalMediaCount = (testStore.media_assets || []).length;
     assert.equal(finalMediaCount, initialMediaCount, 'Zero records must be inserted into media_assets upon storage failure');
@@ -1020,80 +1007,60 @@ test('Media Upload Reliability: Database insertion failure triggers storage clea
   const testStore = getTestStore();
   testStore.__storageRemoved = [];
 
-  const targetPath = 'ws-cleanup-test/12345-image.png';
-
-  // Step 1: Upload succeeds
-  const uploadResult = await admin.storage
-    .from('post-assets')
-    .upload(targetPath, Buffer.from('fake-image-bytes'), { contentType: 'image/png' });
-  assert.equal(uploadResult.error, null);
-
-  // Step 2: Database insert fails
+  process.env.ALLOW_DEV_AUTH = 'true';
   process.env.SIMULATE_DB_ERROR = 'true';
+
   try {
-    const insertResult = await admin
-      .from('media_assets')
-      .insert({
-        workspace_id: 'ws-cleanup-test',
-        file_name: 'test.png',
-        storage_path: targetPath,
-      })
-      .select()
-      .single();
+    const formData = new FormData();
+    const file = new File(['mock binary content for cleanup'], 'cleanup_pic.png', { type: 'image/png' });
+    formData.append('file', file);
+    const req = new Request('http://localhost:3000/api/media/upload', {
+      method: 'POST',
+      body: formData,
+    });
 
-    assert.ok(insertResult.error, 'Database insert must return error');
+    // Invoke actual route handler directly
+    const res = await uploadMedia(req);
+    assert.equal(res.status, 500, 'Media upload handler must return HTTP 500 when database insertion fails');
+    const body = await res.json();
+    assert.ok(body.error.includes('Database error registering media asset'), 'Error message must reflect database failure');
 
-    // Route error handler triggers cleanup:
-    if (insertResult.error) {
-      await admin.storage.from('post-assets').remove([targetPath]);
-    }
-
-    // Verify storage cleanup was called for the exact orphaned storage path
+    // Verify storage cleanup was called for the uploaded storage path
     const removedPaths: string[] = testStore.__storageRemoved || [];
-    assert.ok(removedPaths.includes(targetPath), 'Orphaned storage asset must be cleaned up via storage.remove');
+    assert.ok(removedPaths.length > 0, 'Orphaned storage asset must be cleaned up via storage.remove');
   } finally {
     delete process.env.SIMULATE_DB_ERROR;
   }
 });
 
-test('Public Legal Routes: Middleware permits unauthenticated access to /privacy and /terms', () => {
-  // Test route classification matching middleware logic
-  function classifyRouteAccess(path: string, hasUser: boolean) {
-    const isAuthPage = path.startsWith('/login') || path.startsWith('/register');
-    const isLegalPage =
-      path === '/privacy' ||
-      path.startsWith('/privacy/') ||
-      path === '/terms' ||
-      path.startsWith('/terms/');
+test('Public Legal Routes: Middleware permits unauthenticated access to /privacy and /terms', async () => {
+  // Test actual Next.js middleware execution directly
+  const privacyReq = new NextRequest('http://localhost:3000/privacy');
+  const privacyRes = await middleware(privacyReq);
+  assert.equal(privacyRes.headers.get('location'), null, '/privacy must not redirect unauthenticated users to /login');
 
-    if (!hasUser && !isAuthPage && !isLegalPage) {
-      return { action: 'redirect', to: '/login' };
-    }
-    if (hasUser && isAuthPage) {
-      return { action: 'redirect', to: '/dashboard' };
-    }
-    return { action: 'allow' };
-  }
+  const privacySubReq = new NextRequest('http://localhost:3000/privacy/policy');
+  const privacySubRes = await middleware(privacySubReq);
+  assert.equal(privacySubRes.headers.get('location'), null, '/privacy/* must not redirect unauthenticated users to /login');
 
-  // Unauthenticated requests to legal pages must be allowed
-  assert.deepEqual(classifyRouteAccess('/privacy', false), { action: 'allow' });
-  assert.deepEqual(classifyRouteAccess('/privacy/policy', false), { action: 'allow' });
-  assert.deepEqual(classifyRouteAccess('/terms', false), { action: 'allow' });
-  assert.deepEqual(classifyRouteAccess('/terms/conditions', false), { action: 'allow' });
+  const termsReq = new NextRequest('http://localhost:3000/terms');
+  const termsRes = await middleware(termsReq);
+  assert.equal(termsRes.headers.get('location'), null, '/terms must not redirect unauthenticated users to /login');
 
-  // Unauthenticated requests to private app routes must redirect to /login
-  assert.deepEqual(classifyRouteAccess('/dashboard', false), { action: 'redirect', to: '/login' });
-  assert.deepEqual(classifyRouteAccess('/analytics', false), { action: 'redirect', to: '/login' });
-  assert.deepEqual(classifyRouteAccess('/settings', false), { action: 'redirect', to: '/login' });
-  assert.deepEqual(classifyRouteAccess('/posts/new', false), { action: 'redirect', to: '/login' });
+  const termsSubReq = new NextRequest('http://localhost:3000/terms/conditions');
+  const termsSubRes = await middleware(termsSubReq);
+  assert.equal(termsSubRes.headers.get('location'), null, '/terms/* must not redirect unauthenticated users to /login');
 
-  // Authenticated users on /login must redirect to /dashboard
-  assert.deepEqual(classifyRouteAccess('/login', true), { action: 'redirect', to: '/dashboard' });
-  assert.deepEqual(classifyRouteAccess('/register', true), { action: 'redirect', to: '/dashboard' });
+  // Private routes must redirect unauthenticated users to /login
+  const dashReq = new NextRequest('http://localhost:3000/dashboard');
+  const dashRes = await middleware(dashReq);
+  assert.equal(dashRes.status, 307, '/dashboard must redirect unauthenticated users');
+  assert.ok(dashRes.headers.get('location')?.includes('/login'), 'Redirect target must be /login');
 
-  // Authenticated users on legal pages or private pages must be allowed
-  assert.deepEqual(classifyRouteAccess('/privacy', true), { action: 'allow' });
-  assert.deepEqual(classifyRouteAccess('/dashboard', true), { action: 'allow' });
+  const analyticsReq = new NextRequest('http://localhost:3000/analytics');
+  const analyticsRes = await middleware(analyticsReq);
+  assert.equal(analyticsRes.status, 307, '/analytics must redirect unauthenticated users');
+  assert.ok(analyticsRes.headers.get('location')?.includes('/login'), 'Redirect target must be /login');
 });
 
 test('Fail-Closed Encryption: Production requires valid non-default encryption key', () => {
