@@ -14,6 +14,47 @@ const RequestSchema = z.object({
 const MAX_CERTIFICATE_BYTES = 10 * 1024 * 1024;
 const MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 
+/**
+ * Detects authoritative MIME type from binary magic bytes (file signature).
+ * Rejects files whose magic numbers do not match standard PDF, PNG, or JPEG signatures.
+ */
+function detectFileSignature(bytes: Buffer): 'application/pdf' | 'image/png' | 'image/jpeg' | null {
+  if (bytes.length < 3) return null;
+
+  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+
+  // JPEG magic bytes: FF D8 FF
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  // PDF magic bytes: %PDF (25 50 44 46)
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
+  ) {
+    return 'application/pdf';
+  }
+
+  return null;
+}
+
 function isSafeHttpsUrl(value: string): boolean {
   if (!value) return true;
   try {
@@ -26,7 +67,8 @@ function isSafeHttpsUrl(value: string): boolean {
 
 export async function POST(request: Request) {
   try {
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const VALID_WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
@@ -69,12 +111,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Certificate must be between 1 byte and 10 MB.' }, { status: 400 });
     }
 
+    const bytes = Buffer.from(await file.arrayBuffer());
+
+    // Validate true file signature against binary magic bytes
+    const detectedMime = detectFileSignature(bytes);
+    if (!detectedMime) {
+      return NextResponse.json(
+        { error: 'Invalid file signature. File content does not match supported PDF, PNG, or JPG formats.' },
+        { status: 400 }
+      );
+    }
+    if (detectedMime !== file.type) {
+      return NextResponse.json(
+        { error: `File content mismatch: declared MIME type "${file.type}" does not match file signature "${detectedMime}".` },
+        { status: 400 }
+      );
+    }
+
     const apiKey = (request.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) {
       return NextResponse.json({ error: 'Gemini API key is not configured. Add your key in AI Studio or ask an administrator to configure GEMINI_API_KEY.' }, { status: 503 });
     }
-
-    const bytes = Buffer.from(await file.arrayBuffer());
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `You extract facts from a user's certificate and draft a LinkedIn announcement.
 Return ONLY valid JSON with this exact shape:
