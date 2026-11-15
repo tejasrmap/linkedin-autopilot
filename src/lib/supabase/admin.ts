@@ -27,15 +27,19 @@ export function createAdminClient(): SupabaseClient {
         const nowIso = now.toISOString();
 
         if (fnName === 'claim_post_for_publishing') {
-          if (!params.target_post_id) {
+          const targetPostId = params?.p_target_post_id ?? params?.target_post_id;
+          const newClaimToken = params?.p_new_claim_token ?? params?.new_claim_token;
+          const leaseDurationSeconds = params?.p_lease_duration_seconds ?? params?.lease_duration_seconds;
+
+          if (!targetPostId) {
             return { data: { success: false, reason: 'target_post_id_required' }, error: null };
           }
-          if (!params.new_claim_token) {
+          if (!newClaimToken) {
             return { data: { success: false, reason: 'claim_token_required' }, error: null };
           }
 
           const posts = testStore.posts || [];
-          const post = posts.find((p) => p.id === params.target_post_id);
+          const post = posts.find((p) => p.id === targetPostId);
           if (!post) {
             return { data: { success: false, reason: 'post_not_found' }, error: null };
           }
@@ -53,18 +57,18 @@ export function createAdminClient(): SupabaseClient {
           }
 
           const leaseUntil = new Date(
-            now.getTime() + (params.lease_duration_seconds || 300) * 1000
+            now.getTime() + (leaseDurationSeconds || 300) * 1000
           ).toISOString();
 
           post.status = 'processing';
-          post.claim_token = params.new_claim_token;
+          post.claim_token = newClaimToken;
           post.lease_expires_at = leaseUntil;
           post.updated_at = nowIso;
 
           const jobs = testStore.scheduled_jobs || [];
-          jobs.filter((j) => j.post_id === params.target_post_id).forEach((job) => {
+          jobs.filter((j) => j.post_id === targetPostId).forEach((job) => {
             job.status = 'processing';
-            job.claim_token = params.new_claim_token;
+            job.claim_token = newClaimToken;
             job.lease_expires_at = leaseUntil;
             job.updated_at = nowIso;
           });
@@ -81,15 +85,20 @@ export function createAdminClient(): SupabaseClient {
         }
 
         if (fnName === 'handle_publishing_failure_and_retry') {
-          if (!params.target_post_id) {
+          const targetPostId = params?.p_target_post_id ?? params?.target_post_id;
+          const expectedClaimToken = params?.p_expected_claim_token ?? params?.expected_claim_token;
+          const errorMessage = params?.p_error_message ?? params?.error_message;
+          const maxAttempts = params?.p_max_attempts ?? params?.max_attempts ?? 3;
+
+          if (!targetPostId) {
             return { data: { success: false, reason: 'target_post_id_required' }, error: null };
           }
-          if (!params.expected_claim_token) {
+          if (!expectedClaimToken) {
             return { data: { success: false, reason: 'expected_claim_token_required' }, error: null };
           }
 
           const posts = testStore.posts || [];
-          const post = posts.find((p) => p.id === params.target_post_id);
+          const post = posts.find((p) => p.id === targetPostId);
           if (!post) {
             return { data: { success: false, reason: 'post_not_found' }, error: null };
           }
@@ -102,7 +111,7 @@ export function createAdminClient(): SupabaseClient {
             return { data: { success: false, reason: 'claim_token_missing_unowned' }, error: null };
           }
 
-          if (post.claim_token !== params.expected_claim_token) {
+          if (post.claim_token !== expectedClaimToken) {
             return { data: { success: false, reason: 'claim_token_mismatch_lease_lost' }, error: null };
           }
 
@@ -112,7 +121,7 @@ export function createAdminClient(): SupabaseClient {
 
           const jobs = testStore.scheduled_jobs || [];
           // Deterministically sort and select the most recent scheduled_job
-          const postJobs = jobs.filter((j) => j.post_id === params.target_post_id);
+          const postJobs = jobs.filter((j) => j.post_id === targetPostId);
           postJobs.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
           const job = postJobs[0];
 
@@ -123,7 +132,6 @@ export function createAdminClient(): SupabaseClient {
           }
 
           const nextAttempt = ((job?.attempts ?? 0) as number) + 1;
-          const maxAttempts = params.max_attempts || 3;
 
           if (nextAttempt < maxAttempts) {
             const backoffMinutes = Math.pow(2, nextAttempt);
@@ -133,7 +141,7 @@ export function createAdminClient(): SupabaseClient {
             post.scheduled_at = retryAtIso;
             post.claim_token = null;
             post.lease_expires_at = null;
-            post.error_message = `Attempt ${nextAttempt} failed: ${params.error_message}. Retry scheduled for ${retryAtIso}`;
+            post.error_message = `Attempt ${nextAttempt} failed: ${errorMessage}. Retry scheduled for ${retryAtIso}`;
             post.updated_at = nowIso;
 
             if (job) {
@@ -142,17 +150,17 @@ export function createAdminClient(): SupabaseClient {
               job.attempts = nextAttempt;
               job.claim_token = null;
               job.lease_expires_at = null;
-              job.last_error = params.error_message;
+              job.last_error = errorMessage;
               job.updated_at = nowIso;
             } else {
               // Missing scheduled_jobs record: insert to prevent orphaned post
               jobs.push({
                 id: `job_${Date.now()}`,
-                post_id: params.target_post_id,
+                post_id: targetPostId,
                 status: 'scheduled',
                 scheduled_at: retryAtIso,
                 attempts: nextAttempt,
-                last_error: params.error_message,
+                last_error: errorMessage,
                 created_at: nowIso,
                 updated_at: nowIso,
               });
@@ -171,7 +179,7 @@ export function createAdminClient(): SupabaseClient {
             post.status = 'failed';
             post.claim_token = null;
             post.lease_expires_at = null;
-            post.error_message = `Exhausted max retries (${maxAttempts}): ${params.error_message}`;
+            post.error_message = `Exhausted max retries (${maxAttempts}): ${errorMessage}`;
             post.updated_at = nowIso;
 
             if (job) {
@@ -179,15 +187,15 @@ export function createAdminClient(): SupabaseClient {
               job.attempts = nextAttempt;
               job.claim_token = null;
               job.lease_expires_at = null;
-              job.last_error = `Exhausted max retries (${maxAttempts}): ${params.error_message}`;
+              job.last_error = `Exhausted max retries (${maxAttempts}): ${errorMessage}`;
               job.updated_at = nowIso;
             } else {
               jobs.push({
                 id: `job_${Date.now()}`,
-                post_id: params.target_post_id,
+                post_id: targetPostId,
                 status: 'failed',
                 attempts: nextAttempt,
-                last_error: `Exhausted max retries (${maxAttempts}): ${params.error_message}`,
+                last_error: `Exhausted max retries (${maxAttempts}): ${errorMessage}`,
                 created_at: nowIso,
                 updated_at: nowIso,
               });
@@ -205,18 +213,22 @@ export function createAdminClient(): SupabaseClient {
         }
 
         if (fnName === 'finalize_post_publishing') {
-          if (!params.target_post_id) {
+          const targetPostId = params?.p_target_post_id ?? params?.target_post_id;
+          const expectedClaimToken = params?.p_expected_claim_token ?? params?.expected_claim_token;
+          const providerPostId = params?.p_provider_post_id ?? params?.provider_post_id;
+
+          if (!targetPostId) {
             return { data: { success: false, reason: 'target_post_id_required' }, error: null };
           }
-          if (!params.expected_claim_token) {
+          if (!expectedClaimToken) {
             return { data: { success: false, reason: 'expected_claim_token_required' }, error: null };
           }
-          if (!params.provider_post_id) {
+          if (!providerPostId) {
             return { data: { success: false, reason: 'provider_post_id_required' }, error: null };
           }
 
           const posts = testStore.posts || [];
-          const post = posts.find((p) => p.id === params.target_post_id);
+          const post = posts.find((p) => p.id === targetPostId);
           if (!post) {
             return { data: { success: false, reason: 'post_not_found' }, error: null };
           }
@@ -229,7 +241,7 @@ export function createAdminClient(): SupabaseClient {
             return { data: { success: false, reason: 'claim_token_missing_unowned' }, error: null };
           }
 
-          if (post.claim_token !== params.expected_claim_token) {
+          if (post.claim_token !== expectedClaimToken) {
             return { data: { success: false, reason: 'claim_token_mismatch_lease_lost' }, error: null };
           }
 
@@ -239,14 +251,14 @@ export function createAdminClient(): SupabaseClient {
 
           post.status = 'published';
           post.published_at = nowIso;
-          post.provider_post_id = params.provider_post_id;
+          post.provider_post_id = providerPostId;
           post.claim_token = null;
           post.lease_expires_at = null;
           post.error_message = null;
           post.updated_at = nowIso;
 
           const jobs = testStore.scheduled_jobs || [];
-          const postJobs = jobs.filter((j) => j.post_id === params.target_post_id);
+          const postJobs = jobs.filter((j) => j.post_id === targetPostId);
           postJobs.forEach((j, idx) => {
             if (idx === 0) {
               j.status = 'completed';
@@ -472,6 +484,18 @@ export function createAdminClient(): SupabaseClient {
                 return updateBuilder;
               },
               select: () => {
+                if (process.env.SIMULATE_DB_ERROR === 'true') {
+                  return {
+                    ...updateBuilder,
+                    then: (resolve: any, reject: any) =>
+                      Promise.resolve({
+                        data: null,
+                        error: { message: 'connection failure: database unreachable', code: '08006' },
+                      }).then(resolve, reject),
+                    maybeSingle: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
+                    single: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
+                  };
+                }
                 const matches = executeUpdate();
                 return {
                   ...updateBuilder,
@@ -487,6 +511,12 @@ export function createAdminClient(): SupabaseClient {
                 };
               },
               then: (resolve: any, reject: any) => {
+                if (process.env.SIMULATE_DB_ERROR === 'true') {
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: 'connection failure: database unreachable', code: '08006' },
+                  }).then(resolve, reject);
+                }
                 const matches = executeUpdate();
                 return Promise.resolve({ data: matches, error: null }).then(resolve, reject);
               },
