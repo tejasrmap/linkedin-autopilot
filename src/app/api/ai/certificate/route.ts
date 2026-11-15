@@ -76,6 +76,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden: Invalid workspace membership' }, { status: 403 });
     }
 
+    // RATE LIMITING ARCHITECTURAL SPECIFICATION:
+    // Rate limiting is enforced using an in-memory sliding window keyed by workspace and user ID.
+    // NOTE FOR SERVERLESS DEPLOYMENTS (Vercel / AWS Lambda):
+    // In-memory rate limiting is per-container/per-instance and is not globally synchronized across
+    // multiple concurrent serverless instances. This provides zero-latency burst defense and prevents
+    // automated rapid-fire wallet drain on individual instances without external network overhead.
+    // For global distributed rate limiting across all concurrent serverless execution contexts,
+    // a centralized Redis/Upstash backend should be wired into checkRateLimit.
     const rate = checkRateLimit(`certificate-ai:${auth.workspaceId}:${auth.user.id}`, {
       limit: 5,
       windowMs: 60_000,

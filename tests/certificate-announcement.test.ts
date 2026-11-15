@@ -160,10 +160,10 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
   });
 
   // -------------------------------------------------------------
-  // TASK 2 & 3: SUPABASE AUTHENTICATION & WORKSPACE ROLE ACCESS
+  // TASK 2: GENUINE SUPABASE AUTHENTICATION (DISTINGUISHED FROM DEV MOCKS)
   // -------------------------------------------------------------
-  describe('Tasks 2 & 3: Supabase Authentication and All 5 Workspace Roles', () => {
-    test('2a. Unauthenticated request returns 401 Unauthorized', async () => {
+  describe('Task 2: Genuine Supabase Authentication Integration', () => {
+    test('2a. Production fail-closed: Request without Supabase session returns 401 Unauthorized (ALLOW_DEV_AUTH disabled)', async () => {
       delete process.env.ALLOW_DEV_AUTH;
       const formData = new FormData();
       const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
@@ -175,14 +175,40 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       });
 
       const res = await certificateRouteHandler(req);
-      assert.strictEqual(res.status, 401);
+      assert.strictEqual(res.status, 401, 'Must strictly fail closed when unauthenticated');
       const data = await res.json();
       assert.strictEqual(data.error, 'Unauthorized');
     });
 
+    test('2b. Production safeguard: NODE_ENV=production strictly ignores ALLOW_DEV_AUTH=true', async () => {
+      const prevNodeEnv = process.env.NODE_ENV;
+      try {
+        (process.env as any).NODE_ENV = 'production';
+        process.env.ALLOW_DEV_AUTH = 'true';
+        const formData = new FormData();
+        const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
+        formData.append('certificate', file);
+
+        const req = new Request('http://localhost:3000/api/ai/certificate', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const res = await certificateRouteHandler(req);
+        assert.strictEqual(res.status, 401, 'In production, development auth mock is strictly disabled');
+      } finally {
+        (process.env as any).NODE_ENV = prevNodeEnv;
+      }
+    });
+  });
+
+  // -------------------------------------------------------------
+  // TASK 3: WORKSPACE ROLE-BASED ACCESS CONTROL (ALL 5 ROLES)
+  // -------------------------------------------------------------
+  describe('Task 3: Workspace Role-Based Access Control (RBAC Policy)', () => {
     const roles = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
     for (const role of roles) {
-      test(`3. Workspace role "${role}" is authorized and permitted to generate certificate drafts`, async () => {
+      test(`3a. Workspace role "${role}" is authorized and permitted to generate certificate drafts`, async () => {
         process.env.ALLOW_DEV_AUTH = 'true';
         process.env.TEST_AUTH_ROLE = role;
         const formData = new FormData();
