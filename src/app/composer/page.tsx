@@ -229,7 +229,11 @@ function ComposerContent() {
       }
 
       if (publishNow) {
-        toast.success('Post published successfully to LinkedIn! 🎉');
+        if (data.published) {
+          toast.success('Post published successfully to LinkedIn! 🎉');
+        } else {
+          toast.error(data.error || 'Publishing failed. The post was saved in Drafts.');
+        }
       } else if (scheduleMode) {
         toast.success('Post scheduled in queue! 🚀');
       } else {
@@ -237,7 +241,13 @@ function ComposerContent() {
       }
 
       setTimeout(() => {
-        router.push(publishNow ? '/posts?tab=published' : scheduleMode ? '/posts?tab=scheduled' : '/posts?tab=draft');
+        router.push(
+          publishNow && data.published
+            ? '/posts?tab=published'
+            : scheduleMode
+            ? '/posts?tab=scheduled'
+            : '/posts?tab=draft'
+        );
       }, 1000);
     } catch (err: any) {
       toast.error(err.message);

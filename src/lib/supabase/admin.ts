@@ -62,13 +62,12 @@ export function createAdminClient(): SupabaseClient {
           post.updated_at = nowIso;
 
           const jobs = testStore.scheduled_jobs || [];
-          const job = jobs.find((j) => j.post_id === params.target_post_id);
-          if (job) {
+          jobs.filter((j) => j.post_id === params.target_post_id).forEach((job) => {
             job.status = 'processing';
             job.claim_token = params.new_claim_token;
             job.lease_expires_at = leaseUntil;
             job.updated_at = nowIso;
-          }
+          });
 
           return {
             data: {

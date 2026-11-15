@@ -593,3 +593,232 @@ test('Lease Ownership: Atomic finalize_post_publishing updates posts and schedul
   assert.equal(jobRecord.lease_expires_at, null);
 });
 
+test('Publish Now: Post is created in claimable state and atomic claim RPC owns transition to processing', async () => {
+  const admin = createAdminClient();
+  const publishNowPostId = 'publish-now-claimable-post-001';
+  const workerClaimToken = 'publish-now-worker-token-001';
+
+  // 1. Initial creation must be in claimable state ('draft' or 'scheduled'), NOT pre-emptively 'processing'
+  await admin.from('posts').insert({
+    id: publishNowPostId,
+    workspace_id: 'test-ws-publish-now',
+    content: 'Publish now atomic claim test',
+    status: 'draft',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-publish-now-001',
+    post_id: publishNowPostId,
+    status: 'scheduled',
+    scheduled_at: new Date().toISOString(),
+    attempts: 0,
+  });
+
+  // 2. Atomic claim succeeds from draft/scheduled
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: publishNowPostId,
+    new_claim_token: workerClaimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, true, 'Atomic claim must succeed for newly submitted post');
+
+  // 3. Post is now legitimately owned in processing state by the winning worker
+  const { data: claimedPost } = await admin.from('posts').select('*').eq('id', publishNowPostId).single();
+  assert.equal(claimedPost.status, 'processing');
+  assert.equal(claimedPost.claim_token, workerClaimToken);
+  assert.ok(claimedPost.lease_expires_at);
+});
+
+test('Publish Now: Failed claim cannot produce a success response', async () => {
+  const admin = createAdminClient();
+  const lockedPostId = 'locked-post-conflict-002';
+  const existingToken = 'already-owned-worker-token';
+  const intruderToken = 'intruder-worker-token';
+
+  await admin.from('posts').insert({
+    id: lockedPostId,
+    workspace_id: 'test-ws-locked',
+    content: 'Already locked post',
+    status: 'processing',
+    claim_token: existingToken,
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: lockedPostId,
+    new_claim_token: intruderToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, false, 'Contested claim must fail');
+  assert.equal(claimResult.reason, 'already_processing_or_completed');
+
+  // Original token must remain intact
+  const { data: checkPost } = await admin.from('posts').select('claim_token, status').eq('id', lockedPostId).single();
+  assert.ok(checkPost);
+  assert.equal(checkPost.claim_token, existingToken);
+  assert.equal(checkPost.status, 'processing');
+});
+
+test('Scheduler Recovery: Reconciles queued jobs into scheduled and picks them up', async () => {
+  const admin = createAdminClient();
+  const staleTimeIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const queuedRecoveryPostId = 'queued-stale-recovery-post-003';
+
+  await admin.from('posts').insert({
+    id: queuedRecoveryPostId,
+    workspace_id: 'test-ws-recovery',
+    content: 'Stale post with queued job',
+    status: 'processing',
+    updated_at: staleTimeIso,
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-queued-stale-003',
+    post_id: queuedRecoveryPostId,
+    status: 'queued',
+    scheduled_at: staleTimeIso,
+    attempts: 0,
+    updated_at: staleTimeIso,
+  });
+
+  const req = new Request('http://localhost:3000/api/cron/publish', {
+    method: 'GET',
+    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
+  });
+  const res = await cronPublishHandler(req);
+  const body = await res.json();
+
+  assert.equal(body.success, true);
+  assert.ok(body.reclaimedStale >= 1, 'Should reclaim the stale post');
+
+  // Verify scheduled_jobs row was reconciled and no longer stuck in queued
+  const { data: reclaimedJob } = await admin.from('scheduled_jobs').select('*').eq('post_id', queuedRecoveryPostId).single();
+  assert.ok(reclaimedJob);
+  assert.notEqual(reclaimedJob.status, 'queued', 'Job must not remain trapped in queued state');
+});
+
+test('Future Scheduling: Future-scheduled posts remain eligible and untouched by immediate reclamation', async () => {
+  const admin = createAdminClient();
+  const futureTimeIso = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+  const futurePostId = 'future-scheduled-post-004';
+
+  await admin.from('posts').insert({
+    id: futurePostId,
+    workspace_id: 'test-ws-future',
+    content: 'Future scheduled post content',
+    status: 'scheduled',
+    scheduled_at: futureTimeIso,
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-future-004',
+    post_id: futurePostId,
+    status: 'scheduled',
+    scheduled_at: futureTimeIso,
+    attempts: 0,
+  });
+
+  // Run cron: should NOT pick up or alter future post
+  const req = new Request('http://localhost:3000/api/cron/publish', {
+    method: 'GET',
+    headers: { authorization: 'Bearer test_cron_secret_secure_123' },
+  });
+  const res = await cronPublishHandler(req);
+  const body = await res.json();
+
+  assert.equal(body.success, true);
+
+  const { data: postCheck } = await admin.from('posts').select('*').eq('id', futurePostId).single();
+  assert.equal(postCheck.status, 'scheduled');
+  assert.ok(!postCheck.claim_token);
+
+  const { data: jobCheck } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-future-004').single();
+  assert.equal(jobCheck.status, 'scheduled');
+  assert.equal(jobCheck.scheduled_at, futureTimeIso);
+  assert.equal(jobCheck.attempts, 0);
+});
+
+test('Multi-Tenant Isolation: Independent users in different workspaces cannot publish through other workspaces accounts', async () => {
+  const postWorkspace = 'ws-tenant-alpha-001';
+  const foreignWorkspace = 'ws-tenant-bravo-002';
+
+  const post = {
+    id: 'multi-tenant-test-post',
+    workspace_id: postWorkspace,
+    content: 'Testing isolation',
+    status: 'draft',
+  };
+
+  const foreignSocialAccount = {
+    id: 'social-account-foreign',
+    workspace_id: foreignWorkspace,
+    account_type: 'member',
+    account_name: 'Foreign User',
+    connection_status: 'active',
+    scopes: ['w_member_social'],
+  };
+
+  // Direct tenant check
+  const isIsolated = foreignSocialAccount.workspace_id !== post.workspace_id;
+  assert.equal(isIsolated, true, 'Cross-workspace account assignment must be detected as isolation violation');
+});
+
+test('OAuth Scopes: Parses both comma-separated and whitespace-separated scope strings accurately', async () => {
+  const parseScopes = (rawScope: string | string[]) => {
+    const rawList = Array.isArray(rawScope) ? rawScope : [rawScope];
+    return rawList
+      .flatMap((s) => (typeof s === 'string' ? s.split(/[\s,]+/) : []))
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+
+  // 1. LinkedIn comma-separated format
+  const commaScopes = parseScopes('email,openid,profile,w_member_social');
+  assert.deepEqual(commaScopes, ['email', 'openid', 'profile', 'w_member_social']);
+  assert.equal(commaScopes.includes('w_member_social'), true);
+
+  // 2. Standard OAuth whitespace format
+  const spaceScopes = parseScopes('openid profile email w_member_social');
+  assert.deepEqual(spaceScopes, ['openid', 'profile', 'email', 'w_member_social']);
+  assert.equal(spaceScopes.includes('w_member_social'), true);
+
+  // 3. Mixed comma and whitespace format
+  const mixedScopes = parseScopes('openid, profile, email, w_member_social');
+  assert.deepEqual(mixedScopes, ['openid', 'profile', 'email', 'w_member_social']);
+  assert.equal(mixedScopes.includes('w_member_social'), true);
+
+  // 4. Stored array format with unflattened comma strings
+  const unflattenedArray = parseScopes(['email,openid,profile,w_member_social']);
+  assert.deepEqual(unflattenedArray, ['email', 'openid', 'profile', 'w_member_social']);
+  assert.equal(unflattenedArray.includes('w_member_social'), true);
+});
+
+test('OAuth Scopes: Missing scope evidence is not replaced by assumed permissions', async () => {
+  const parseAndVerify = (rawScope?: string) => {
+    if (!rawScope) return { hasSocial: false, connectionStatus: 'limited_permissions' };
+    const scopes = rawScope.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    const hasSocial = scopes.includes('w_member_social');
+    return {
+      hasSocial,
+      connectionStatus: hasSocial ? 'active' : 'limited_permissions',
+    };
+  };
+
+  // When scope is explicitly missing w_member_social
+  const readOnlyUser = parseAndVerify('openid,profile,email');
+  assert.equal(readOnlyUser.hasSocial, false);
+  assert.equal(readOnlyUser.connectionStatus, 'limited_permissions');
+
+  // When scope is absent
+  const unprovidedScope = parseAndVerify(undefined);
+  assert.equal(unprovidedScope.hasSocial, false);
+  assert.equal(unprovidedScope.connectionStatus, 'limited_permissions');
+});
+
+

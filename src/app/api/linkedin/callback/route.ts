@@ -57,7 +57,16 @@ export async function GET(request: Request) {
     // 3. Encrypt the access token
     const encryptedToken = encryptToken(tokenData.access_token);
     const tokenExpiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
-    const scopes = tokenData.scope ? tokenData.scope.split(' ') : ['openid', 'profile', 'email', 'w_member_social'];
+
+    // Parse both comma-separated and whitespace-separated scopes, filtering empty entries.
+    // Never fabricate or assume w_member_social when LinkedIn did not return it.
+    const scopes = tokenData.scope
+      ? tokenData.scope.split(/[\s,]+/).map((s: string) => s.trim()).filter(Boolean)
+      : [];
+
+    // Verify whether publishing permission was genuinely granted
+    const hasPublishPermission = scopes.includes('w_member_social');
+    const memberConnectionStatus = hasPublishPermission ? 'active' : 'limited_permissions';
 
     const admin = createAdminClient();
 
@@ -72,11 +81,12 @@ export async function GET(request: Request) {
         encrypted_access_token: encryptedToken,
         token_expires_at: tokenExpiresAt,
         scopes: scopes,
-        connection_status: 'active',
+        connection_status: memberConnectionStatus,
         profile_image_url: userInfo.picture || null,
         metadata: {
           email: userInfo.email,
           connected_by: userId,
+          has_publish_scope: hasPublishPermission,
         },
         updated_at: new Date().toISOString(),
       },
