@@ -5,7 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAdminClient } from '../src/lib/supabase/admin';
+import { createAdminClient, getTestStore } from '../src/lib/supabase/admin';
 import {
   schedulePostPublishJob,
   executePublishPipeline,
@@ -14,6 +14,10 @@ import {
   cancelScheduledJob,
 } from '../src/lib/queue/publisher';
 import { encryptToken, decryptToken } from '../src/lib/encryption';
+import { NextRequest } from 'next/server';
+import { middleware } from '../src/middleware';
+import { GET as getAnalyticsOverview } from '../src/app/api/analytics/overview/route';
+import { POST as uploadMedia } from '../src/app/api/media/upload/route';
 
 process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
 process.env.CRON_SECRET = 'test_cron_secret_secure_123';
@@ -710,4 +714,388 @@ test('Lease Claim Guard: Database connection error during claim_post_for_publish
 
   const isMissing = isRpcFunctionMissingError({ code: '08006', message: 'connection failure' }, 'claim_post_for_publishing');
   assert.equal(isMissing, false, 'Connection failure must NOT be classified as missing RPC function');
+});
+
+// ==============================================================
+// GROUP 9: ATOMIC CLAIM & SCHEDULED_JOBS CONSISTENCY
+// ==============================================================
+
+test('Atomic Claim Consistency: Claiming post without existing scheduled_jobs atomically creates authoritative processing job', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-missing-job-post-001';
+  const claimToken = 'aaaaaaaa-1111-4111-a111-aaaaaaaaaaaa';
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Immediate publish without preexisting job',
+    status: 'draft',
+    updated_at: new Date().toISOString(),
+  });
+
+  // Verify scheduled_jobs initially has no record for this post
+  const { data: initialJobs } = await admin.from('scheduled_jobs').select('*').eq('post_id', testPostId);
+  assert.equal(initialJobs?.length, 0);
+
+  // Claim post
+  const { data: claimResult, error: claimErr } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimErr, null);
+  assert.equal(claimResult.success, true);
+  assert.equal(claimResult.claim_token, claimToken);
+
+  // Verify posts table was updated
+  const { data: postRecord } = await admin.from('posts').select('*').eq('id', testPostId).single();
+  assert.ok(postRecord);
+  assert.equal(postRecord.status, 'processing');
+  assert.equal(postRecord.claim_token, claimToken);
+
+  // Verify scheduled_jobs was atomically created with matching lease token
+  const { data: createdJobs } = await admin.from('scheduled_jobs').select('*').eq('post_id', testPostId);
+  assert.ok(createdJobs && createdJobs.length === 1);
+  assert.equal(createdJobs[0].status, 'processing');
+  assert.equal(createdJobs[0].claim_token, claimToken);
+  assert.equal(createdJobs[0].lease_expires_at, postRecord.lease_expires_at);
+});
+
+test('Atomic Claim Consistency: Claiming post with existing scheduled job transitions job to processing with matching claim token', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-existing-job-post-002';
+  const claimToken = 'bbbbbbbb-2222-4222-b222-bbbbbbbbbbbb';
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Scheduled post ready to publish',
+    status: 'scheduled',
+    scheduled_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-existing-002',
+    post_id: testPostId,
+    status: 'scheduled',
+    scheduled_at: new Date().toISOString(),
+    attempts: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, true);
+
+  const { data: updatedJob } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-existing-002').single();
+  assert.ok(updatedJob);
+  assert.equal(updatedJob.status, 'processing');
+  assert.equal(updatedJob.claim_token, claimToken);
+});
+
+test('Atomic Claim Consistency: Claiming post with multiple scheduled_jobs cancels older duplicates', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-duplicate-jobs-post-003';
+  const claimToken = 'cccccccc-3333-4333-c333-cccccccccccc';
+  const now = Date.now();
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Post with duplicate jobs',
+    status: 'scheduled',
+    updated_at: new Date().toISOString(),
+  });
+
+  // Older duplicate job
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-old-003',
+    post_id: testPostId,
+    status: 'scheduled',
+    created_at: new Date(now - 10000).toISOString(),
+    updated_at: new Date(now - 10000).toISOString(),
+  });
+
+  // Newer primary job
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-new-003',
+    post_id: testPostId,
+    status: 'scheduled',
+    created_at: new Date(now).toISOString(),
+    updated_at: new Date(now).toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, true);
+
+  const { data: newJob } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-new-003').single();
+  assert.ok(newJob);
+  assert.equal(newJob.status, 'processing');
+  assert.equal(newJob.claim_token, claimToken);
+
+  const { data: oldJob } = await admin.from('scheduled_jobs').select('*').eq('id', 'job-old-003').single();
+  assert.ok(oldJob);
+  assert.equal(oldJob.status, 'cancelled', 'Older duplicate job must be cancelled');
+});
+
+test('Atomic Claim Consistency: Rejects claim if job is already marked completed', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-completed-job-post-004';
+  const claimToken = 'dddddddd-4444-4444-d444-dddddddddddd';
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Post with completed job',
+    status: 'draft',
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-completed-004',
+    post_id: testPostId,
+    status: 'completed',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, false);
+  assert.equal(claimResult.reason, 'job_already_completed');
+});
+
+test('Atomic Claim Consistency: Rejects concurrent worker if job is in active processing with unexpired lease', async () => {
+  const admin = createAdminClient();
+  const testPostId = 'claim-active-job-post-005';
+  const claimToken1 = 'eeeeeeee-5555-4555-e555-eeeeeeeeeeee';
+  const claimToken2 = 'ffffffff-6666-4666-f666-ffffffffffff';
+  const futureLease = new Date(Date.now() + 180000).toISOString();
+
+  await admin.from('posts').insert({
+    id: testPostId,
+    workspace_id: 'ws-claim-test',
+    content: 'Post concurrently claimed',
+    status: 'draft',
+    updated_at: new Date().toISOString(),
+  });
+
+  await admin.from('scheduled_jobs').insert({
+    id: 'job-active-005',
+    post_id: testPostId,
+    status: 'processing',
+    claim_token: claimToken1,
+    lease_expires_at: futureLease,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  const { data: claimResult } = await admin.rpc('claim_post_for_publishing', {
+    target_post_id: testPostId,
+    new_claim_token: claimToken2,
+    lease_duration_seconds: 300,
+  });
+
+  assert.equal(claimResult.success, false);
+  assert.equal(claimResult.reason, 'job_already_processing');
+});
+
+// ==============================================================
+// GROUP 10: PRE-BETA SECURITY REMEDIATIONS & ISOLATION
+// ==============================================================
+
+test('Analytics Isolation: Workspace A strictly isolates post analytics from Workspace B', async () => {
+  const admin = createAdminClient();
+  const testStore = getTestStore();
+
+  const wsA = 'ws-analytics-tenant-aaa';
+  const wsB = 'ws-analytics-tenant-bbb';
+
+  const postA1 = 'post-ana-a1';
+  const postA2 = 'post-ana-a2';
+  const postB1 = 'post-ana-b1';
+
+  testStore.workspaces = [
+    { id: wsA, name: 'Tenant A Workspace', owner_id: 'user-tenant-a' },
+    { id: wsB, name: 'Tenant B Workspace', owner_id: 'user-tenant-b' },
+  ];
+
+  // Seed posts
+  await admin.from('posts').insert([
+    { id: postA1, workspace_id: wsA, content: 'Tenant A Post 1', status: 'published' },
+    { id: postA2, workspace_id: wsA, content: 'Tenant A Post 2', status: 'published' },
+    { id: postB1, workspace_id: wsB, content: 'Tenant B Post 1', status: 'published' },
+  ]);
+
+  // Seed post analytics
+  await admin.from('post_analytics').insert([
+    { post_id: postA1, metric_name: 'impressions', metric_value: 150 },
+    { post_id: postA1, metric_name: 'reactions', metric_value: 25 },
+    { post_id: postA2, metric_name: 'impressions', metric_value: 50 },
+    { post_id: postB1, metric_name: 'impressions', metric_value: 999999 },
+    { post_id: postB1, metric_name: 'reactions', metric_value: 88888 },
+  ]);
+
+  // 1. Direct route handler invocation
+  process.env.ALLOW_DEV_AUTH = 'true';
+  const routeRes = await getAnalyticsOverview();
+  assert.equal(routeRes.status, 200, 'Route handler must return HTTP 200');
+  const routeData = await routeRes.json();
+
+  assert.equal(routeData.metrics.engagement.impressions, 200, 'Overview handler must aggregate exactly 200 impressions for Workspace A');
+  assert.equal(routeData.metrics.engagement.reactions, 25, 'Overview handler must aggregate exactly 25 reactions for Workspace A');
+  assert.notEqual(routeData.metrics.engagement.impressions, 1000199, 'Workspace B 999,999 impressions must not leak into Workspace A');
+
+  // 2. Verify database error handling returns HTTP 500
+  process.env.SIMULATE_DB_ERROR = 'true';
+  try {
+    const errRes = await getAnalyticsOverview();
+    assert.equal(errRes.status, 500, 'Overview handler must return HTTP 500 on database failure');
+  } finally {
+    delete process.env.SIMULATE_DB_ERROR;
+  }
+});
+
+test('Media Upload Reliability: Storage upload failure halts process without DB record', async () => {
+  const admin = createAdminClient();
+  const testStore = getTestStore();
+  const initialMediaCount = (testStore.media_assets || []).length;
+
+  process.env.ALLOW_DEV_AUTH = 'true';
+  process.env.SIMULATE_STORAGE_ERROR = 'true';
+
+  try {
+    const formData = new FormData();
+    const file = new File(['mock binary content'], 'fail_image.png', { type: 'image/png' });
+    formData.append('file', file);
+    const req = new Request('http://localhost:3000/api/media/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    // Invoke actual route handler directly
+    const res = await uploadMedia(req);
+    assert.equal(res.status, 500, 'Media upload handler must return HTTP 500 when storage fails');
+    const body = await res.json();
+    assert.ok(body.error.includes('Failed to upload file to storage'), 'Error message must reflect storage failure');
+
+    const finalMediaCount = (testStore.media_assets || []).length;
+    assert.equal(finalMediaCount, initialMediaCount, 'Zero records must be inserted into media_assets upon storage failure');
+  } finally {
+    delete process.env.SIMULATE_STORAGE_ERROR;
+  }
+});
+
+test('Media Upload Reliability: Database insertion failure triggers storage cleanup', async () => {
+  const admin = createAdminClient();
+  const testStore = getTestStore();
+  testStore.__storageRemoved = [];
+
+  process.env.ALLOW_DEV_AUTH = 'true';
+  process.env.SIMULATE_DB_ERROR = 'true';
+
+  try {
+    const formData = new FormData();
+    const file = new File(['mock binary content for cleanup'], 'cleanup_pic.png', { type: 'image/png' });
+    formData.append('file', file);
+    const req = new Request('http://localhost:3000/api/media/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    // Invoke actual route handler directly
+    const res = await uploadMedia(req);
+    assert.equal(res.status, 500, 'Media upload handler must return HTTP 500 when database insertion fails');
+    const body = await res.json();
+    assert.ok(body.error.includes('Database error registering media asset'), 'Error message must reflect database failure');
+
+    // Verify storage cleanup was called for the uploaded storage path
+    const removedPaths: string[] = testStore.__storageRemoved || [];
+    assert.ok(removedPaths.length > 0, 'Orphaned storage asset must be cleaned up via storage.remove');
+  } finally {
+    delete process.env.SIMULATE_DB_ERROR;
+  }
+});
+
+test('Public Legal Routes: Middleware permits unauthenticated access to /privacy and /terms', async () => {
+  // Test actual Next.js middleware execution directly
+  const privacyReq = new NextRequest('http://localhost:3000/privacy');
+  const privacyRes = await middleware(privacyReq);
+  assert.equal(privacyRes.headers.get('location'), null, '/privacy must not redirect unauthenticated users to /login');
+
+  const privacySubReq = new NextRequest('http://localhost:3000/privacy/policy');
+  const privacySubRes = await middleware(privacySubReq);
+  assert.equal(privacySubRes.headers.get('location'), null, '/privacy/* must not redirect unauthenticated users to /login');
+
+  const termsReq = new NextRequest('http://localhost:3000/terms');
+  const termsRes = await middleware(termsReq);
+  assert.equal(termsRes.headers.get('location'), null, '/terms must not redirect unauthenticated users to /login');
+
+  const termsSubReq = new NextRequest('http://localhost:3000/terms/conditions');
+  const termsSubRes = await middleware(termsSubReq);
+  assert.equal(termsSubRes.headers.get('location'), null, '/terms/* must not redirect unauthenticated users to /login');
+
+  // Private routes must redirect unauthenticated users to /login
+  const dashReq = new NextRequest('http://localhost:3000/dashboard');
+  const dashRes = await middleware(dashReq);
+  assert.equal(dashRes.status, 307, '/dashboard must redirect unauthenticated users');
+  assert.ok(dashRes.headers.get('location')?.includes('/login'), 'Redirect target must be /login');
+
+  const analyticsReq = new NextRequest('http://localhost:3000/analytics');
+  const analyticsRes = await middleware(analyticsReq);
+  assert.equal(analyticsRes.status, 307, '/analytics must redirect unauthenticated users');
+  assert.ok(analyticsRes.headers.get('location')?.includes('/login'), 'Redirect target must be /login');
+});
+
+test('Fail-Closed Encryption: Production requires valid non-default encryption key', () => {
+  const origEnv = process.env.NODE_ENV;
+  const origKey = process.env.TOKEN_ENCRYPTION_KEY;
+
+  try {
+    (process.env as any).NODE_ENV = 'production';
+
+    // 1. Missing key
+    delete process.env.TOKEN_ENCRYPTION_KEY;
+    assert.throws(() => {
+      encryptToken('test_secret');
+    }, /FATAL: TOKEN_ENCRYPTION_KEY environment variable is missing or invalid in production/);
+
+    // 2. Default key
+    process.env.TOKEN_ENCRYPTION_KEY = 'default-super-secret-key-32-chars!!';
+    assert.throws(() => {
+      encryptToken('test_secret');
+    }, /FATAL: TOKEN_ENCRYPTION_KEY environment variable is missing or invalid in production/);
+
+    // 3. Short key (< 16 chars)
+    process.env.TOKEN_ENCRYPTION_KEY = 'short-key';
+    assert.throws(() => {
+      encryptToken('test_secret');
+    }, /FATAL: TOKEN_ENCRYPTION_KEY must be at least 16 characters long in production/);
+
+    // 4. Valid production key succeeds
+    process.env.TOKEN_ENCRYPTION_KEY = 'my-super-secure-production-secret-key-2026';
+    const ciphertext = encryptToken('super_confidential_linkedin_token');
+    assert.ok(ciphertext.includes(':'));
+    const decrypted = decryptToken(ciphertext);
+    assert.equal(decrypted, 'super_confidential_linkedin_token');
+  } finally {
+    (process.env as any).NODE_ENV = origEnv;
+    process.env.TOKEN_ENCRYPTION_KEY = origKey;
+  }
 });

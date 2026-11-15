@@ -1,6 +1,6 @@
 import { getAuthContext } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { executePublishPipeline } from '@/lib/queue/publisher';
+import { schedulePostPublishJob } from '@/lib/queue/publisher';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
@@ -25,7 +25,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Post not found or inaccessible.' }, { status: 404 });
   }
 
-  const result = await executePublishPipeline(params.id);
+  const result = await schedulePostPublishJob(params.id, auth.workspaceId, null);
 
   if (!result.success) {
     return NextResponse.json({ error: result.error || 'Failed to publish post' }, { status: 400 });

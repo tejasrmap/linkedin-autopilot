@@ -3,7 +3,7 @@
 // BY GT INNOX LLP
 // ==============================================================
 
-import { encryptToken, decryptToken } from '../src/lib/encryption';
+import { encryptToken, decryptToken, getEncryptionKey } from '../src/lib/encryption';
 import { LinkedInClient } from '../src/lib/linkedin/client';
 
 let passed = 0;
@@ -39,6 +39,56 @@ async function runTestSuite() {
     assert(false, 'Tampered token should throw error');
   } catch {
     assert(true, 'Tampered token correctly threw decryption error');
+  }
+
+  // Subtest 1.1: Production Fail-Closed on Missing or Default Key
+  const origEnv = process.env.NODE_ENV;
+  const origKey = process.env.TOKEN_ENCRYPTION_KEY;
+  try {
+    (process.env as any).NODE_ENV = 'production';
+    delete process.env.TOKEN_ENCRYPTION_KEY;
+    try {
+      getEncryptionKey();
+      assert(false, 'Missing TOKEN_ENCRYPTION_KEY in production must fail closed');
+    } catch (err: any) {
+      assert(err.message.includes('missing or invalid in production'), 'Missing key throws fatal production error');
+    }
+
+    process.env.TOKEN_ENCRYPTION_KEY = 'default-super-secret-key-32-chars!!';
+    try {
+      getEncryptionKey();
+      assert(false, 'Default dev key in production must fail closed');
+    } catch (err: any) {
+      assert(err.message.includes('missing or invalid in production'), 'Default key in production throws fatal error');
+    }
+
+    process.env.TOKEN_ENCRYPTION_KEY = 'too-short';
+    try {
+      getEncryptionKey();
+      assert(false, 'Key < 16 chars in production must fail closed');
+    } catch (err: any) {
+      assert(err.message.includes('at least 16 characters'), 'Short key in production throws fatal error');
+    }
+
+    process.env.TOKEN_ENCRYPTION_KEY = 'valid-production-secret-key-32-chars-ok!';
+    const prodKey = getEncryptionKey();
+    assert(prodKey.length === 32, 'Valid production secret key derives 32-byte Buffer');
+  } finally {
+    (process.env as any).NODE_ENV = origEnv;
+    process.env.TOKEN_ENCRYPTION_KEY = origKey;
+  }
+
+  // Subtest 1.2: Custom Key Encryption/Decryption
+  const customKey = 'custom-test-secret-key-for-rotation!';
+  const customEnc = encryptToken('secret_data_123', customKey);
+  const customDec = decryptToken(customEnc, customKey);
+  assert(customDec === 'secret_data_123', 'Custom key encryption and decryption succeeds');
+
+  try {
+    getEncryptionKey('short');
+    assert(false, 'Override key < 16 chars should throw');
+  } catch (err: any) {
+    assert(err.message.includes('at least 16 characters'), 'Short override key throws validation error');
   }
 
   // TEST 2: LinkedIn OAuth Client & URL Generation

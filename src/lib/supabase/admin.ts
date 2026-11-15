@@ -13,7 +13,12 @@ const testStore: Record<string, any[]> = {
   scheduler_execution_logs: [],
   post_publish_attempts: [],
   scheduled_jobs: [],
+  post_analytics: [],
 };
+
+export function getTestStore(): Record<string, any[]> {
+  return testStore;
+}
 
 export function createAdminClient(): SupabaseClient {
   if (process.env.NODE_ENV !== 'production' && process.env.MOCK_SUPABASE_FOR_TESTS === 'true') {
@@ -60,18 +65,54 @@ export function createAdminClient(): SupabaseClient {
             now.getTime() + (leaseDurationSeconds || 300) * 1000
           ).toISOString();
 
+          const jobs = testStore.scheduled_jobs || [];
+          const postJobs = jobs.filter((j) => j.post_id === targetPostId);
+          postJobs.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          const primaryJob = postJobs[0];
+
+          if (primaryJob) {
+            if (primaryJob.status === 'completed') {
+              return { data: { success: false, reason: 'job_already_completed' }, error: null };
+            }
+            if (
+              primaryJob.status === 'processing' &&
+              primaryJob.lease_expires_at &&
+              new Date(primaryJob.lease_expires_at).getTime() >= now.getTime()
+            ) {
+              return { data: { success: false, reason: 'job_already_processing' }, error: null };
+            }
+
+            primaryJob.status = 'processing';
+            primaryJob.claim_token = newClaimToken;
+            primaryJob.lease_expires_at = leaseUntil;
+            primaryJob.updated_at = nowIso;
+
+            // Deterministically cancel any duplicate/older active jobs
+            for (let i = 1; i < postJobs.length; i++) {
+              if (['scheduled', 'queued', 'processing'].includes(postJobs[i].status)) {
+                postJobs[i].status = 'cancelled';
+                postJobs[i].updated_at = nowIso;
+              }
+            }
+          } else {
+            // Immediate publishing or draft without preexisting job: insert authoritative job
+            jobs.push({
+              id: `job_${Date.now()}`,
+              post_id: targetPostId,
+              status: 'processing',
+              claim_token: newClaimToken,
+              lease_expires_at: leaseUntil,
+              attempts: 0,
+              scheduled_at: nowIso,
+              created_at: nowIso,
+              updated_at: nowIso,
+            });
+          }
+
           post.status = 'processing';
           post.claim_token = newClaimToken;
           post.lease_expires_at = leaseUntil;
           post.updated_at = nowIso;
-
-          const jobs = testStore.scheduled_jobs || [];
-          jobs.filter((j) => j.post_id === targetPostId).forEach((job) => {
-            job.status = 'processing';
-            job.claim_token = newClaimToken;
-            job.lease_expires_at = leaseUntil;
-            job.updated_at = nowIso;
-          });
 
           return {
             data: {
@@ -384,6 +425,7 @@ export function createAdminClient(): SupabaseClient {
                 error: { message: 'connection failure: database unreachable', code: '08006' },
                 select: () => ({
                   maybeSingle: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
+                  single: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
                 }),
               };
             }
@@ -421,6 +463,7 @@ export function createAdminClient(): SupabaseClient {
               error: null,
               select: () => ({
                 maybeSingle: async () => ({ data: inserted[0], error: null }),
+                single: async () => ({ data: inserted[0], error: null }),
               }),
             };
           },
@@ -524,6 +567,26 @@ export function createAdminClient(): SupabaseClient {
             return updateBuilder;
           },
         };
+      },
+      storage: {
+        from: (bucket: string) => ({
+          upload: async (path: string, _buffer: any, _options?: any) => {
+            if (process.env.SIMULATE_STORAGE_ERROR === 'true') {
+              return { data: null, error: { message: 'Bucket not found or permission denied' } };
+            }
+            return { data: { path }, error: null };
+          },
+          getPublicUrl: (path: string) => ({
+            data: { publicUrl: `https://placeholder.supabase.co/storage/v1/object/public/${bucket}/${path}` },
+          }),
+          remove: async (paths: string[]) => {
+            (testStore.__storageRemoved = testStore.__storageRemoved || []).push(...paths);
+            if (process.env.SIMULATE_STORAGE_ERROR === 'true') {
+              return { data: null, error: { message: 'Storage cleanup failed' } };
+            }
+            return { data: paths, error: null };
+          },
+        }),
       },
     } as unknown as SupabaseClient;
   }
