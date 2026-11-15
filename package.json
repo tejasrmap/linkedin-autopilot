@@ -22,6 +22,7 @@
     "test:multi-user": "tsx --test tests/multi-user-publishing-reliability.test.ts",
     "test:uniqueness": "tsx --test tests/ai-content-uniqueness.test.ts",
     "test:matrix": "tsx --test tests/ai-content-test-matrix.test.ts",
+    "test:certificate": "tsx --test tests/certificate-announcement.test.ts",
     "test:gemini-live": "tsx --test tests/gemini-live-integration.test.ts",
     "worker": "tsx src/worker/index.ts"
   },
