@@ -78,7 +78,12 @@ export async function getAuthContext(requestWorkspaceId?: string | null): Promis
           }
         } else {
           const { data: ws } = await admin.from('workspaces').select('owner_id').eq('id', devWsId).single();
-          if (ws?.owner_id) devUserId = ws.owner_id;
+          if (ws?.owner_id) {
+            devUserId = ws.owner_id;
+          } else {
+            // If requested workspace is unknown or foreign, do not grant ownership of arbitrary UUID
+            devWsId = '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
+          }
         }
       } catch (e) {
         // Fallback

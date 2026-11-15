@@ -55,6 +55,64 @@ function detectFileSignature(bytes: Buffer): 'application/pdf' | 'image/png' | '
   return null;
 }
 
+/**
+ * Performs structural format validation beyond magic numbers to detect truncated,
+ * malformed, or internally corrupted files before model invocation.
+ */
+function validateFormatStructure(
+  bytes: Buffer,
+  mime: 'application/pdf' | 'image/png' | 'image/jpeg'
+): { valid: boolean; error?: string } {
+  if (mime === 'image/png') {
+    // PNG must have 8 bytes header + at least one chunk (IHDR chunk is at least 25 bytes)
+    if (bytes.length < 33) {
+      return { valid: false, error: 'Malformed PNG: file is truncated or missing standard chunk structure.' };
+    }
+    const chunkType = bytes.toString('ascii', 12, 16);
+    if (chunkType !== 'IHDR') {
+      return { valid: false, error: 'Malformed PNG: first chunk must be an authoritative IHDR chunk.' };
+    }
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    if (width === 0 || height === 0) {
+      return { valid: false, error: 'Malformed PNG: image dimensions must be non-zero.' };
+    }
+    return { valid: true };
+  }
+
+  if (mime === 'image/jpeg') {
+    if (bytes.length < 16) {
+      return { valid: false, error: 'Malformed JPEG: file is truncated.' };
+    }
+    if (bytes[2] !== 0xff) {
+      return { valid: false, error: 'Malformed JPEG: missing valid segment marker after SOI.' };
+    }
+    const hasEoi = bytes.includes(Buffer.from([0xff, 0xd9]));
+    if (!hasEoi) {
+      return { valid: false, error: 'Malformed JPEG: missing standard EOI (End of Image) marker.' };
+    }
+    return { valid: true };
+  }
+
+  if (mime === 'application/pdf') {
+    if (bytes.length < 32) {
+      return { valid: false, error: 'Malformed PDF: file is truncated.' };
+    }
+    const headerStr = bytes.subarray(0, 8).toString('ascii');
+    if (!headerStr.startsWith('%PDF-')) {
+      return { valid: false, error: 'Malformed PDF: missing %PDF- version header.' };
+    }
+    const tailSearchLength = Math.min(bytes.length, 1024);
+    const tail = bytes.subarray(bytes.length - tailSearchLength).toString('latin1');
+    if (!tail.includes('%%EOF')) {
+      return { valid: false, error: 'Malformed PDF: missing %%EOF termination marker.' };
+    }
+    return { valid: true };
+  }
+
+  return { valid: true };
+}
+
 function isSafeHttpsUrl(value: string): boolean {
   if (!value) return true;
   try {
@@ -70,6 +128,11 @@ export async function POST(request: Request) {
     const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
     const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // Multi-tenant verification: If x-workspace-id is requested, user must have verified membership in it
+    if (requestWorkspaceId && auth.workspaceId !== requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
 
     const VALID_WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'approver', 'viewer'] as const;
     if (!VALID_WORKSPACE_ROLES.includes(auth.role as any)) {
@@ -134,6 +197,12 @@ export async function POST(request: Request) {
         { error: `File content mismatch: declared MIME type "${file.type}" does not match file signature "${detectedMime}".` },
         { status: 400 }
       );
+    }
+
+    // Validate internal format structure to reject corrupted or truncated payloads
+    const structureCheck = validateFormatStructure(bytes, detectedMime);
+    if (!structureCheck.valid) {
+      return NextResponse.json({ error: structureCheck.error || 'Malformed file structure.' }, { status: 400 });
     }
 
     const apiKey = (request.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY || '').trim();

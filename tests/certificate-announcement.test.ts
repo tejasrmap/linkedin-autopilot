@@ -11,15 +11,22 @@ import assert from 'node:assert';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { POST as certificateRouteHandler } from '../src/app/api/ai/certificate/route';
 
-// Authoritative binary magic bytes for valid file formats
-const REAL_PNG_BUFFER = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-]);
+// Authoritative binary magic bytes and valid structures for file formats
+const REAL_PNG_BUFFER = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64'
+);
 const REAL_JPEG_BUFFER = Buffer.from([
-  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x60,
+  0xff, 0xd8, // SOI
+  0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x60, 0x00, 0x60, 0x00, 0x00,
+  0xff, 0xdb, 0x00, 0x43, 0x00,
+  ...Array(64).fill(1),
+  0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+  0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0xbf,
+  0xff, 0xd9, // EOI
 ]);
 const REAL_PDF_BUFFER = Buffer.from(
-  '%PDF-1.4\n%âãÏÓ\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF'
+  '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n0000000117 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n168\n%%EOF'
 );
 
 describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite', () => {
@@ -157,6 +164,82 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       const res = await certificateRouteHandler(req);
       assert.strictEqual(res.status, 200);
     });
+
+    test('1g. Rejects truncated PNG (<33 bytes) despite valid 8-byte magic header', async () => {
+      const formData = new FormData();
+      const truncatedPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00]);
+      const file = new File([truncatedPng], 'truncated.png', { type: 'image/png' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.ok(data.error.includes('Malformed PNG'));
+    });
+
+    test('1h. Rejects PNG with missing/corrupted IHDR initial chunk', async () => {
+      const formData = new FormData();
+      // 8-byte header followed by fake chunk type 'XXXX'
+      const fakeChunkPng = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from([0x00, 0x00, 0x00, 0x0d, 0x58, 0x58, 0x58, 0x58]),
+        Buffer.alloc(20),
+      ]);
+      const file = new File([fakeChunkPng], 'corrupt.png', { type: 'image/png' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.ok(data.error.includes('first chunk must be an authoritative IHDR chunk'));
+    });
+
+    test('1i. Rejects JPEG missing standard EOI marker', async () => {
+      const formData = new FormData();
+      // Valid header and segment but truncated before EOI
+      const truncatedJpeg = Buffer.from([
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x60,
+      ]);
+      const file = new File([truncatedJpeg], 'no_eoi.jpg', { type: 'image/jpeg' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.ok(data.error.includes('missing standard EOI'));
+    });
+
+    test('1j. Rejects PDF missing standard %%EOF termination marker', async () => {
+      const formData = new FormData();
+      const corruptPdf = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntruncated-without-eof');
+      const file = new File([corruptPdf], 'no_eof.pdf', { type: 'application/pdf' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.ok(data.error.includes('missing %%EOF termination marker'));
+    });
   });
 
   // -------------------------------------------------------------
@@ -241,6 +324,40 @@ describe('Certificate Announcement Generator — Full Pre-Merge Audit Test Suite
       assert.strictEqual(res.status, 403, 'Invalid workspace role must return 403 Forbidden');
       const data = await res.json();
       assert.ok(data.error.includes('Forbidden'));
+    });
+
+    test('3c. Authorized workspace header x-workspace-id matching user workspace succeeds (200)', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      const formData = new FormData();
+      const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        headers: { 'x-workspace-id': '3af1cc83-b7e7-4ce6-b422-d84d326aaf31' },
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 200, 'Matching authorized workspace must succeed');
+    });
+
+    test('3d. Cross-tenant attempt with x-workspace-id for foreign workspace strictly fails closed with 403 Forbidden', async () => {
+      process.env.ALLOW_DEV_AUTH = 'true';
+      const formData = new FormData();
+      const file = new File([REAL_PNG_BUFFER], 'cert.png', { type: 'image/png' });
+      formData.append('certificate', file);
+
+      const req = new Request('http://localhost:3000/api/ai/certificate', {
+        method: 'POST',
+        headers: { 'x-workspace-id': 'foreign-unauthorized-workspace-uuid' },
+        body: formData,
+      });
+
+      const res = await certificateRouteHandler(req);
+      assert.strictEqual(res.status, 403, 'Foreign workspace ID request must fail closed with 403');
+      const data = await res.json();
+      assert.ok(data.error.includes('Access denied to requested workspace'));
     });
   });
 
