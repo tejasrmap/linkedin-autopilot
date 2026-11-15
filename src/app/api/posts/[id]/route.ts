@@ -12,11 +12,16 @@ const UpdatePostSchema = z.object({
   status: z.enum(['draft', 'pending_approval', 'approved', 'scheduled', 'processing', 'published', 'failed', 'cancelled']).optional(),
   scheduledAt: z.string().datetime().optional().nullable(),
   timezone: z.string().optional(),
+  expectedUpdatedAt: z.string().datetime().optional(),
 });
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
-  const auth = await getAuthContext();
+  const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+  const auth = await getAuthContext(requestWorkspaceId);
   if (!auth) {
+    if (requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -44,12 +49,57 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const body = await request.json();
     const validated = UpdatePostSchema.parse(body);
 
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    if (!['owner', 'admin', 'editor', 'approver'].includes(auth.role)) {
+      return NextResponse.json({ error: 'Permission denied: cannot update posts' }, { status: 403 });
+    }
+
     const admin = createAdminClient();
+
+    // Verify existing post exists and belongs strictly to this workspace
+    const { data: existingPost, error: fetchErr } = await admin
+      .from('posts')
+      .select('*')
+      .eq('id', params.id)
+      .eq('workspace_id', auth.workspaceId)
+      .maybeSingle();
+
+    if (fetchErr || !existingPost) {
+      return NextResponse.json({ error: 'Post not found or inaccessible.' }, { status: 404 });
+    }
+
+    // Optimistic concurrency protection: reject overwriting newer edits
+    if (validated.expectedUpdatedAt && existingPost.updated_at) {
+      const serverTime = new Date(existingPost.updated_at).getTime();
+      const clientTime = new Date(validated.expectedUpdatedAt).getTime();
+      if (serverTime > clientTime + 1000) {
+        return NextResponse.json(
+          {
+            error: 'Conflict: Draft has been modified concurrently in another session.',
+            code: 'CONCURRENT_MODIFICATION',
+            serverUpdatedAt: existingPost.updated_at,
+            serverPost: existingPost,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // Protect published posts from being reverted to draft
+    if (existingPost.status === 'published' && validated.status === 'draft') {
+      return NextResponse.json(
+        { error: 'Cannot revert a published post back to draft status.' },
+        { status: 400 }
+      );
+    }
 
     // Verify that the updated social account belongs strictly to this workspace
     if (validated.socialAccountId) {
@@ -68,13 +118,27 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
     }
 
+    const { expectedUpdatedAt, ...updateData } = validated;
     const updatePayload: any = {
-      ...validated,
+      ...updateData,
       updated_at: new Date().toISOString(),
     };
 
     if (validated.scheduledAt !== undefined) {
       updatePayload.scheduled_at = validated.scheduledAt;
+      delete updatePayload.scheduledAt;
+    }
+    if (validated.mediaAssets !== undefined) {
+      updatePayload.media_assets = validated.mediaAssets;
+      delete updatePayload.mediaAssets;
+    }
+    if (validated.socialAccountId !== undefined) {
+      updatePayload.social_account_id = validated.socialAccountId;
+      delete updatePayload.socialAccountId;
+    }
+    if (validated.postType !== undefined) {
+      updatePayload.post_type = validated.postType;
+      delete updatePayload.postType;
     }
 
     const { data: updatedPost, error } = await admin
@@ -96,9 +160,17 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  const auth = await getAuthContext();
+  const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+  const auth = await getAuthContext(requestWorkspaceId);
   if (!auth) {
+    if (requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!['owner', 'admin', 'editor', 'approver'].includes(auth.role)) {
+    return NextResponse.json({ error: 'Permission denied: cannot delete posts' }, { status: 403 });
   }
 
   const admin = createAdminClient();

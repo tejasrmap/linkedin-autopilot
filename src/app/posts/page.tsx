@@ -503,7 +503,7 @@ function PostsContent() {
                 </button>
 
                 <Link
-                  href={`/composer?content=${encodeURIComponent(viewingPost.content)}`}
+                  href={`/composer?draftId=${viewingPost.id}&content=${encodeURIComponent(viewingPost.content)}`}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-all"
                 >
                   <span>Edit in Composer</span>

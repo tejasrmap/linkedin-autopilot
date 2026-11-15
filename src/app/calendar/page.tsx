@@ -222,7 +222,7 @@ export default function CalendarPage() {
                       key={p.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        router.push(`/composer?content=${encodeURIComponent(p.content)}`);
+                        router.push(`/composer?draftId=${p.id}&content=${encodeURIComponent(p.content)}`);
                       }}
                       className={`px-1.5 py-0.5 rounded-md text-[9px] font-medium truncate flex items-center gap-1 border transition-all hover:scale-[1.02] ${
                         p.status === 'published'
@@ -301,7 +301,7 @@ export default function CalendarPage() {
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800">
                   <button
                     onClick={() => {
-                      router.push(`/composer?content=${encodeURIComponent(p.content)}`);
+                      router.push(`/composer?draftId=${p.id}&content=${encodeURIComponent(p.content)}`);
                     }}
                     className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
                   >

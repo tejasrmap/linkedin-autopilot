@@ -568,6 +568,28 @@ export function createAdminClient(): SupabaseClient {
             };
             return updateBuilder;
           },
+          delete: () => {
+            const deleteFilters: Array<{ col: string; val: any }> = [];
+            const deleteBuilder: any = {
+              eq: (col: string, val: any) => {
+                deleteFilters.push({ col, val });
+                return deleteBuilder;
+              },
+              then: (resolve: any, reject: any) => {
+                if (process.env.SIMULATE_DB_ERROR === 'true') {
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: 'connection failure: database unreachable', code: '08006' },
+                  }).then(resolve, reject);
+                }
+                const rows = testStore[table] || [];
+                const remaining = rows.filter((r) => !deleteFilters.every((f) => r[f.col] === f.val));
+                testStore[table] = remaining;
+                return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+              },
+            };
+            return deleteBuilder;
+          },
         };
       },
       storage: {
