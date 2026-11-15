@@ -10,6 +10,7 @@ import {
   schedulePostPublishJob,
   executePublishPipeline,
   isRpcFunctionMissingError,
+  rollbackPostStatusOnJobFailure,
 } from '../src/lib/queue/publisher';
 import { encryptToken, decryptToken } from '../src/lib/encryption';
 
@@ -155,7 +156,7 @@ test('Job Persistence: Scheduled job insertion succeeds and keeps post and job i
   assert.equal(jobs[0].status, 'scheduled');
 });
 
-test('Job Persistence: Failed job insertion rolls back post status and fails closed', async () => {
+test('Job Persistence: Failed job insertion rolls back post status via rollbackPostStatusOnJobFailure', async () => {
   const admin = createAdminClient();
   const orphanTestPostId = 'rollback-on-job-failure-post-002';
   const testWs = 'ws-fail-inject';
@@ -164,25 +165,110 @@ test('Job Persistence: Failed job insertion rolls back post status and fails clo
     id: orphanTestPostId,
     workspace_id: testWs,
     content: 'Post where scheduled_jobs insert fails',
-    status: 'draft',
-    scheduled_at: null,
+    status: 'scheduled',
+    scheduled_at: new Date().toISOString(),
   });
 
-  // Simulate scheduled_job insert failure
-  const insertError = { message: 'relation scheduled_jobs connection failure', code: '08006' };
+  const rollbackResult = await rollbackPostStatusOnJobFailure(
+    admin,
+    orphanTestPostId,
+    ['scheduled'],
+    'Failed to persist scheduled job: connection failure'
+  );
 
-  // If job insert fails:
-  if (insertError) {
-    await admin.from('posts').update({
-      status: 'draft',
-      error_message: `Failed to persist scheduled job: ${insertError.message}`,
-      updated_at: new Date().toISOString(),
-    }).eq('id', orphanTestPostId);
-  }
+  assert.equal(rollbackResult.rolledBack, true);
 
   const { data: post } = await admin.from('posts').select('*').eq('id', orphanTestPostId).single();
   assert.equal(post.status, 'draft', 'Post must be reverted to draft to avoid orphaned post without execution record');
   assert.match(post.error_message, /Failed to persist scheduled job/);
+});
+
+test('Job Persistence: Optimistic locking protects post status if concurrently claimed or transitioned', async () => {
+  const admin = createAdminClient();
+  const racePostId = 'rollback-race-post-003';
+  const testWs = 'ws-fail-inject';
+
+  // Post was claimed by a concurrent worker and moved to 'processing' with a lease
+  await admin.from('posts').insert({
+    id: racePostId,
+    workspace_id: testWs,
+    content: 'Post concurrently claimed by worker',
+    status: 'processing',
+    claim_token: 'worker-lease-token-999',
+    lease_expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+
+  // Rollback expects 'scheduled', but post is now 'processing'
+  const rollbackResult = await rollbackPostStatusOnJobFailure(
+    admin,
+    racePostId,
+    ['scheduled'],
+    'Failed to persist scheduled job: duplicate key'
+  );
+
+  assert.equal(rollbackResult.rolledBack, false);
+  assert.equal(rollbackResult.error, 'post_status_transitioned');
+
+  // Verify post in database was NOT overwritten and remained 'processing'
+  const { data: post } = await admin.from('posts').select('*').eq('id', racePostId).single();
+  assert.equal(post.status, 'processing');
+  assert.equal(post.claim_token, 'worker-lease-token-999');
+});
+
+test('Job Persistence: Publish Now rollback protects against concurrent worker claim or publication', async () => {
+  const admin = createAdminClient();
+  const publishedPostId = 'rollback-published-post-004';
+  const testWs = 'ws-fail-inject';
+
+  // Post already published by another channel
+  await admin.from('posts').insert({
+    id: publishedPostId,
+    workspace_id: testWs,
+    content: 'Post already published',
+    status: 'published',
+    provider_post_id: 'urn:li:share:already-published',
+  });
+
+  // Publish Now rollback allows ['draft', 'scheduled'], but post is 'published'
+  const rollbackResult = await rollbackPostStatusOnJobFailure(
+    admin,
+    publishedPostId,
+    ['draft', 'scheduled'],
+    'Failed to persist publishing execution record'
+  );
+
+  assert.equal(rollbackResult.rolledBack, false);
+  assert.equal(rollbackResult.error, 'post_status_transitioned');
+
+  // Post status must not be modified to draft!
+  const { data: post } = await admin.from('posts').select('*').eq('id', publishedPostId).single();
+  assert.equal(post.status, 'published');
+  assert.equal(post.provider_post_id, 'urn:li:share:already-published');
+});
+
+test('Job Persistence: Database error during rollback fails safely without throwing unhandled exceptions', async () => {
+  // Mock client that returns error on update
+  const failingClient = {
+    from: () => ({
+      update: () => ({
+        eq: () => ({
+          eq: () => ({
+            select: async () => ({ data: null, error: { message: 'relation locked or database timeout', code: '57014' } }),
+          }),
+        }),
+      }),
+    }),
+  };
+
+  const rollbackResult = await rollbackPostStatusOnJobFailure(
+    failingClient,
+    'post-db-err-1',
+    ['scheduled'],
+    'Failed to persist scheduled job'
+  );
+
+  assert.equal(rollbackResult.rolledBack, false);
+  assert.match(rollbackResult.error || '', /relation locked or database timeout/);
 });
 
 // ==============================================================
@@ -198,6 +284,79 @@ test('RPC Fallback Guard: Accurately identifies genuine missing RPC error codes'
 
   // Message matches
   assert.equal(isRpcFunctionMissingError({ message: 'could not find the function public.finalize_post_publishing' }), true);
+});
+
+test('RPC Fallback Guard: Rejects misleading schema-cache messages that lack missing-function specifics', () => {
+  // Generic schema-cache reload timeout
+  assert.equal(isRpcFunctionMissingError({ message: 'schema cache reload failed due to network timeout' }), false);
+
+  // Generic schema-cache connection error
+  assert.equal(isRpcFunctionMissingError({ message: 'could not reload schema cache' }), false);
+
+  // Generic HTTP 500 mentioning schema cache
+  assert.equal(isRpcFunctionMissingError({ code: '500', message: 'unexpected error in schema cache' }), false);
+
+  // PostgREST 500 error mentioning schema cache
+  assert.equal(isRpcFunctionMissingError({ code: 'PGRST500', message: 'schema cache reload timeout' }), false);
+
+  // Connection error mentioning schema cache
+  assert.equal(isRpcFunctionMissingError({ code: '08006', message: 'error while connecting to schema cache' }), false);
+});
+
+test('RPC Fallback Guard: Verifies specific function name when expectedFunctionName is supplied', () => {
+  // Matching target function name
+  assert.equal(
+    isRpcFunctionMissingError(
+      { code: 'PGRST202', message: 'Could not find the function public.finalize_post_publishing in the schema cache' },
+      'finalize_post_publishing'
+    ),
+    true
+  );
+
+  // Mismatched function name (e.g. error is about another RPC entirely)
+  assert.equal(
+    isRpcFunctionMissingError(
+      { code: 'PGRST202', message: 'Could not find the function public.other_function in the schema cache' },
+      'finalize_post_publishing'
+    ),
+    false
+  );
+
+  // Matching 42883 with target function
+  assert.equal(
+    isRpcFunctionMissingError(
+      { code: '42883', message: 'function finalize_post_publishing does not exist' },
+      'finalize_post_publishing'
+    ),
+    true
+  );
+
+  // Mismatched 42883 with target function
+  assert.equal(
+    isRpcFunctionMissingError(
+      { code: '42883', message: 'function handle_publishing_failure_and_retry does not exist' },
+      'finalize_post_publishing'
+    ),
+    false
+  );
+
+  // Non-structured message matching target function
+  assert.equal(
+    isRpcFunctionMissingError(
+      { message: 'could not find the function public.finalize_post_publishing' },
+      'finalize_post_publishing'
+    ),
+    true
+  );
+
+  // Non-structured message with mismatched function
+  assert.equal(
+    isRpcFunctionMissingError(
+      { message: 'could not find the function public.claim_post_for_publishing' },
+      'finalize_post_publishing'
+    ),
+    false
+  );
 });
 
 test('RPC Fallback Guard: Rejects network, timeout, and permission errors from triggering direct fallback', () => {

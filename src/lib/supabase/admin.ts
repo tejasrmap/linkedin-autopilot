@@ -484,6 +484,18 @@ export function createAdminClient(): SupabaseClient {
                 return updateBuilder;
               },
               select: () => {
+                if (process.env.SIMULATE_DB_ERROR === 'true') {
+                  return {
+                    ...updateBuilder,
+                    then: (resolve: any, reject: any) =>
+                      Promise.resolve({
+                        data: null,
+                        error: { message: 'connection failure: database unreachable', code: '08006' },
+                      }).then(resolve, reject),
+                    maybeSingle: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
+                    single: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
+                  };
+                }
                 const matches = executeUpdate();
                 return {
                   ...updateBuilder,
@@ -499,6 +511,12 @@ export function createAdminClient(): SupabaseClient {
                 };
               },
               then: (resolve: any, reject: any) => {
+                if (process.env.SIMULATE_DB_ERROR === 'true') {
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: 'connection failure: database unreachable', code: '08006' },
+                  }).then(resolve, reject);
+                }
                 const matches = executeUpdate();
                 return Promise.resolve({ data: matches, error: null }).then(resolve, reject);
               },

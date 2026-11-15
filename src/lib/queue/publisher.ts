@@ -20,31 +20,96 @@ export interface PublishJobData {
 let publishQueue: Queue<PublishJobData> | null = null;
 
 /**
- * Determines whether an error returned by Supabase RPC indicates that the stored procedure
+ * Determines whether an error returned by Supabase RPC indicates that the specific stored procedure
  * genuinely does not exist in the database schema (e.g. migration not yet applied).
  * Any other error (network timeout, connection drop, permission denied, locking failure,
- * SQL constraint violation) MUST NOT trigger a fallback update.
+ * SQL constraint violation, generic schema-cache reload timeout) MUST NOT trigger a fallback update.
+ *
+ * @param error - Supabase RPC error object
+ * @param expectedFunctionName - Optional expected RPC function name to verify in error message
  */
-export function isRpcFunctionMissingError(error: any): boolean {
-  if (!error) return false;
-  const code = String(error.code || '');
-  const msg = String(error.message || '').toLowerCase();
+export function isRpcFunctionMissingError(error: any, expectedFunctionName?: string): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = String(error.code || '').trim();
+  const rawMsg = String(error.message || '').trim().toLowerCase();
+  const targetFn = expectedFunctionName ? expectedFunctionName.trim().toLowerCase() : null;
 
-  // PostgREST: PGRST202 (Could not find the function in the schema cache)
-  // PostgreSQL: 42883 (undefined_function)
-  if (code === 'PGRST202' || code === '42883') {
+  // If a specific function name was provided and the error message contains function text,
+  // ensure the error actually pertains to this function (not an unrelated one)
+  if (targetFn && rawMsg && (rawMsg.includes('function') || rawMsg.includes('schema cache'))) {
+    if (!rawMsg.includes(targetFn)) {
+      return false;
+    }
+  }
+
+  // 1. PostgREST code PGRST202: "Could not find the function <name> in the schema cache"
+  if (code === 'PGRST202') {
     return true;
   }
 
-  if (
-    msg.includes('could not find the function') ||
-    (msg.includes('function') && msg.includes('does not exist')) ||
-    msg.includes('schema cache')
-  ) {
+  // 2. PostgreSQL code 42883: undefined_function
+  if (code === '42883') {
+    return true;
+  }
+
+  // 3. Fallback message inspection ONLY for explicit missing-function phrasing
+  const isExplicitMissingMsg =
+    rawMsg.includes('could not find the function') ||
+    (rawMsg.includes('function') && rawMsg.includes('does not exist'));
+
+  if (isExplicitMissingMsg) {
     return true;
   }
 
   return false;
+}
+
+/**
+ * Safely rolls back a post's status to 'draft' when scheduled_job insertion fails,
+ * using optimistic locking to prevent overwriting concurrent state transitions
+ * (such as another worker claiming the post or the post already reaching 'published').
+ */
+export async function rollbackPostStatusOnJobFailure(
+  supabase: any,
+  postId: string,
+  expectedStatuses: string[],
+  errorMessage: string
+): Promise<{ rolledBack: boolean; error?: string }> {
+  try {
+    let query = supabase
+      .from('posts')
+      .update({
+        status: 'draft',
+        error_message: errorMessage,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', postId);
+
+    if (expectedStatuses.length === 1) {
+      query = query.eq('status', expectedStatuses[0]);
+    } else {
+      query = query.in('status', expectedStatuses);
+    }
+
+    const { data: rolledBackRows, error: rollbackErr } = await query.select('id');
+
+    if (rollbackErr) {
+      console.error(`[Queue] Failed to execute compensating rollback for post ${postId}:`, rollbackErr);
+      return { rolledBack: false, error: rollbackErr.message || String(rollbackErr) };
+    }
+
+    if (!rolledBackRows || rolledBackRows.length === 0) {
+      console.warn(
+        `[Queue] Compensating rollback skipped for post ${postId}: post state transitioned away from expected status (${expectedStatuses.join(', ')})`
+      );
+      return { rolledBack: false, error: 'post_status_transitioned' };
+    }
+
+    return { rolledBack: true };
+  } catch (err: any) {
+    console.error(`[Queue] Unexpected exception during compensating rollback for post ${postId}:`, err);
+    return { rolledBack: false, error: err.message || String(err) };
+  }
 }
 
 export function getPublishQueue(): Queue<PublishJobData> | null {
@@ -116,15 +181,13 @@ export async function schedulePostPublishJob(
 
     if (jobInsertErr) {
       console.error(`[Queue] Failed to persist scheduled_job for post ${postId}:`, jobInsertErr);
-      // Revert post back to draft to avoid orphaned post without a scheduler job
-      await supabase
-        .from('posts')
-        .update({
-          status: 'draft',
-          error_message: `Failed to persist scheduled job: ${jobInsertErr.message}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', postId);
+      // Revert post back to draft with optimistic lock to avoid orphaned post without a scheduler job
+      await rollbackPostStatusOnJobFailure(
+        supabase,
+        postId,
+        ['scheduled'],
+        `Failed to persist scheduled job: ${jobInsertErr.message}`
+      );
 
       return { queueJobId: null, success: false, error: `Failed to persist scheduled job: ${jobInsertErr.message}` };
     }
@@ -167,14 +230,13 @@ export async function schedulePostPublishJob(
 
     if (jobInsertErr) {
       console.error(`[Queue] Failed to persist scheduled_job for Publish Now post ${postId}:`, jobInsertErr);
-      await supabase
-        .from('posts')
-        .update({
-          status: 'draft',
-          error_message: `Failed to persist publishing execution record: ${jobInsertErr.message}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', postId);
+      // Revert post back to draft with optimistic lock if post has not been claimed/transitioned
+      await rollbackPostStatusOnJobFailure(
+        supabase,
+        postId,
+        ['draft', 'scheduled'],
+        `Failed to persist publishing execution record: ${jobInsertErr.message}`
+      );
 
       return { queueJobId: null, success: false, error: `Failed to persist publishing execution record: ${jobInsertErr.message}` };
     }
@@ -481,7 +543,7 @@ async function finalizePublishSuccess(
       console.warn(`[Publisher] Finalization rejected for post ${postId}: ${finalizeData.reason}`);
       return { success: false, error: `Publish finalization rejected: ${finalizeData.reason}` };
     }
-  } else if (finalizeErr && isRpcFunctionMissingError(finalizeErr)) {
+  } else if (finalizeErr && isRpcFunctionMissingError(finalizeErr, 'finalize_post_publishing')) {
     // Fallback ONLY if the RPC function genuinely does not exist in the database schema (e.g. unapplied migration)
     console.warn(`[Publisher] finalize_post_publishing RPC missing (${finalizeErr.code || finalizeErr.message}); falling back to verified CAS update`);
     const { data: updatedPost, error: postUpdateErr } = await supabase
@@ -580,7 +642,7 @@ async function markPostFailed(
       // Do NOT mutate post or scheduled_jobs - the winning worker or final state owns the row!
       return;
     }
-  } else if (rpcErr && isRpcFunctionMissingError(rpcErr)) {
+  } else if (rpcErr && isRpcFunctionMissingError(rpcErr, 'handle_publishing_failure_and_retry')) {
     // Fallback ONLY IF RPC genuinely does not exist in the database schema (e.g. unapplied migration)
     console.warn(`[Publisher] handle_publishing_failure_and_retry RPC missing (${rpcErr.code || rpcErr.message}); falling back to verified CAS update`);
     const { data: updatedPost } = await supabase
