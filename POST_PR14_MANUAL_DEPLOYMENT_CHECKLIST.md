@@ -96,3 +96,4 @@ After deploying to production:
 If any defect is observed in production:
 1. Revert Vercel deployment to previous production deployment in Vercel Dashboard.
 2. In Supabase, stored procedures from migration 9 can be rolled back to migration 8 (`20261114000008_strict_lease_ownership_and_finalization.sql`) without data loss, as migrations are forward-only and schema structures (`posts`, `scheduled_jobs`) remain compatible.
+

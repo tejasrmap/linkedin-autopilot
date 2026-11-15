@@ -66,3 +66,4 @@ While application-level security, tenant isolation, and scheduler concurrency ar
   - Webhooks verify signatures and record unapplied events as `ignored_billing_disabled`.
   - All users default to the "free" tier with starter limits.
 - **Recommendation:** Keep Stripe billing disabled until launch.
+
