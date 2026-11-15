@@ -67,9 +67,14 @@ export async function middleware(request: NextRequest) {
   }
 
   const isAuthPage = path.startsWith('/login') || path.startsWith('/register');
+  const isLegalPage =
+    path === '/privacy' ||
+    path.startsWith('/privacy/') ||
+    path === '/terms' ||
+    path.startsWith('/terms/');
 
-  // 2. If not logged in and trying to access protected pages, redirect to /login
-  if (!user && !isAuthPage) {
+  // 2. If not logged in and trying to access protected pages (excluding auth and public legal pages), redirect to /login
+  if (!user && !isAuthPage && !isLegalPage) {
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }

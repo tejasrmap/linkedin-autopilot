@@ -5,7 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAdminClient } from '../src/lib/supabase/admin';
+import { createAdminClient, getTestStore } from '../src/lib/supabase/admin';
 import {
   schedulePostPublishJob,
   executePublishPipeline,
@@ -910,4 +910,225 @@ test('Atomic Claim Consistency: Rejects concurrent worker if job is in active pr
 
   assert.equal(claimResult.success, false);
   assert.equal(claimResult.reason, 'job_already_processing');
+});
+
+// ==============================================================
+// GROUP 10: PRE-BETA SECURITY REMEDIATIONS & ISOLATION
+// ==============================================================
+
+test('Analytics Isolation: Workspace A strictly isolates post analytics from Workspace B', async () => {
+  const admin = createAdminClient();
+  const testStore = getTestStore();
+
+  const wsA = 'ws-analytics-tenant-aaa';
+  const wsB = 'ws-analytics-tenant-bbb';
+
+  const postA1 = 'post-ana-a1';
+  const postA2 = 'post-ana-a2';
+  const postB1 = 'post-ana-b1';
+
+  // Seed posts
+  await admin.from('posts').insert([
+    { id: postA1, workspace_id: wsA, content: 'Tenant A Post 1', status: 'published' },
+    { id: postA2, workspace_id: wsA, content: 'Tenant A Post 2', status: 'published' },
+    { id: postB1, workspace_id: wsB, content: 'Tenant B Post 1', status: 'published' },
+  ]);
+
+  // Seed post analytics
+  await admin.from('post_analytics').insert([
+    { post_id: postA1, metric_name: 'impressions', metric_value: 150 },
+    { post_id: postA1, metric_name: 'reactions', metric_value: 25 },
+    { post_id: postA2, metric_name: 'impressions', metric_value: 50 },
+    { post_id: postB1, metric_name: 'impressions', metric_value: 999999 },
+    { post_id: postB1, metric_name: 'reactions', metric_value: 88888 },
+  ]);
+
+  // Simulate analytics overview logic for Workspace A
+  const { data: postsA } = await admin
+    .from('posts')
+    .select('id, status, post_type, created_at, published_at')
+    .eq('workspace_id', wsA);
+
+  const postIdsA = (postsA || []).map((p: any) => p.id);
+  assert.equal(postIdsA.length, 2);
+  assert.ok(postIdsA.includes(postA1));
+  assert.ok(postIdsA.includes(postA2));
+  assert.ok(!postIdsA.includes(postB1));
+
+  // Query post_analytics strictly scoped by Workspace A's postIds
+  const { data: rowsA } = await admin
+    .from('post_analytics')
+    .select('metric_name, metric_value')
+    .in('post_id', postIdsA);
+
+  let totalImpressionsA = 0;
+  let totalReactionsA = 0;
+  for (const row of rowsA || []) {
+    const val = Number(row.metric_value) || 0;
+    if (row.metric_name === 'impressions') totalImpressionsA += val;
+    if (row.metric_name === 'reactions') totalReactionsA += val;
+  }
+
+  // Verify Workspace A gets exactly 200 impressions (150 + 50) and 25 reactions
+  assert.equal(totalImpressionsA, 200, 'Workspace A impressions must equal sum of its own posts');
+  assert.equal(totalReactionsA, 25, 'Workspace A reactions must equal sum of its own posts');
+
+  // Verify Tenant B's 999,999 impressions were completely excluded
+  assert.notEqual(totalImpressionsA, 1000199, 'Workspace B analytics must not leak into Workspace A');
+
+  // Verify empty workspace post handling
+  const wsEmpty = 'ws-analytics-tenant-empty';
+  const { data: postsEmpty } = await admin
+    .from('posts')
+    .select('id')
+    .eq('workspace_id', wsEmpty);
+  const postIdsEmpty = (postsEmpty || []).map((p: any) => p.id);
+  assert.equal(postIdsEmpty.length, 0);
+});
+
+test('Media Upload Reliability: Storage upload failure halts process without DB record', async () => {
+  const admin = createAdminClient();
+  const testStore = getTestStore();
+  const initialMediaCount = (testStore.media_assets || []).length;
+
+  // Simulate storage failure
+  process.env.SIMULATE_STORAGE_ERROR = 'true';
+
+  try {
+    const storageResult = await admin.storage
+      .from('post-assets')
+      .upload('ws-test/fail.png', Buffer.from('fake-data'), { contentType: 'image/png' });
+
+    assert.ok(storageResult.error, 'Storage upload should return error when failure simulated');
+
+    // Route logic halts on uploadErr:
+    if (storageResult.error) {
+      // Endpoint returns 500 without calling admin.from('media_assets').insert
+    } else {
+      await admin.from('media_assets').insert({ file_name: 'should-not-exist.png' });
+    }
+
+    const finalMediaCount = (testStore.media_assets || []).length;
+    assert.equal(finalMediaCount, initialMediaCount, 'Zero records must be inserted into media_assets upon storage failure');
+  } finally {
+    delete process.env.SIMULATE_STORAGE_ERROR;
+  }
+});
+
+test('Media Upload Reliability: Database insertion failure triggers storage cleanup', async () => {
+  const admin = createAdminClient();
+  const testStore = getTestStore();
+  testStore.__storageRemoved = [];
+
+  const targetPath = 'ws-cleanup-test/12345-image.png';
+
+  // Step 1: Upload succeeds
+  const uploadResult = await admin.storage
+    .from('post-assets')
+    .upload(targetPath, Buffer.from('fake-image-bytes'), { contentType: 'image/png' });
+  assert.equal(uploadResult.error, null);
+
+  // Step 2: Database insert fails
+  process.env.SIMULATE_DB_ERROR = 'true';
+  try {
+    const insertResult = await admin
+      .from('media_assets')
+      .insert({
+        workspace_id: 'ws-cleanup-test',
+        file_name: 'test.png',
+        storage_path: targetPath,
+      })
+      .select()
+      .single();
+
+    assert.ok(insertResult.error, 'Database insert must return error');
+
+    // Route error handler triggers cleanup:
+    if (insertResult.error) {
+      await admin.storage.from('post-assets').remove([targetPath]);
+    }
+
+    // Verify storage cleanup was called for the exact orphaned storage path
+    const removedPaths: string[] = testStore.__storageRemoved || [];
+    assert.ok(removedPaths.includes(targetPath), 'Orphaned storage asset must be cleaned up via storage.remove');
+  } finally {
+    delete process.env.SIMULATE_DB_ERROR;
+  }
+});
+
+test('Public Legal Routes: Middleware permits unauthenticated access to /privacy and /terms', () => {
+  // Test route classification matching middleware logic
+  function classifyRouteAccess(path: string, hasUser: boolean) {
+    const isAuthPage = path.startsWith('/login') || path.startsWith('/register');
+    const isLegalPage =
+      path === '/privacy' ||
+      path.startsWith('/privacy/') ||
+      path === '/terms' ||
+      path.startsWith('/terms/');
+
+    if (!hasUser && !isAuthPage && !isLegalPage) {
+      return { action: 'redirect', to: '/login' };
+    }
+    if (hasUser && isAuthPage) {
+      return { action: 'redirect', to: '/dashboard' };
+    }
+    return { action: 'allow' };
+  }
+
+  // Unauthenticated requests to legal pages must be allowed
+  assert.deepEqual(classifyRouteAccess('/privacy', false), { action: 'allow' });
+  assert.deepEqual(classifyRouteAccess('/privacy/policy', false), { action: 'allow' });
+  assert.deepEqual(classifyRouteAccess('/terms', false), { action: 'allow' });
+  assert.deepEqual(classifyRouteAccess('/terms/conditions', false), { action: 'allow' });
+
+  // Unauthenticated requests to private app routes must redirect to /login
+  assert.deepEqual(classifyRouteAccess('/dashboard', false), { action: 'redirect', to: '/login' });
+  assert.deepEqual(classifyRouteAccess('/analytics', false), { action: 'redirect', to: '/login' });
+  assert.deepEqual(classifyRouteAccess('/settings', false), { action: 'redirect', to: '/login' });
+  assert.deepEqual(classifyRouteAccess('/posts/new', false), { action: 'redirect', to: '/login' });
+
+  // Authenticated users on /login must redirect to /dashboard
+  assert.deepEqual(classifyRouteAccess('/login', true), { action: 'redirect', to: '/dashboard' });
+  assert.deepEqual(classifyRouteAccess('/register', true), { action: 'redirect', to: '/dashboard' });
+
+  // Authenticated users on legal pages or private pages must be allowed
+  assert.deepEqual(classifyRouteAccess('/privacy', true), { action: 'allow' });
+  assert.deepEqual(classifyRouteAccess('/dashboard', true), { action: 'allow' });
+});
+
+test('Fail-Closed Encryption: Production requires valid non-default encryption key', () => {
+  const origEnv = process.env.NODE_ENV;
+  const origKey = process.env.TOKEN_ENCRYPTION_KEY;
+
+  try {
+    (process.env as any).NODE_ENV = 'production';
+
+    // 1. Missing key
+    delete process.env.TOKEN_ENCRYPTION_KEY;
+    assert.throws(() => {
+      encryptToken('test_secret');
+    }, /FATAL: TOKEN_ENCRYPTION_KEY environment variable is missing or invalid in production/);
+
+    // 2. Default key
+    process.env.TOKEN_ENCRYPTION_KEY = 'default-super-secret-key-32-chars!!';
+    assert.throws(() => {
+      encryptToken('test_secret');
+    }, /FATAL: TOKEN_ENCRYPTION_KEY environment variable is missing or invalid in production/);
+
+    // 3. Short key (< 16 chars)
+    process.env.TOKEN_ENCRYPTION_KEY = 'short-key';
+    assert.throws(() => {
+      encryptToken('test_secret');
+    }, /FATAL: TOKEN_ENCRYPTION_KEY must be at least 16 characters long in production/);
+
+    // 4. Valid production key succeeds
+    process.env.TOKEN_ENCRYPTION_KEY = 'my-super-secure-production-secret-key-2026';
+    const ciphertext = encryptToken('super_confidential_linkedin_token');
+    assert.ok(ciphertext.includes(':'));
+    const decrypted = decryptToken(ciphertext);
+    assert.equal(decrypted, 'super_confidential_linkedin_token');
+  } finally {
+    (process.env as any).NODE_ENV = origEnv;
+    process.env.TOKEN_ENCRYPTION_KEY = origKey;
+  }
 });

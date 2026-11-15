@@ -45,8 +45,11 @@ export async function POST(request: Request) {
       });
 
     if (uploadErr) {
-      // If bucket does not exist or storage error, handle cleanly
-      console.warn('Storage upload note:', uploadErr.message);
+      console.error('[Media Upload] Supabase storage upload failed:', uploadErr.message);
+      return NextResponse.json(
+        { error: `Failed to upload file to storage: ${uploadErr.message}` },
+        { status: 500 }
+      );
     }
 
     const { data: publicUrlData } = admin.storage
@@ -70,7 +73,17 @@ export async function POST(request: Request) {
       .single();
 
     if (dbErr) {
-      return NextResponse.json({ error: dbErr.message }, { status: 500 });
+      console.error('[Media Upload] Database insertion failed. Cleaning up uploaded storage asset:', dbErr.message);
+      try {
+        await admin.storage.from('post-assets').remove([storagePath]);
+      } catch (cleanupErr: any) {
+        console.warn('[Media Upload] Warning: failed to clean up orphaned storage asset:', cleanupErr?.message);
+      }
+
+      return NextResponse.json(
+        { error: `Database error registering media asset: ${dbErr.message}` },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({

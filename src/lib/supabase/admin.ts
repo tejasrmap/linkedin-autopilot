@@ -13,7 +13,12 @@ const testStore: Record<string, any[]> = {
   scheduler_execution_logs: [],
   post_publish_attempts: [],
   scheduled_jobs: [],
+  post_analytics: [],
 };
+
+export function getTestStore(): Record<string, any[]> {
+  return testStore;
+}
 
 export function createAdminClient(): SupabaseClient {
   if (process.env.NODE_ENV !== 'production' && process.env.MOCK_SUPABASE_FOR_TESTS === 'true') {
@@ -420,6 +425,7 @@ export function createAdminClient(): SupabaseClient {
                 error: { message: 'connection failure: database unreachable', code: '08006' },
                 select: () => ({
                   maybeSingle: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
+                  single: async () => ({ data: null, error: { message: 'connection failure', code: '08006' } }),
                 }),
               };
             }
@@ -457,6 +463,7 @@ export function createAdminClient(): SupabaseClient {
               error: null,
               select: () => ({
                 maybeSingle: async () => ({ data: inserted[0], error: null }),
+                single: async () => ({ data: inserted[0], error: null }),
               }),
             };
           },
@@ -560,6 +567,26 @@ export function createAdminClient(): SupabaseClient {
             return updateBuilder;
           },
         };
+      },
+      storage: {
+        from: (bucket: string) => ({
+          upload: async (path: string, _buffer: any, _options?: any) => {
+            if (process.env.SIMULATE_STORAGE_ERROR === 'true') {
+              return { data: null, error: { message: 'Bucket not found or permission denied' } };
+            }
+            return { data: { path }, error: null };
+          },
+          getPublicUrl: (path: string) => ({
+            data: { publicUrl: `https://placeholder.supabase.co/storage/v1/object/public/${bucket}/${path}` },
+          }),
+          remove: async (paths: string[]) => {
+            (testStore.__storageRemoved = testStore.__storageRemoved || []).push(...paths);
+            if (process.env.SIMULATE_STORAGE_ERROR === 'true') {
+              return { data: null, error: { message: 'Storage cleanup failed' } };
+            }
+            return { data: paths, error: null };
+          },
+        }),
       },
     } as unknown as SupabaseClient;
   }
