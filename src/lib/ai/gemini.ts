@@ -204,14 +204,26 @@ export class AIService {
       analysis.domainTerms
     );
 
+    const isUnavailable = fallbackContent.startsWith('[Generation Unavailable]');
+    const fallbackStatus: 'verified' | 'degraded' | 'failed' = isUnavailable ? 'failed' : 'degraded';
+
     return {
       content: fallbackContent,
       analysis,
-      uniquenessScore: fallbackScore,
+      uniquenessScore: {
+        ...fallbackScore,
+        qualityStatus: fallbackStatus,
+        passed: !isUnavailable && fallbackScore.passed,
+      },
       retriesUsed,
-      passed: fallbackScore.passed,
-      qualityStatus: fallbackScore.qualityStatus,
-      qualityWarnings: fallbackScore.reasons,
+      passed: !isUnavailable && fallbackScore.passed,
+      qualityStatus: fallbackStatus,
+      qualityWarnings: [
+        isUnavailable
+          ? 'Insufficient context provided to generate a post.'
+          : 'Generated using deterministic offline synthesis because Gemini AI service was unavailable.',
+        ...fallbackScore.reasons,
+      ],
     };
   }
 

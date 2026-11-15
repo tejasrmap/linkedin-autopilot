@@ -141,3 +141,4 @@ When generation encounters network timeouts, API exhaustion, or exhausts quality
 - **Zero Cross-Tenant History Access:** `uniquenessEngine.getTenantHistory` strictly enforces `eq('workspace_id', workspaceId)`.
 - **Zero Fabricated Claims:** Strict regex patterns penalize synthetic personal experiences, non-existent outages, and ungrounded financial or quantitative metrics.
 - **Billing & Scheduler Integrity Preserved:** `BILLING_ENABLED=false` remains intact; no modifications were made to the scheduler lease engine, publisher worker, or LinkedIn Company Page publishing pipelines.
+

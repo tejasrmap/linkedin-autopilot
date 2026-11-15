@@ -674,227 +674,349 @@ export class ContentIntelligenceEngine {
    */
   generateGroundedFallback(analysis: TopicAnalysis, mode: GenerationMode, narrative: NarrativeArc): string {
     const topic = analysis.mainSubject.trim();
-    if (topic.length < 3) {
-      return `[Generation Unavailable] Please provide a specific topic or prompt with sufficient domain context to generate a verified LinkedIn post.`;
+    if (topic.length < 5 || topic.split(/\s+/).filter(Boolean).length < 2) {
+      return `[Generation Unavailable] The topic "${topic}" lacks sufficient domain context to generate a verified, high-quality post. Please provide specific architectural constraints, tools, or subject details.`;
     }
 
+    const lower = topic.toLowerCase();
     const terms = analysis.domainTerms;
     const mechanics = analysis.coreMechanics;
     const takeaways = analysis.practicalTakeaways;
 
-    // 1. Comparison Intent (e.g. CAS vs Redlock, PKCE vs Auth Code)
+    // 1. Comparison Intent (e.g. CAS vs Redlock, PKCE vs Auth Code, Provisioned vs On-Demand)
     if (analysis.isComparison) {
       const parts = topic.split(/\b(?:vs|versus|compare|comparing)\b/i).map((p) => p.trim()).filter(Boolean);
       const optA = parts[0] || 'the primary approach';
       const optB = parts[1] || 'the alternative';
 
+      if (narrative === 'architecture_tradeoffs') {
+        return `Evaluating ${topic}:
+
+Choosing between ${optA} and ${optB} is fundamentally a decision about where your team is willing to manage operational complexity.
+
+${optA} provides a predictable baseline with minimal infrastructure footprint, making it ideal when simplicity and low operational overhead are paramount constraints. However, under high concurrency or throughput spikes, its state boundaries require strict discipline.
+
+In contrast, ${optB} decouples execution and scales across distributed boundaries, but introduces additional failure domains, network latency, and synchronization overhead.
+
+Decision heuristic: Start with ${optA} until verified throughput measurements or multi-node distribution requirements genuinely justify the operational weight of ${optB}.`;
+      }
+
       return `Comparing ${topic}:
 
-When choosing between ${optA} and ${optB}, the decision comes down to understanding explicit operational trade-offs rather than defaulting to popular consensus.
+When evaluating ${optA} against ${optB}, the choice comes down to explicit architectural trade-offs rather than defaulting to popular industry consensus.
 
-Key architectural considerations:
+Core operational distinctions:
+- State Synchronization: ${optA} focuses on localized consistency, whereas ${optB} distributes state across network boundaries.
+- Failure Recovery: Network partitions and latency degradation impact each approach differently during unexpected failovers.
+- Maintenance Overhead: The long-term cost of managing specialized dependencies compared to leveraging existing database or language primitives.
 
-1. Consistency vs Simplicity: ${mechanics[0] || `How each approach manages state synchronization and failure boundaries under contention.`}
-2. Failure Domains: ${mechanics[1] || `How network partitions and latency spikes affect execution safety.`}
-3. Operational Overhead: ${takeaways[0] || `The maintenance cost of running additional distributed dependencies vs leveraging existing database primitives.`}
-
-Core decision heuristic: Choose ${optA} when your primary constraint is strict consistency and minimal infrastructure footprint; lean toward ${optB} when scale demands decoupled asynchronous distribution.
-
-What factors drive your team's decision when evaluating these two patterns?
-
-#SystemDesign #Architecture #SoftwareEngineering`;
+Choose ${optA} when your primary constraint is deterministic execution and minimal moving parts; lean toward ${optB} when scale demands decoupled asynchronous distribution.`;
     }
 
-    // 2. Certifications (Truthful syllabus & focus areas, NO fabricated personal claims)
+    // 2. Certifications (Truthful syllabus blueprint & focus areas, NO fabricated personal claims)
     if (analysis.category === 'certifications') {
-      const hasPersonalClaim = analysis.isPersonalPrompt;
-      const opening = hasPersonalClaim
-        ? `Reflecting on preparing for the ${topic}:`
-        : `Key architectural domains and focus areas for the ${topic}:`;
+      const isHandsOn = lower.includes('cka') || lower.includes('terminal') || lower.includes('kubernetes administrator') || lower.includes('rhce');
+      const hasPersonal = analysis.isPersonalPrompt;
+
+      if (isHandsOn) {
+        const opening = hasPersonal
+          ? `Key takeaways from preparing for the ${topic}:`
+          : `Preparing for the ${topic} is fundamentally an exercise in terminal muscle memory and operational speed.`;
+
+        return `${opening}
+
+Unlike multiple-choice exams, practical certification testing evaluates how quickly you diagnose and resolve live issues directly in the CLI:
+
+- Imperative Command Speed: Rapid manifest generation using imperative commands and dry-run flags rather than drafting YAML manifests from scratch.
+- Context Switching & Triage: Fast namespace scoping, jsonpath filtering, and resource inspection under time constraints.
+- Control Plane Troubleshooting: Diagnosing component failures by inspecting journalctl logs, kubelet status, and static pod manifests directly on nodes.
+
+The most effective preparation is spending time in live terminal environments deliberately breaking configurations and restoring them to healthy state.`;
+      }
+
+      // Conceptual certification (AWS SAA, Security+, AZ-900, CISSP, etc.)
+      const opening = hasPersonal
+        ? `Reflecting on the core architectural domains of the ${topic}:`
+        : `Mastering the blueprint domains for the ${topic} requires connecting architectural theory to real-world operational constraints.`;
 
       return `${opening}
 
-Approaching the syllabus methodically requires connecting theoretical blueprint concepts to real-world production realities:
+Rather than memorizing question patterns, practical competency focuses on understanding why specific architectures are selected under constraint:
 
-1. ${terms[0] || 'Core System Architecture'}: Understanding foundational boundaries, service interactions, and failure modes rather than memorizing sanitized practice questions.
-2. ${terms[1] || 'Security & Governance'}: ${mechanics[1] || 'Enforcing least-privilege policies, identity boundaries, and data encryption invariants.'}
-3. ${terms[2] || 'Reliability & Operational Recovery'}: Designing for graceful degradation, automated failover, and operational observability.
+- Network Isolation & Security: Designing multi-tier VPC topologies, secure peering, and enforcing least-privilege identity boundaries.
+- Resilient Data Architecture: Balancing read throughput, automated failover, and asynchronous cross-region replication lag.
+- Operational Recovery: Establishing automated backup policies and lifecycle rules that meet recovery time objectives without runaway storage overhead.
 
-${takeaways[0] ? `Key rule: ${takeaways[0]}.` : 'The real value of professional credentials is using the structured blueprint to solidify sound operational heuristics.'}
-
-For anyone evaluating or studying for this credential: focus on understanding why specific architectural patterns are chosen over their alternatives under constraint.
-
-What domain within this syllabus do you find most critical in production?
-
-#${topic.replace(/[^a-zA-Z0-9]/g, '').slice(0, 25)} #ContinuousLearning #Engineering`;
+The true value of professional credentials lies in internalizing sound operational heuristics that transfer directly to production systems.`;
     }
 
-    // 3. Business & Entrepreneurship (No technical boilerplate, strictly business/startup heuristics)
-    if (analysis.category === 'business_entrepreneurship') {
-      return `When evaluating startup velocity and ${topic}:
+    // 3. Databases (MVCC, Indexing, Schema Migrations, Connection Pooling)
+    if (analysis.category === 'databases') {
+      if (lower.includes('mvcc') || lower.includes('vacuum') || lower.includes('dead tuple') || lower.includes('bloat')) {
+        return `In PostgreSQL, dead tuple accumulation is rarely an issue of disk space—it is an issue of buffer cache efficiency.
 
-The most common trap early-stage teams fall into is confusing activity with customer progress. Building features in a vacuum feels productive, but distribution and customer validation dictate survival:
+When high-frequency UPDATEs or DELETEs generate dead tuples, table and index bloat force queries to scan cold disk pages instead of remaining memory-resident in shared buffers.
 
-1. Customer Problem Clarity: Five in-depth customer conversations uncover more actionable friction than shipping fifty unvalidated roadmap items.
-2. Retention Over Acquisition: Churn is rarely a pricing problem; it is an indicator that the core workflow has not become indispensable.
-3. Radical Focus: Every non-essential feature adds cognitive load for users and maintenance drag for the engineering team.
+Operational priorities for maintaining query throughput:
+- Configure autovacuum cost limits and vacuum_cost_delay per table to keep pace with high-write tables.
+- Monitor pg_stat_user_tables for dead tuple ratios before bloat degrades sequential scan performance.
+- Avoid long-running transactions that hold open the oldest transaction ID (xmin horizon), preventing autovacuum from cleaning dead rows.
 
-Build for the smallest viable customer segment whose pain is acute enough that they will use an imperfect product today.
+Keeping tables lean and autovacuum aggressive directly preserves shared memory buffers and index scan speeds.`;
+      }
 
-What customer insight fundamentally shifted your product roadmap this quarter?
+      if (lower.includes('index') || lower.includes('indexing')) {
+        return `When query latency spikes under write-heavy workloads, adding another database index is often the default instinct—and frequently the wrong one.
 
-#Startups #B2B #Entrepreneurship #ProductStrategy #SaaS`;
+Every secondary index introduces write amplification: every INSERT and UPDATE must synchronously update the B-Tree structure, generating Write-Ahead Log (WAL) volume and competing for buffer cache memory.
+
+Before introducing an index:
+- Run EXPLAIN (ANALYZE, BUFFERS) to determine whether the bottleneck is CPU filtering or disk I/O.
+- Verify filter selectivity: if a query matches more than 10-15% of total table rows, the query planner will correctly bypass the index for a sequential scan.
+- Audit existing unused indexes via pg_stat_user_indexes to reclaim shared memory.
+
+The best indexing strategy is minimal, selective, and verified against actual production query plans.`;
+      }
+
+      if (lower.includes('migration') || lower.includes('schema')) {
+        return `Zero-downtime database migrations on high-traffic tables are not about SQL syntax; they are about lock queues.
+
+Running an ALTER TABLE statement acquires an ACCESS EXCLUSIVE lock. While the operation itself may be instantaneous, any open query preceding it blocks the lock—and all incoming queries pile up behind it, exhausting the connection pool in seconds.
+
+Production migration guidelines:
+- Always set a low lock_timeout (e.g. 2-3 seconds) and retry with exponential backoff if the lock cannot be acquired immediately.
+- Create indexes concurrently using CREATE INDEX CONCURRENTLY to avoid blocking table reads and writes.
+- Apply additive schema changes in phases: add the new column first, dual-write in application code, backfill asynchronously, and remove deprecated columns in a separate release.
+
+Safe schema migrations isolate lock acquisition risk from active customer traffic paths.`;
+      }
     }
 
-    // 4. Engineering Leadership & Team Management
+    // 4. Cloud Architecture & Containers (Kubernetes, S3, Lambda)
+    if (analysis.category === 'cloud_architecture') {
+      if (lower.includes('kubernetes') || lower.includes('pod') || lower.includes('crashloop')) {
+        if (narrative === 'architecture_tradeoffs') {
+          return `Architectural trade-offs in Kubernetes Pod lifecycle management:
+
+Balancing rapid cluster autoscaling against graceful workload termination requires navigating competing operational tensions:
+
+- Drain Speed vs In-Flight Safety: Setting terminationGracePeriodSeconds too low forces SIGKILL on active requests; setting it too high stalls node draining and cluster upgrades.
+- Resource Requests vs Node Packing: Tight memory requests improve bin-packing density, but spike vulnerability to sudden OOMKilled evictions under traffic surges.
+- Readiness Gating vs Rollout Velocity: Strict readiness probe periods ensure zero-downtime rollouts, but increase deployment duration during emergency rollbacks.
+
+Resilient Kubernetes architecture prioritizes observable termination over aggressive bin-packing.`;
+        }
+
+        return `Troubleshooting Kubernetes Pod lifecycle transitions and CrashLoopBackOff events requires moving past restart counts to container exit codes and probes.
+
+Key failure boundaries:
+- Exit code 137 indicates OOMKilled: the container exceeded its configured memory limit and the kernel terminated the process.
+- Misconfigured liveness probes that trigger prematurely during cold starts, killing containers before they finish initialization.
+- Unhandled process terminations where the application fails to handle SIGTERM, causing abrupt disconnection of in-flight client requests.
+
+Configure explicit startup probes to protect long initialization paths, and pair resource requests with realistic limits based on observed p95 usage.`;
+      }
+
+      if (lower.includes('s3') || lower.includes('storage') || lower.includes('blob')) {
+        return `Designing resilient multi-region object storage replication requires designing the read path to tolerate eventual consistency.
+
+When objects are replicated asynchronously across cloud regions, cross-region latency means recently uploaded assets may not be immediately readable in failover regions.
+
+Key considerations:
+- Decouple metadata persistence from raw object storage, tracking object readiness explicitly in transactional storage.
+- Define automated lifecycle transition rules to migrate older versions to colder tiers while balancing availability against storage overhead.
+- Verify disaster recovery through automated read-fallback testing before an actual region outage occurs.
+
+Predictable storage lifecycle policies consistently outperform complex manual synchronization scripts.`;
+      }
+
+      if (lower.includes('lambda') || lower.includes('serverless') || lower.includes('concurrency') || lower.includes('cold start')) {
+        return `In serverless architectures, managing cold start latency is an intentional balance between provisioned capacity and application footprint.
+
+When invocation volume spikes, unprovisioned functions face initialization overhead as the runtime provisions the container, initializes dependencies, and establishes database connections.
+
+Pragmatic heuristics:
+- Use provisioned concurrency selectively on user-facing synchronous request paths, allowing asynchronous background queues to use standard on-demand scaling.
+- Minimize bundle size and lazy-load heavy SDK modules to reduce initial script execution time.
+- Initialize database connection pools outside the request handler to reuse active sockets across warm invocations.
+
+Serverless efficiency comes from matching runtime concurrency to explicit latency tolerances.`;
+      }
+    }
+
+    // 5. Software Engineering & Systems (Queues, Webhooks, React, Redis)
+    if (analysis.category === 'software_engineering') {
+      if (lower.includes('webhook') || lower.includes('idempotent') || lower.includes('payment')) {
+        return `In payment processing and critical webhook integrations, duplicate delivery is not an edge case—it is a guaranteed characteristic of distributed networks.
+
+Reliable webhook architectures enforce idempotency before touching business logic:
+- Record the unique webhook event ID in an idempotent transactions ledger with a unique database constraint.
+- Process the payload inside a database transaction that commits the business mutation and records the processed state atomically.
+- Return an immediate HTTP 200 OK once recorded to acknowledge receipt and prevent unneeded upstream retries.
+
+Designing for at-least-once delivery from day one eliminates double-credits and payment reconciliation headaches.`;
+      }
+
+      if (lower.includes('react') || lower.includes('hook') || lower.includes('component') || lower.includes('frontend')) {
+        return `Refactoring complex frontend components is not merely an exercise in reducing line counts—it is about establishing clear boundaries between declarative rendering and state orchestration.
+
+When components grow into unwieldy monoliths:
+- Extract related state variables and their mutations into dedicated custom hooks, keeping view components purely declarative.
+- Isolate asynchronous side effects and caching logic from presentation components.
+- Co-locate state as close to consuming leaf components as possible to eliminate wide, unnecessary re-render cascades across the DOM tree.
+
+When presentation components remain strictly declarative, testing becomes straightforward and UI maintenance scales predictably.`;
+      }
+
+      if (lower.includes('lock') || lower.includes('redis') || lower.includes('cas') || lower.includes('redlock')) {
+        return `Distributed locking in Redis requires acknowledging the trade-offs between atomic single-instance operations (CAS) and multi-instance consensus algorithms (Redlock).
+
+When single-instance locking using SET resource_name my_random_value NX PX 30000 suffices:
+- Always use a unique token and release locks via Lua scripts to verify token ownership before deletion.
+- Implement a renewal watchdog if processing durations can unpredictably exceed lock TTLs.
+- Evaluate whether eventual consistency or idempotent database transactions can eliminate the distributed lock entirely.
+
+Simplicity in locking primitives avoids split-brain anomalies and unhandled lock expiration bugs.`;
+      }
+
+      if (lower.includes('dead-letter') || lower.includes('dlq') || lower.includes('backoff')) {
+        return `Building resilient asynchronous message processing requires designing the dead-letter queue (DLQ) as a deliberate operational workflow, not a graveyard for forgotten errors.
+
+When a consumer fails to process a job:
+- Distinguish transient failures (network blips, rate limits) from permanent failures (malformed JSON, schema violations).
+- Apply exponential backoff with jitter to transient errors to prevent overwhelming recovering downstream services.
+- Route permanently failing jobs to a DLQ with actionable context—including failure timestamps, retry count, and original error messages—paired with automated team alerting.
+
+Observable retry pipelines make failure recovery predictable and debuggable.`;
+      }
+    }
+
+    // 6. Cybersecurity (PKCE, IAM, Zero-Trust)
+    if (analysis.category === 'cybersecurity') {
+      if (lower.includes('pkce') || lower.includes('oauth')) {
+        return `When securing modern web and mobile applications, OAuth 2.0 with PKCE (Proof Key for Code Exchange) eliminates the security vulnerability of exposing client secrets in public clients.
+
+By generating a cryptographically random code verifier and sending its hashed code challenge in the initial authorization request, the authorization server can verify that the client exchanging the authorization code is the exact client that initiated the request.
+
+For single-page applications and mobile clients, PKCE is the gold standard because client-side JavaScript can never securely store a persistent secret.`;
+      }
+
+      return `Implementing zero-trust architecture is not a product purchase; it is the discipline of continuous authentication and least-privilege access.
+
+Rather than assuming internal network traffic is trusted:
+- Enforce microsegmentation so that services can only communicate over explicitly allowed, mutually authenticated TLS channels.
+- Bind service identities to short-lived cryptographic tokens rather than static long-lived credentials.
+- Enforce explicit authorization checks at the data layer using row-level security or fine-grained policy engines.
+
+Zero-trust shifts security from brittle perimeter firewalls to continuous cryptographic verification.`;
+    }
+
+    // 7. Business & Entrepreneurship (Startup velocity, Churn, Customer Discovery)
+    if (analysis.category === 'business_entrepreneurship' || analysis.category === 'startup_updates') {
+      if (lower.includes('churn')) {
+        return `When analyzing customer retention in B2B SaaS, churn is rarely a pricing problem—it is a signal that the core workflow has not become indispensable.
+
+Customers rarely leave because a product is $50 too expensive. They leave because:
+- The product solved a peripheral problem rather than an acute, recurring operational headache.
+- Onboarding friction prevented the user from reaching the primary value milestone in their first week.
+- Feature bloat added cognitive overhead that obscured the core workflow.
+
+The most effective churn reduction strategy is speaking directly with inactive accounts to uncover where the product failed to deliver on its primary promise.`;
+      }
+
+      return `In early-stage software companies, velocity is bounded by customer clarity, not engineering output.
+
+The most frequent trap is building roadmap features in an echo chamber. Shipping fifty unvalidated features feels productive, but talking in-depth with five target customers reveals where real operational friction lies.
+
+Core principles for early traction:
+- Prioritize radical focus on the single sharpest customer pain point over broad, shallow platform capabilities.
+- Build for the smallest viable customer segment whose pain is acute enough that they will use an imperfect product today.
+- Direct, unfiltered customer feedback loops consistently outperform speculative feature development.
+
+Real velocity is the speed at which you validate customer truths, not the speed at which you write code.`;
+    }
+
+    // 8. Engineering Leadership & Management
     if (analysis.category === 'leadership') {
-      return `Lessons on engineering leadership and ${topic}:
+      if (lower.includes('code review') || lower.includes('review')) {
+        return `Why most code reviews focus on stylistic formatting instead of architectural risk:
 
-Moving from hands-on execution to technical leadership requires rewiring how you measure impact. Your primary deliverable shifts from lines of code to organizational leverage:
+When code review culture lacks clear guidance, reviewers naturally gravitate toward what is easy to spot—variable naming, line spacing, and syntax preferences.
 
-1. Delegating Ownership, Not Just Tasks: Give engineers complete problem boundaries with explicit success metrics rather than prescriptive implementation checklists.
-2. Architectural Risk Over Syntax: Code reviews should prioritize data consistency, failure blast radius, and migration safety rather than stylistic nitpicks.
-3. Removing Bottlenecks: A lead who reviews everything personally becomes the single point of failure that throttles team momentum.
+High-impact code reviews prioritize system invariants:
+- Failure Blast Radius: If this service or query fails under load, how does it affect upstream callers?
+- Data Consistency: Are database migrations backward-compatible, and are state mutations transactional?
+- Observability: Are critical error paths logged with sufficient context for on-call triage?
 
-The strongest engineering teams are built on high agency, transparent context, and psychological safety under pressure.
+Automate stylistic checks with linters and formatters so human reviews can focus on architectural risk and long-term maintainability.`;
+      }
 
-How does your team ensure architectural decisions scale without creating review bottlenecks?
+      return `Moving from hands-on execution to technical leadership requires rewiring how you measure impact: from personal code volume to organizational leverage.
 
-#EngineeringLeadership #TechLead #Management #SoftwareEngineering #TeamCulture`;
+Key leadership practices:
+- Delegate problem boundaries and explicit success metrics rather than dictating step-by-step implementation details.
+- Shift code review culture away from stylistic nitpicks toward architectural risk, data consistency, and failure blast radius.
+- Remove operational bottlenecks so engineers maintain focused flow without waiting for centralized approvals.
+
+The strongest engineering teams are built on high agency, transparent context, and psychological safety under pressure.`;
     }
 
-    // 5. Personal & Career Reflections
+    // 9. Personal Reflections & Career Milestones
     if (analysis.category === 'personal_reflections') {
-      return `Reflections on career growth and ${topic}:
+      return `Reflections on career growth in software engineering:
 
-Navigating a sustainable career in software engineering is less about mastering every fleeting tool and more about cultivating evergreen mental models:
+Navigating a sustainable career in software is less about mastering every fleeting framework and more about cultivating evergreen mental models:
 
-• High Agency: When an operational problem lacks clear ownership, stepping up to define the boundary creates immediate organizational value.
-• Depth Over Breadth: Deeply understanding how databases, networks, and operating systems handle failure outlasts any particular frontend framework.
-• Writing as a Superpower: Clear documentation and written proposals scale your thinking across teams far faster than meetings.
+- High Agency: When an operational problem lacks clear ownership, stepping up to define the boundary creates immediate organizational value.
+- Depth Over Breadth: Deeply understanding how databases, networks, and operating systems handle failure outlasts any particular frontend library.
+- Writing as a Superpower: Clear documentation and written proposals scale your thinking across teams far faster than meetings.
 
-Compounding small daily improvements across fundamental disciplines produces outsized results over a decade.
-
-What piece of advice would you share with an engineer starting their career today?
-
-#CareerGrowth #SoftwareEngineering #Engineering #ProfessionalDevelopment`;
+Compounding small daily improvements across fundamental disciplines produces outsized results over a decade.`;
     }
 
-    // 6. Frontend Architecture
-    if (topic.toLowerCase().includes('react') || topic.toLowerCase().includes('frontend') || topic.toLowerCase().includes('hook') || topic.toLowerCase().includes('component')) {
-      return `A practical look at ${topic}:
-
-When decomposing complex UI components, the goal is not merely reducing line counts. The goal is establishing clean boundaries between view presentation and state orchestration:
-
-• Identify state clusters: Group tightly coupled state variables with their specific mutations into dedicated custom hooks.
-• Decouple side-effects: Keep data fetching, local caching, and synchronization logic out of declarative view components.
-• Co-locate state responsibly: Push state down as close to the consuming leaf components as possible to prevent wide re-render cascades.
-
-When presentation components remain strictly declarative, testing becomes straightforward and UI maintenance scales predictably.
-
-What strategies does your team use when refactoring complex frontend state?
-
-#React #WebDevelopment #SoftwareEngineering #FrontendArchitecture`;
-    }
-
-    // 7. Cloud Storage & S3
-    if (topic.toLowerCase().includes('s3') || topic.toLowerCase().includes('storage replication') || topic.toLowerCase().includes('blob')) {
-      return `Architecting for resilience with ${topic}:
-
-When designing multi-region storage replication, three considerations ensure data availability without runaway operational costs:
-
-1. ${terms[0] || 'Replication Latency & SLA'}: Acknowledge asynchronous replication lag and design read paths to tolerate eventual consistency across regions.
-2. ${terms[1] || 'Lifecycle Transition Rules'}: Automatically transition infrequently accessed objects to cold tiers to balance availability against storage overhead.
-3. ${terms[2] || 'Consistency & Versioning Invariants'}: Enforce bucket versioning to prevent accidental overwrites during cross-region sync operations.
-
-Simple storage architectures with predictable lifecycle rules consistently outperform fragile manual synchronization pipelines.
-
-How does your team validate cross-region storage recovery before an outage occurs?
-
-#CloudArchitecture #Storage #AWS #SystemDesign`;
-    }
-
-    // 8. General Subtopic Grounded Synthesis - Dynamic Narrative Framing
-    const hashTag = terms[0] ? terms[0].replace(/[^a-zA-Z0-9]/g, '') : 'Engineering';
-
+    // 10. General Grounded Synthesis - Adapt to Narrative Arc
     if (narrative === 'architecture_tradeoffs') {
       return `Every architectural decision in ${topic} is an exercise in choosing your constraints:
 
 Rather than searching for an ideal universal design, resilient engineering focuses on balancing explicit operational trade-offs:
+- Throughput vs Latency: Balancing batch processing efficiency against single-request round-trip responsiveness.
+- Operational Simplicity: Balancing specialized infrastructure primitives against the maintenance burden of running extra dependencies.
+- Failure Blast Radius: Designing failure domains so localized degradation does not cascade through downstream services.
 
-1. Throughput vs Latency: ${mechanics[0] || 'Optimizing batch processing efficiency against single-request round-trip responsiveness.'}
-2. Operational Simplicity: ${mechanics[1] || 'Balancing specialized infrastructure primitives against the maintenance burden of running extra dependencies.'}
-3. Blast Radius: ${takeaways[0] || 'Designing failure domains so localized degradation does not cascade through downstream services.'}
-
-The best production architectures do not eliminate trade-offs; they make them observable and deliberate.
-
-What constraints govern your architectural decisions in this domain?
-
-#${hashTag} #SoftwareArchitecture #SystemDesign #Engineering`;
+The best production architectures do not eliminate trade-offs; they make them observable and deliberate.`;
     }
 
     if (narrative === 'problem_investigation_solution') {
       return `When diagnosing unexpected behavior in ${topic}, symptoms are frequently mistaken for root causes:
 
 In high-throughput environments, superficial errors usually mask deeper structural constraints:
+- Immediate Symptom: Sudden latency spikes and backpressure on dependent service queues.
+- Root Cause Investigation: Underlying resource contention, unindexed scans, or unobserved locking contention.
+- Durable Remediation: Enforcing strict timeouts, bounded retry policies, and automated circuit breaking.
 
-1. Immediate Symptom: ${mechanics[0] || 'Sudden latency spikes and backpressure on dependent service queues.'}
-2. Root Cause Investigation: ${mechanics[1] || 'Underlying resource contention, unindexed scans, or unobserved locking contention.'}
-3. Durable Remediation: ${takeaways[0] || 'Enforcing strict timeouts, bounded retry policies, and automated circuit breaking.'}
-
-Addressing the structural failure domain once eliminates recurring on-call firefighting.
-
-How does your team isolate root causes when diagnosing incidents in production?
-
-#${hashTag} #DevOps #Observability #Reliability`;
+Addressing the structural failure domain once eliminates recurring on-call firefighting.`;
     }
 
     if (narrative === 'misconception_reality' || (narrative as string) === 'contrarian_observation') {
       return `A contrarian observation regarding ${topic}:
 
 Industry consensus often encourages adding complex layers of abstraction where simpler primitives would suffice:
+- Conventional Pattern: Reaching for distributed orchestration tools before exhausting existing database or queue capabilities.
+- Where It Breaks: Operational fragility increases exponentially with each new network hop and state store.
+- Pragmatic Alternative: Relying on idempotent state transitions and verifiable database invariants.
 
-1. Conventional Pattern: Reaching for distributed orchestration tools before exhausting existing database or queue capabilities.
-2. Where It Breaks: ${mechanics[0] || 'Operational fragility increases exponentially with each new network hop and state store.'}
-3. Pragmatic Alternative: ${takeaways[0] || 'Relying on idempotent state transitions and verifiable database invariants.'}
-
-Simplicity in production systems is an operational superpower that pays dividends over time.
-
-Where has reducing architectural complexity delivered the biggest win for your team?
-
-#${hashTag} #SystemDesign #SoftwareEngineering #Architecture`;
+Simplicity in production systems is an operational superpower that pays dividends over time.`;
     }
 
-    if (narrative === 'concept_why_how' || narrative === 'deep_dive_mechanics' || (narrative as string) === 'actionable_framework') {
-      return `A battle-tested framework for executing ${topic} in production:
-
-Translating architectural theory into reliable execution requires three core implementation phases:
-
-• Phase 1 (Baseline & Invariants): ${mechanics[0] || 'Define unambiguous state boundaries and establish clear observability metrics.'}
-• Phase 2 (Decoupling): ${mechanics[1] || 'Isolate long-running tasks asynchronously to protect critical request paths.'}
-• Phase 3 (Failure Hardening): ${takeaways[0] || 'Validate graceful degradation and circuit breakers before traffic hits scale.'}
-
-Disciplined execution around predictable constraints consistently outperforms ad-hoc optimization.
-
-Which phase typically presents the greatest hurdle during rollout in your environment?
-
-#${hashTag} #SoftwareEngineering #SystemArchitecture #TechFramework`;
-    }
-
-    // Default lessons_learned or standard grounded synthesis
+    // Default deep dive / analytical breakdown
     return `Operational takeaways from deploying and scaling ${topic}:
 
-Working with this domain in real-world environments reinforces several foundational rules:
+Working with this domain in real-world environments reinforces foundational rules:
+- System state transitions must be explicit and deterministic from day one.
+- Network latency and transient dependencies must be treated as standard operating conditions.
+- Observable metrics and automated health checks must precede architectural refactoring.
 
-1. ${mechanics[0] || 'System state transitions must be explicit and deterministic from day one.'}
-2. ${mechanics[1] || 'Network latency and transient dependencies must be treated as standard operating conditions.'}
-3. ${takeaways[0] || 'Observable metrics and automated health checks must precede architectural refactoring.'}
-
-When systems are built around clear constraints from day one, maintainability and scale follow naturally.
-
-What has been your team's experience navigating ${topic.toLowerCase()} in production?
-
-#${hashTag} #SoftwareArchitecture #Technology #ProductionReadiness`;
+When systems are built around clear constraints from day one, maintainability and scale follow naturally.`;
   }
 }
 

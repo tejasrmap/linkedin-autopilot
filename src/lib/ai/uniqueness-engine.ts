@@ -98,6 +98,31 @@ export class UniquenessEngine {
     history: HistoricalPostSummary[],
     domainTerms: string[] = []
   ): UniquenessScore {
+    if (candidate.startsWith('[Generation Unavailable]')) {
+      return {
+        totalScore: 0,
+        qualityStatus: 'failed',
+        passed: false,
+        dimensions: {
+          topicRelevance: 0,
+          subjectSpecificDetail: 0,
+          originality: 0,
+          writingNaturalness: 0,
+          factualGrounding: 0,
+          audienceValue: 0,
+        },
+        maxHistoricalSimilarity: 0,
+        reasons: ['Topic contains insufficient context to generate a factual post.'],
+        detectedRepetitions: {
+          hookRepeated: false,
+          conclusionRepeated: false,
+          argumentSkeletonRepeated: false,
+          bannedClichesDetected: [],
+          fabricatedClaimsDetected: [],
+        },
+      };
+    }
+
     const candidateSummary = this.summarizePost(candidate);
     const reasons: string[] = [];
     const bannedCliches = this.findBannedCliches(candidate);
