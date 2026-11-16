@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
 import { SocialAccount } from '@/types';
@@ -34,10 +34,24 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
-export default function AIStudioPage() {
+function AIStudioContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState<'generate' | 'rewrite' | 'hashtags' | 'ideas' | 'calendar' | 'brand'>('generate');
+
+  const urlTab = searchParams.get('tab');
+  const urlDraftId = searchParams.get('draftId');
+  const urlContent = searchParams.get('content');
+  const urlTone = searchParams.get('tone');
+
+  const [activeTab, setActiveTab] = useState<'generate' | 'rewrite' | 'hashtags' | 'ideas' | 'calendar' | 'brand'>(() => {
+    if (urlTab && ['generate', 'rewrite', 'hashtags', 'ideas', 'calendar', 'brand'].includes(urlTab)) {
+      return urlTab as any;
+    }
+    return 'generate';
+  });
+
+  const [sourceDraftId, setSourceDraftId] = useState<string | null>(urlDraftId || null);
 
   // Accounts for Bulk Scheduling
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
@@ -58,10 +72,30 @@ export default function AIStudioPage() {
   const [loadingGenerate, setLoadingGenerate] = useState(false);
 
   // Rewrite State
-  const [draftToRewrite, setDraftToRewrite] = useState('');
-  const [rewriteTone, setRewriteTone] = useState<'professional' | 'conversational' | 'technical' | 'educational' | 'persuasive' | 'storytelling'>('storytelling');
+  const [draftToRewrite, setDraftToRewrite] = useState(urlContent || '');
+  const [rewriteTone, setRewriteTone] = useState<'professional' | 'conversational' | 'technical' | 'educational' | 'persuasive' | 'storytelling'>(() => {
+    if (urlTone && ['professional', 'conversational', 'technical', 'educational', 'persuasive', 'storytelling'].includes(urlTone)) {
+      return urlTone as any;
+    }
+    return 'storytelling';
+  });
   const [rewrittenPost, setRewrittenPost] = useState('');
   const [loadingRewrite, setLoadingRewrite] = useState(false);
+
+  useEffect(() => {
+    if (urlTab && ['generate', 'rewrite', 'hashtags', 'ideas', 'calendar', 'brand'].includes(urlTab)) {
+      setActiveTab(urlTab as any);
+    }
+    if (urlDraftId) {
+      setSourceDraftId(urlDraftId);
+    }
+    if (urlContent) {
+      setDraftToRewrite(urlContent);
+    }
+    if (urlTone && ['professional', 'conversational', 'technical', 'educational', 'persuasive', 'storytelling'].includes(urlTone)) {
+      setRewriteTone(urlTone as any);
+    }
+  }, [urlTab, urlDraftId, urlContent, urlTone]);
 
   // Hashtags State
   const [hashtagTopic, setHashtagTopic] = useState('');
@@ -117,7 +151,14 @@ export default function AIStudioPage() {
     setLoadingBrand(true);
     setBrandError(null);
     try {
-      const res = await fetch('/api/brand-settings');
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        try {
+          const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+          if (ws?.id) headers['x-workspace-id'] = String(ws.id);
+        } catch {}
+      }
+      const res = await fetch('/api/brand-settings', { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.settings) {
@@ -158,6 +199,12 @@ export default function AIStudioPage() {
     if (geminiApiKey.trim()) {
       headers['x-gemini-key'] = geminiApiKey.trim();
     }
+    if (typeof window !== 'undefined') {
+      try {
+        const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+        if (ws?.id) headers['x-workspace-id'] = String(ws.id);
+      } catch {}
+    }
     return headers;
   };
 
@@ -190,8 +237,17 @@ export default function AIStudioPage() {
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
-  const sendToComposer = (text: string) => {
-    router.push(`/composer?content=${encodeURIComponent(text)}`);
+  const sendToComposer = (text: string, tone?: string) => {
+    const params = new URLSearchParams();
+    params.set('content', text);
+    if (sourceDraftId) {
+      params.set('draftId', sourceDraftId);
+    }
+    if (tone || (activeTab === 'rewrite' ? rewriteTone : undefined)) {
+      params.set('tone', tone || rewriteTone);
+    }
+    params.set('fromAi', 'true');
+    router.push(`/composer?${params.toString()}`);
   };
 
   // 1. Generate Post
@@ -932,7 +988,29 @@ export default function AIStudioPage() {
 
       {/* Tab 2: Rewrite & Tone */}
       {activeTab === 'rewrite' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-4">
+          {sourceDraftId && (
+            <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                <div>
+                  <span className="font-semibold">Linked to Active Composer Draft:</span>{' '}
+                  <span className="font-mono text-[11px] text-blue-600 dark:text-blue-300">{sourceDraftId.substring(0, 8)}...</span>
+                  <div className="text-[11px] text-blue-700/80 dark:text-blue-400">
+                    Sending your rewritten post to Composer will seamlessly update your draft without creating duplicates.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSourceDraftId(null)}
+                className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 font-semibold"
+              >
+                Unlink Draft
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -1022,6 +1100,7 @@ export default function AIStudioPage() {
               </div>
             )}
           </div>
+        </div>
         </div>
       )}
 
@@ -1715,6 +1794,14 @@ export default function AIStudioPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AIStudioPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-400"><Loader2 className="w-5 h-5 animate-spin mx-auto text-blue-500" /></div>}>
+      <AIStudioContent />
+    </Suspense>
   );
 }
 

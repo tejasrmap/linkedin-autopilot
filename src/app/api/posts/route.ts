@@ -18,10 +18,13 @@ const CreatePostSchema = z.object({
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
-  const workspaceId = searchParams.get('workspaceId');
+  const requestWorkspaceId = request.headers.get('x-workspace-id') || searchParams.get('workspaceId') || null;
 
-  const auth = await getAuthContext(workspaceId);
+  const auth = await getAuthContext(requestWorkspaceId);
   if (!auth) {
+    if (requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -54,8 +57,12 @@ export async function POST(request: Request) {
     const body = await request.json();
     const validated = CreatePostSchema.parse(body);
 
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

@@ -87,7 +87,7 @@ export default function CertificateAnnouncementPage() {
           <button onClick={copyDraft} className="text-sm text-indigo-600 flex items-center gap-1"><Copy className="w-4 h-4" />Copy</button></div>
         <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={12} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent p-3 text-sm leading-6" />
         <div className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">AI extraction is not proof of authenticity. Verify all details and edit the draft before publishing.</div>
-        <button onClick={() => router.push('/composer?content=' + encodeURIComponent(draft))} className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-3 flex items-center justify-center gap-2">Continue to LinkedIn composer <ArrowRight className="w-4 h-4" /></button>
+        <button onClick={() => router.push('/composer?content=' + encodeURIComponent(draft) + '&fromAi=true')} className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-3 flex items-center justify-center gap-2">Continue to LinkedIn composer <ArrowRight className="w-4 h-4" /></button>
       </section>}
     </div>
   );

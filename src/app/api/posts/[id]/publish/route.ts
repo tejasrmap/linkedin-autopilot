@@ -4,8 +4,12 @@ import { schedulePostPublishJob } from '@/lib/queue/publisher';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
-  const auth = await getAuthContext();
+  const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+  const auth = await getAuthContext(requestWorkspaceId);
   if (!auth) {
+    if (requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

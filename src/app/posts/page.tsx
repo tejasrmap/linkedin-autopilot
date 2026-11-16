@@ -71,11 +71,23 @@ function PostsContent() {
     setActiveTab(initialTab);
   }, [initialTab]);
 
+  const getWorkspaceHeader = useCallback((): Record<string, string> => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+      return ws.id ? { 'x-workspace-id': String(ws.id) } : {};
+    } catch {
+      return {};
+    }
+  }, []);
+
   const loadPosts = useCallback(async () => {
     try {
       setLoading(true);
       const url = activeTab === 'all' ? '/api/posts' : `/api/posts?status=${activeTab}`;
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: getWorkspaceHeader(),
+      });
       if (res.ok) {
         const data = await res.json();
         setPosts(data.posts || []);
@@ -85,7 +97,7 @@ function PostsContent() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, toast]);
+  }, [activeTab, toast, getWorkspaceHeader]);
 
   useEffect(() => {
     loadPosts();
@@ -94,7 +106,13 @@ function PostsContent() {
   const handlePublishNow = async (postId: string) => {
     setActionLoading(postId);
     try {
-      const res = await fetch(`/api/posts/${postId}/publish`, { method: 'POST' });
+      const res = await fetch(`/api/posts/${postId}/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getWorkspaceHeader(),
+        },
+      });
       const data = await res.json();
       if (res.ok) {
         toast.success('Post published live to LinkedIn! 🎉');
@@ -112,7 +130,13 @@ function PostsContent() {
   const handleCancel = async (postId: string) => {
     setActionLoading(postId);
     try {
-      const res = await fetch(`/api/posts/${postId}/cancel`, { method: 'POST' });
+      const res = await fetch(`/api/posts/${postId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getWorkspaceHeader(),
+        },
+      });
       if (res.ok) {
         toast.info('Scheduled post cancelled');
         await loadPosts();
@@ -131,7 +155,10 @@ function PostsContent() {
     if (!deletePostId) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/posts/${deletePostId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/posts/${deletePostId}`, {
+        method: 'DELETE',
+        headers: getWorkspaceHeader(),
+      });
       if (res.ok) {
         setPosts((prev) => prev.filter((p) => p.id !== deletePostId));
         toast.success('Post removed from queue');
@@ -503,7 +530,7 @@ function PostsContent() {
                 </button>
 
                 <Link
-                  href={`/composer?content=${encodeURIComponent(viewingPost.content)}`}
+                  href={`/composer?draftId=${viewingPost.id}&content=${encodeURIComponent(viewingPost.content)}`}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-all"
                 >
                   <span>Edit in Composer</span>

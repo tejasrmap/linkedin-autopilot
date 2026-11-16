@@ -12,11 +12,16 @@ const UpdatePostSchema = z.object({
   status: z.enum(['draft', 'pending_approval', 'approved', 'scheduled', 'processing', 'published', 'failed', 'cancelled']).optional(),
   scheduledAt: z.string().datetime().optional().nullable(),
   timezone: z.string().optional(),
+  expectedUpdatedAt: z.string().datetime().optional(),
 });
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
-  const auth = await getAuthContext();
+  const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+  const auth = await getAuthContext(requestWorkspaceId);
   if (!auth) {
+    if (requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -44,9 +49,17 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const body = await request.json();
     const validated = UpdatePostSchema.parse(body);
 
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (!['owner', 'admin', 'editor', 'approver'].includes(auth.role)) {
+      return NextResponse.json({ error: 'Permission denied: cannot update posts' }, { status: 403 });
     }
 
     const admin = createAdminClient();
@@ -68,37 +81,111 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
     }
 
+    const { expectedUpdatedAt, ...updateData } = validated;
     const updatePayload: any = {
-      ...validated,
+      ...updateData,
       updated_at: new Date().toISOString(),
     };
 
     if (validated.scheduledAt !== undefined) {
       updatePayload.scheduled_at = validated.scheduledAt;
+      delete updatePayload.scheduledAt;
+    }
+    if (validated.mediaAssets !== undefined) {
+      updatePayload.media_assets = validated.mediaAssets;
+      delete updatePayload.mediaAssets;
+    }
+    if (validated.socialAccountId !== undefined) {
+      updatePayload.social_account_id = validated.socialAccountId;
+      delete updatePayload.socialAccountId;
+    }
+    if (validated.postType !== undefined) {
+      updatePayload.post_type = validated.postType;
+      delete updatePayload.postType;
     }
 
-    const { data: updatedPost, error } = await admin
+    // Atomic Compare-And-Swap (CAS) update:
+    // Execute a single atomic database statement with predicate filters for workspace_id,
+    // published-status protection, and (if provided) expectedUpdatedAt.
+    // In PostgreSQL, this statement acquires a row-level write lock and evaluates predicates
+    // in one atomic step. If another transaction updated the row concurrently, 0 rows match.
+    let updateQuery = admin
       .from('posts')
       .update(updatePayload)
       .eq('id', params.id)
-      .eq('workspace_id', auth.workspaceId)
-      .select()
-      .single();
+      .eq('workspace_id', auth.workspaceId);
 
-    if (error || !updatedPost) {
-      return NextResponse.json({ error: error?.message || 'Failed to update post' }, { status: 500 });
+    // Atomic protection: prevent published posts from being reverted to draft
+    if (validated.status === 'draft') {
+      updateQuery = updateQuery.neq('status', 'published');
     }
 
-    return NextResponse.json({ post: updatedPost });
+    // Atomic optimistic concurrency predicate
+    if (expectedUpdatedAt) {
+      updateQuery = updateQuery.eq('updated_at', expectedUpdatedAt);
+    }
+
+    const { data: updatedPost, error: updateErr } = await updateQuery.select().maybeSingle();
+
+    if (updateErr) {
+      return NextResponse.json({ error: updateErr.message || 'Failed to update post' }, { status: 500 });
+    }
+
+    // Atomic CAS succeeded
+    if (updatedPost) {
+      return NextResponse.json({ post: updatedPost });
+    }
+
+    // If 0 rows were updated, diagnose the cause without leaking foreign workspace data:
+    const { data: currentPost, error: fetchErr } = await admin
+      .from('posts')
+      .select('*')
+      .eq('id', params.id)
+      .eq('workspace_id', auth.workspaceId)
+      .maybeSingle();
+
+    if (fetchErr || !currentPost) {
+      // Row does not exist or belongs to another tenant workspace -> fail closed
+      return NextResponse.json({ error: 'Post not found or inaccessible.' }, { status: 404 });
+    }
+
+    if (currentPost.status === 'published' && validated.status === 'draft') {
+      return NextResponse.json(
+        { error: 'Cannot revert a published post back to draft status.' },
+        { status: 400 }
+      );
+    }
+
+    if (expectedUpdatedAt && currentPost.updated_at !== expectedUpdatedAt) {
+      return NextResponse.json(
+        {
+          error: 'Conflict: Draft has been modified concurrently in another session.',
+          code: 'CONCURRENT_MODIFICATION',
+          serverUpdatedAt: currentPost.updated_at,
+          serverPost: currentPost,
+        },
+        { status: 409 }
+      );
+    }
+
+    return NextResponse.json({ error: 'Failed to update post' }, { status: 500 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
 }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  const auth = await getAuthContext();
+  const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+  const auth = await getAuthContext(requestWorkspaceId);
   if (!auth) {
+    if (requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!['owner', 'admin', 'editor', 'approver'].includes(auth.role)) {
+    return NextResponse.json({ error: 'Permission denied: cannot delete posts' }, { status: 403 });
   }
 
   const admin = createAdminClient();

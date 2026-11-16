@@ -35,10 +35,19 @@ import { SocialAccount } from '@/types';
 function ComposerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialContent = searchParams.get('content') || '';
+  const initialContent = searchParams.get('content') || searchParams.get('template') || '';
+  const initialDraftId = searchParams.get('draftId') || null;
+  const initialTone = searchParams.get('tone') || null;
+  const isFromAi = searchParams.get('fromAi') === 'true';
   const toast = useToast();
 
   const [content, setContent] = useState(initialContent);
+  const [draftId, setDraftId] = useState<string | null>(initialDraftId);
+  const [sourceTone, setSourceTone] = useState<string | null>(initialTone);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'conflict' | 'offline'>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [lastSavedUpdatedAt, setLastSavedUpdatedAt] = useState<string | null>(null);
+  const [hasUserModified, setHasUserModified] = useState(false);
   const [postType, setPostType] = useState<'text' | 'image' | 'video' | 'document'>('text');
   const [accounts, setAccounts] = useState<SocialAccount[]>(() => {
     if (typeof window !== 'undefined') {
@@ -80,6 +89,97 @@ function ComposerContent() {
   const memberAccounts = accounts.filter((a) => a.account_type === 'member');
   const orgAccounts = accounts.filter((a) => a.account_type === 'organization');
 
+  const getStorageKey = useCallback(() => {
+    if (typeof window === 'undefined') return 'autopilot_composer_draft';
+    try {
+      const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+      const user = JSON.parse(sessionStorage.getItem('autopilot_user') || '{}');
+      const wsId = ws.id || 'default_ws';
+      const userId = user.id || 'default_user';
+      return `autopilot_draft_${wsId}_${userId}`;
+    } catch {
+      return 'autopilot_composer_draft';
+    }
+  }, []);
+
+  const getWorkspaceHeader = useCallback((): Record<string, string> => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+      return ws.id ? { 'x-workspace-id': String(ws.id) } : {};
+    } catch {
+      return {};
+    }
+  }, []);
+
+  // Restore draft on initial mount
+  useEffect(() => {
+    let mounted = true;
+
+    async function restoreDraft() {
+      if (initialDraftId) {
+        try {
+          const res = await fetch(`/api/posts/${initialDraftId}`, {
+            headers: getWorkspaceHeader(),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.post && mounted) {
+              if (initialContent && isFromAi) {
+                setContent(initialContent);
+                setHasUserModified(true);
+              } else {
+                setContent(data.post.content || '');
+              }
+              setDraftId(data.post.id);
+              if (data.post.post_type) setPostType(data.post.post_type);
+              if (data.post.social_account_id) setSelectedAccount(data.post.social_account_id);
+              if (data.post.media_assets) setMediaAssets(data.post.media_assets);
+              setLastSavedUpdatedAt(data.post.updated_at);
+              setSaveStatus('saved');
+              setLastSavedAt(new Date(data.post.updated_at));
+              return;
+            }
+          }
+        } catch {
+          // Fall through to local storage if network fails
+        }
+      }
+
+      if (initialContent) {
+        setContent(initialContent);
+        setHasUserModified(true);
+        setSaveStatus('unsaved');
+        return;
+      }
+
+      // Check local storage for uncommitted drafts
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem(getStorageKey());
+          if (raw) {
+            const cached = JSON.parse(raw);
+            if (cached.content && mounted) {
+              setContent(cached.content);
+              if (cached.draftId) setDraftId(cached.draftId);
+              if (cached.postType) setPostType(cached.postType);
+              if (cached.selectedAccount) setSelectedAccount(cached.selectedAccount);
+              if (cached.mediaAssets) setMediaAssets(cached.mediaAssets);
+              if (cached.tone) setSourceTone(cached.tone);
+              setSaveStatus('saved');
+              toast.info('Restored in-progress draft from your last session');
+            }
+          }
+        } catch {}
+      }
+    }
+
+    restoreDraft();
+    return () => {
+      mounted = false;
+    };
+  }, [initialDraftId, initialContent, isFromAi, getStorageKey, getWorkspaceHeader, toast]);
+
   const fetchAccounts = useCallback(async () => {
     try {
       const res = await fetch('/api/linkedin/accounts');
@@ -111,6 +211,119 @@ function ComposerContent() {
     setScheduledDate(tomorrow.toISOString().split('T')[0]);
     setScheduledTime('10:00');
   }, [fetchAccounts]);
+
+  // Autosave execution function
+  const triggerAutosave = useCallback(async (forced = false) => {
+    if (!content.trim()) return;
+    if (!hasUserModified && !forced) return;
+
+    setSaveStatus('saving');
+
+    try {
+      if (draftId) {
+        // Update existing draft
+        const res = await fetch(`/api/posts/${draftId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getWorkspaceHeader(),
+          },
+          body: JSON.stringify({
+            content,
+            postType,
+            socialAccountId: selectedAccount || null,
+            mediaAssets,
+            status: 'draft',
+            expectedUpdatedAt: lastSavedUpdatedAt || undefined,
+          }),
+        });
+
+        if (res.status === 409) {
+          setSaveStatus('conflict');
+          toast.error('Conflict: Draft was updated in another session.');
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error('Autosave failed');
+        }
+
+        const data = await res.json();
+        setLastSavedUpdatedAt(data.post.updated_at);
+        setSaveStatus('saved');
+        setLastSavedAt(new Date());
+      } else {
+        // Create initial draft
+        const res = await fetch('/api/posts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getWorkspaceHeader(),
+          },
+          body: JSON.stringify({
+            content,
+            postType,
+            socialAccountId: selectedAccount || null,
+            mediaAssets,
+            status: 'draft',
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error('Initial draft creation failed');
+        }
+
+        const data = await res.json();
+        const newId = data.post.id;
+        setDraftId(newId);
+        setLastSavedUpdatedAt(data.post.updated_at);
+        setSaveStatus('saved');
+        setLastSavedAt(new Date());
+
+        // Update URL safely without browser refresh
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search);
+          params.set('draftId', newId);
+          if (sourceTone) params.set('tone', sourceTone);
+          window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+        }
+      }
+    } catch {
+      setSaveStatus('error');
+    }
+  }, [content, hasUserModified, draftId, postType, selectedAccount, mediaAssets, lastSavedUpdatedAt, getWorkspaceHeader, sourceTone, toast]);
+
+  // Debounced autosave effect
+  useEffect(() => {
+    if (!hasUserModified) return;
+
+    // 1. Instant local persistence
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(
+          getStorageKey(),
+          JSON.stringify({
+            draftId,
+            content,
+            postType,
+            selectedAccount,
+            mediaAssets,
+            tone: sourceTone,
+            updatedAt: Date.now(),
+          })
+        );
+      } catch {}
+    }
+
+    setSaveStatus('unsaved');
+
+    // 2. Debounced server autosave (1.5s)
+    const timer = setTimeout(() => {
+      triggerAutosave();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [content, postType, selectedAccount, mediaAssets, hasUserModified, triggerAutosave, getStorageKey, draftId, sourceTone]);
 
   const handleDestinationSwitch = (type: 'member' | 'organization') => {
     setDestinationType(type);
@@ -176,6 +389,8 @@ function ComposerContent() {
   };
 
   const handleSavePost = async (publishNow = false, asDraft = false) => {
+    if (submitting) return;
+
     if (!content.trim()) {
       toast.error('Please enter post content.');
       return;
@@ -205,50 +420,215 @@ function ComposerContent() {
     }
 
     try {
-      const payload = {
-        content,
-        socialAccountId: selectedAccount || null,
-        postType,
-        mediaAssets,
-        status: asDraft ? 'draft' : scheduleMode ? 'scheduled' : 'processing',
-        scheduledAt: finalScheduledAt,
-        timezone,
-        publishNow,
-      };
+      if (asDraft) {
+        // Saving draft: reuse existing draftId if available to prevent duplicate creation
+        if (draftId) {
+          const res = await fetch(`/api/posts/${draftId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              socialAccountId: selectedAccount || null,
+              postType,
+              mediaAssets,
+              status: 'draft',
+              expectedUpdatedAt: lastSavedUpdatedAt || undefined,
+            }),
+          });
+          if (res.status === 409) {
+            setSaveStatus('conflict');
+            toast.error('Conflict: Draft was modified in another session. Local edits preserved.');
+            setSubmitting(false);
+            return;
+          }
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to update draft');
+          setLastSavedUpdatedAt(data.post.updated_at);
+          setSaveStatus('saved');
+          setLastSavedAt(new Date());
+          toast.success('Draft saved successfully.');
+        } else {
+          const res = await fetch('/api/posts', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              socialAccountId: selectedAccount || null,
+              postType,
+              mediaAssets,
+              status: 'draft',
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to save draft');
+          setDraftId(data.post.id);
+          setLastSavedUpdatedAt(data.post.updated_at);
+          setSaveStatus('saved');
+          setLastSavedAt(new Date());
+          toast.success('Draft saved successfully.');
+        }
 
-      const res = await fetch('/api/posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+        setTimeout(() => {
+          router.push('/posts?tab=draft');
+        }, 800);
+        return;
+      }
 
-      const data = await res.json();
+      if (scheduleMode && !publishNow) {
+        // Scheduling: update draft first, then schedule
+        let targetPostId = draftId;
+        if (targetPostId) {
+          const updateRes = await fetch(`/api/posts/${targetPostId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              socialAccountId: selectedAccount || null,
+              postType,
+              mediaAssets,
+              scheduledAt: finalScheduledAt,
+              timezone,
+              expectedUpdatedAt: lastSavedUpdatedAt || undefined,
+            }),
+          });
+          if (updateRes.status === 409) {
+            setSaveStatus('conflict');
+            toast.error('Conflict: Draft was modified in another session. Please reload or review before scheduling.');
+            setSubmitting(false);
+            return;
+          }
+          if (!updateRes.ok) {
+            const err = await updateRes.json();
+            throw new Error(err.error || 'Failed to update draft before scheduling');
+          }
+          const schedRes = await fetch(`/api/posts/${targetPostId}/schedule`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              scheduledAt: finalScheduledAt,
+              timezone,
+            }),
+          });
+          const schedData = await schedRes.json();
+          if (!schedRes.ok) throw new Error(schedData.error || 'Failed to schedule post');
+        } else {
+          const createRes = await fetch('/api/posts', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              socialAccountId: selectedAccount || null,
+              postType,
+              mediaAssets,
+              status: 'scheduled',
+              scheduledAt: finalScheduledAt,
+              timezone,
+            }),
+          });
+          const createData = await createRes.json();
+          if (!createRes.ok) throw new Error(createData.error || 'Failed to create and schedule post');
+        }
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to process post');
+        // Clean up draft cache upon schedule
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem(getStorageKey());
+          } catch {}
+        }
+
+        toast.success('Post scheduled in queue! 🚀');
+        setTimeout(() => {
+          router.push('/posts?tab=scheduled');
+        }, 800);
+        return;
       }
 
       if (publishNow) {
-        if (data.published) {
-          toast.success('Post published successfully to LinkedIn! 🎉');
+        // Immediate Publishing
+        let targetPostId = draftId;
+        if (targetPostId) {
+          const updateRes = await fetch(`/api/posts/${targetPostId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              socialAccountId: selectedAccount || null,
+              postType,
+              mediaAssets,
+              expectedUpdatedAt: lastSavedUpdatedAt || undefined,
+            }),
+          });
+          if (updateRes.status === 409) {
+            setSaveStatus('conflict');
+            toast.error('Conflict: Draft was modified in another session. Please reload or review before publishing.');
+            setSubmitting(false);
+            return;
+          }
+          if (!updateRes.ok) {
+            const err = await updateRes.json();
+            throw new Error(err.error || 'Failed to update draft before publishing');
+          }
+          const pubRes = await fetch(`/api/posts/${targetPostId}/publish`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+          });
+          const pubData = await pubRes.json();
+          if (!pubRes.ok) throw new Error(pubData.error || 'Publishing failed');
         } else {
-          toast.error(data.error || 'Publishing failed. The post was saved in Drafts.');
+          const createRes = await fetch('/api/posts', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              socialAccountId: selectedAccount || null,
+              postType,
+              mediaAssets,
+              publishNow: true,
+            }),
+          });
+          const createData = await createRes.json();
+          if (!createRes.ok) throw new Error(createData.error || 'Publishing failed');
+          if (!createData.published) {
+            throw new Error(createData.error || 'Publishing failed. Post saved in drafts.');
+          }
         }
-      } else if (scheduleMode) {
-        toast.success('Post scheduled in queue! 🚀');
-      } else {
-        toast.success('Draft saved successfully.');
-      }
 
-      setTimeout(() => {
-        router.push(
-          publishNow && data.published
-            ? '/posts?tab=published'
-            : scheduleMode
-            ? '/posts?tab=scheduled'
-            : '/posts?tab=draft'
-        );
-      }, 1000);
+        // Clean up draft cache upon publish
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem(getStorageKey());
+          } catch {}
+        }
+
+        toast.success('Post published successfully to LinkedIn! 🎉');
+        setTimeout(() => {
+          router.push('/posts?tab=published');
+        }, 800);
+      }
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -269,9 +649,58 @@ function ComposerContent() {
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             Post Studio &amp; Composer
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Author, preview, schedule, and publish rich multi-format LinkedIn content.
-          </p>
+          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Author, preview, schedule, and publish rich multi-format LinkedIn content.
+            </p>
+
+            {/* Save Status Indicators */}
+            {saveStatus === 'saved' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/40 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
+                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                <span>Saved{lastSavedAt ? ` ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
+              </span>
+            )}
+            {saveStatus === 'saving' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/40 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
+                <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                <span>Saving draft...</span>
+              </span>
+            )}
+            {saveStatus === 'unsaved' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
+                <Clock className="w-3 h-3 text-slate-400" />
+                <span>Unsaved changes</span>
+              </span>
+            )}
+            {saveStatus === 'error' && (
+              <button
+                type="button"
+                onClick={() => triggerAutosave(true)}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 px-2 py-0.5 rounded-full hover:bg-rose-100 transition-colors cursor-pointer"
+                title="Autosave failed. Click to retry."
+              >
+                <AlertCircle className="w-3 h-3 text-rose-500" />
+                <span>Save failed (Retry)</span>
+              </button>
+            )}
+            {saveStatus === 'conflict' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/40 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
+                <AlertCircle className="w-3 h-3 text-amber-500" />
+                <span>Modified in another session</span>
+              </span>
+            )}
+            {sourceTone && (
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 px-2 py-0.5 rounded-full capitalize">
+                Tone: {sourceTone}
+              </span>
+            )}
+            {draftId && (
+              <span className="text-[10px] text-slate-400 font-mono">
+                ID: {draftId.substring(0, 8)}...
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Action Controls */}
@@ -518,7 +947,10 @@ function ComposerContent() {
           <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500/50 transition-all">
             <textarea
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(e) => {
+                setContent(e.target.value);
+                setHasUserModified(true);
+              }}
               placeholder="What do you want to talk about? Share an insight, story, or project update..."
               rows={9}
               maxLength={maxChars}
@@ -567,11 +999,19 @@ function ComposerContent() {
                 </label>
                 <button
                   type="button"
-                  onClick={() => router.push('/ai-studio')}
-                  className="p-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 transition-colors"
-                  title="Enhance with AI Studio"
+                  onClick={() => {
+                    const params = new URLSearchParams();
+                    params.set('tab', 'rewrite');
+                    if (draftId) params.set('draftId', draftId);
+                    if (content) params.set('content', content);
+                    if (sourceTone) params.set('tone', sourceTone);
+                    router.push(`/ai-studio?${params.toString()}`);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 font-semibold text-xs transition-colors shadow-xs"
+                  title="Rewrite and refine with AI Studio"
                 >
-                  <Sparkles className="w-4 h-4" />
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Rewrite with AI</span>
                 </button>
                 {uploadingMedia && (
                   <span className="text-[11px] text-blue-600 dark:text-blue-400 flex items-center gap-1">

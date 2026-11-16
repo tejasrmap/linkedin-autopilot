@@ -14,8 +14,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const body = await request.json();
     const { scheduledAt } = ScheduleSchema.parse(body);
 
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) {
+      if (requestWorkspaceId) {
+        return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
