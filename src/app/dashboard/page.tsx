@@ -10,7 +10,6 @@ import {
   FileText,
   Linkedin,
   User,
-  ArrowUpRight,
   PlusCircle,
   Calendar,
   Sparkles,
