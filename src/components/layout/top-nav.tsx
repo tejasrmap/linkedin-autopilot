@@ -24,7 +24,6 @@ import {
   Users,
   CreditCard,
   Loader2,
-  Sparkles,
   HelpCircle,
 } from 'lucide-react';
 import { AppNotification } from '@/types';
