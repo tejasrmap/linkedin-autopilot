@@ -53,7 +53,7 @@ export function TopNav() {
         if (cached) return JSON.parse(cached);
       } catch {}
     }
-    return { name: "Lead Developer (GT InnoX)'s Workspace", id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31' };
+    return { name: 'GT InnoX', id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31' };
   });
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showCreateWsModal, setShowCreateWsModal] = useState(false);
@@ -97,7 +97,7 @@ export function TopNav() {
         setUserProfile(data.user);
         setWorkspaces(data.workspaces || []);
         const active = (data.workspaces || []).find((w: any) => w.id === data.currentWorkspaceId) || data.workspaces?.[0];
-        const resolvedWs = active || { name: "Lead Developer (GT InnoX)'s Workspace", id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31' };
+        const resolvedWs = active || { name: 'GT InnoX', id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31' };
         setCurrentWs(resolvedWs);
 
         // Cache for 0ms instant display on subsequent refreshes
@@ -225,6 +225,8 @@ export function TopNav() {
           />
         </button>
 
+        <span className="workspace-header-context hidden lg:block text-xs text-slate-500 dark:text-slate-400">LinkedIn content workspace</span>
+
         {/* Workspace Dropdown */}
         {showWorkspaceMenu && (
           <div className="absolute left-0 top-11 w-64 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-2xl p-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
@@ -285,15 +287,6 @@ export function TopNav() {
 
       {/* Right Controls */}
       <div className="flex items-center gap-2.5 relative">
-        {/* Quick Post Button */}
-        <Link
-          href="/composer"
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-sm shadow-blue-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>New Post</span>
-        </Link>
-
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
@@ -301,21 +294,6 @@ export function TopNav() {
           className="w-9 h-9 rounded-xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors"
         >
           {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
-        </button>
-
-        {/* Support & Feedback Trigger */}
-        <button
-          onClick={() => {
-            setShowSupport(true);
-            setShowNotifications(false);
-            setShowWorkspaceMenu(false);
-            setShowUserMenu(false);
-          }}
-          aria-label="Help & Support"
-          title="Customer Support & Feedback"
-          className="w-9 h-9 rounded-xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors"
-        >
-          <HelpCircle className="w-4 h-4" />
         </button>
 
         {/* Notifications Popover Toggle */}
@@ -437,19 +415,11 @@ export function TopNav() {
               setShowWorkspaceMenu(false);
               setShowNotifications(false);
             }}
-            className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Open account menu"
+            title={userProfile?.full_name || 'Account'}
+            className="app-user-avatar w-9 h-9 rounded-full border border-slate-200 dark:border-slate-700 bg-[#e8e7ff] text-[#5046a5] flex items-center justify-center text-xs font-semibold hover:ring-2 hover:ring-violet-200 transition"
           >
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shadow-sm shadow-blue-500/20">
-              {userProfile?.full_name ? userProfile.full_name[0].toUpperCase() : 'T'}
-            </div>
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 hidden md:inline max-w-[110px] truncate">
-              {userProfile?.full_name || 'Teja Ganugula'}
-            </span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
-                showUserMenu ? 'rotate-180' : ''
-              }`}
-            />
+            {userProfile?.full_name ? userProfile.full_name.split(/\\s+/).map((name: string) => name[0]).slice(0,2).join('').toUpperCase() : 'TG'}
           </button>
 
           {showUserMenu && (
@@ -468,6 +438,14 @@ export function TopNav() {
                   {userProfile?.email || 'tejag.vijay@gmail.com'}
                 </div>
               </div>
+
+              <button
+                onClick={() => { setShowSupport(true); setShowUserMenu(false); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60 font-medium transition-colors"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                <span>Help &amp; Support</span>
+              </button>
 
               {/* Menu Links */}
               <div className="space-y-0.5 py-1">
