@@ -1555,3 +1555,93 @@ body {
     padding: 21px 14px;
   }
 }
+
+
+/* GT InnoX official mark and true black dark theme. */
+@layer base {
+  .dark {
+    --background: #000000;
+    --foreground: #f5f5f5;
+    --card: #111111;
+    --card-foreground: #f5f5f5;
+    --popover: #111111;
+    --popover-foreground: #f5f5f5;
+    --primary: #0a66c2;
+    --primary-foreground: #ffffff;
+    --secondary: #191919;
+    --secondary-foreground: #ededed;
+    --muted: #171717;
+    --muted-foreground: #a3a3a3;
+    --accent: #202020;
+    --accent-foreground: #ededed;
+    --border: #292929;
+    --input: #383838;
+    --ring: #70b5f9;
+    --sidebar-background: #080808;
+    --sidebar-foreground: #f5f5f5;
+    --sidebar-border: #242424;
+  }
+}
+.dark .app-shell,
+.dark body { background: #000 !important; }
+.dark .app-sidebar {
+  background: #080808 !important;
+  border-color: #242424 !important;
+}
+.dark .app-topbar {
+  background: rgba(8, 8, 8, .94) !important;
+  border-color: #242424 !important;
+}
+.dark .app-sidebar .app-brand > div:first-child,
+.dark .auth-page-centered .auth-brand-mark {
+  background: #fff !important;
+  border-color: #fff !important;
+  box-shadow: none !important;
+}
+.dark .app-main [class*="dark:bg-[#"],
+.dark .app-main [class*="dark:bg-slate-"],
+.dark .app-main [class*="dark:bg-gray-"],
+.dark .app-main [class*="dark:bg-zinc-"] {
+  background-color: #111 !important;
+}
+.dark .chat-prompt-card-designed {
+  background: linear-gradient(135deg, #171717 0%, #101010 54%, #191919 100%) !important;
+  border-color: #292929 !important;
+}
+.dark .chat-prompt-composer,
+.dark .chat-prompt-actions a {
+  background: #111 !important;
+  border-color: #303030 !important;
+}
+.dark .chat-prompt-actions a { color: #d4d4d4; }
+.dark .app-sidebar nav a.app-nav-active {
+  background: #1a1a1a !important;
+  color: #f5f5f5 !important;
+  box-shadow: inset 3px 0 0 #0a66c2 !important;
+}
+.dark .auth-page-centered {
+  color: #f5f5f5 !important;
+  background: #000 !important;
+}
+.dark .auth-page-centered .auth-brand-lockup { color: #f5f5f5; }
+.dark .auth-page-centered .auth-brand-lockup small,
+.dark .auth-page-centered .auth-site-footer { color: #a3a3a3; }
+.dark .auth-page-centered [class*="bg-slate-900/60"],
+.dark .auth-page-centered [class*="bg-slate-900/95"] {
+  background: #111 !important;
+  border-color: #292929 !important;
+}
+.dark .auth-page-centered [class~="text-white"],
+.dark .auth-page-centered [class~="text-slate-100"],
+.dark .auth-page-centered [class~="text-slate-200"],
+.dark .auth-page-centered [class~="text-slate-300"] { color: #f5f5f5 !important; }
+.dark .auth-page-centered [class~="text-slate-400"] { color: #a3a3a3 !important; }
+.dark .auth-page-centered input:not([type="checkbox"]) {
+  background: #090909 !important;
+  border-color: #343434 !important;
+  color: #f5f5f5 !important;
+}
+.dark .auth-page-centered [type="submit"] {
+  background: #f5f5f5 !important;
+  color: #111 !important;
+}
