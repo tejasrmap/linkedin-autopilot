@@ -1653,10 +1653,10 @@ body {
   margin-inline: auto;
   color: var(--foreground);
 }
-.chat-page:not(.chat-page-privacy):not(.chat-page-terms)::before {
+.chat-page:not(.chat-page-privacy):not(.chat-page-terms):not(.chat-page-ai-studio)::before {
   content: "LINKEDIN AUTOPILOT  /  WORKSPACE";
   display: block;
-  margin: 0 0 -12px;
+  margin: 0 0 10px;
   color: var(--muted-foreground);
   font-size: 9px;
   font-weight: 700;
@@ -1790,7 +1790,7 @@ body {
   .chat-page-ai-studio > div:nth-child(3) > div[class*="grid"] > div:last-child {
     min-height: 280px;
   }
-  .chat-page:not(.chat-page-privacy):not(.chat-page-terms)::before { margin-bottom: -8px; }
+  .chat-page:not(.chat-page-privacy):not(.chat-page-terms):not(.chat-page-ai-studio)::before { margin-bottom: 8px; }
 }
 
 .chat-page-ai-studio [class*="lg:grid-cols-2"] {
