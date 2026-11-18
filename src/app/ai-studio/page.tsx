@@ -138,6 +138,7 @@ function AIStudioContent() {
       const storedKey = localStorage.getItem('gemini_api_key') || '';
       setGeminiApiKey(storedKey);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const getAiHeaders = () => {

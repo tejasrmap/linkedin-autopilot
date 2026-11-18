@@ -105,6 +105,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshWorkspaces();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleCollapsed = () => setCollapsed((v) => !v);

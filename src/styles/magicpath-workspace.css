@@ -110,6 +110,9 @@
 .is-dark .btn-primary:hover { background: #fff; }
 .btn-secondary { color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); }
 .btn-secondary:hover { background: var(--surface-soft); border-color: #c8cacf; }
+.btn-danger { color: #fff !important; background: #e05252; border: 1px solid #d43f3f; }
+.btn-danger:hover { background: #cf3c3c; }
+.is-dark .btn-danger { background: #d44848; border-color: #d44848; color: #fff !important; }
 .btn-quiet { color: var(--muted); background: transparent; border: 1px solid transparent; }
 .text-button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--muted); font-size: 11px !important; font-weight: 550; }
 .text-button:hover { color: var(--ink); }
@@ -397,9 +400,26 @@
 .usage-track { height: 5px; background: var(--sidebar); border-radius: 9px; overflow: hidden; }.usage-track i { display: block; height: 100%; background: #7f9eba; border-radius: 9px; }
 .payment-method { display: flex; align-items: center; gap: 9px; padding: 13px 0; margin-top: 10px; border-bottom: 1px solid var(--line); }.payment-icon { width: 37px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; font-size: 7px; color: #486b90; font-weight: 800; font-style: italic; }.payment-method > div { display: flex; flex-direction: column; gap: 4px; flex: 1; }.payment-method b { font-size: 9px; font-weight: 550; }.payment-method small { color: var(--muted); font-size: 8px; }.billing-link { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: transparent; color: var(--muted); padding: 12px 0 0; font-size: 9px !important; }
 
-.toast-message { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow); font-size: 10px; animation: toast-in .2s ease-out; }
+.toast-message { position: fixed; z-index: 90; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow); font-size: 11px; font-weight: 520; animation: toast-in .2s ease-out; }
 .toast-check { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: white; background: #4b9c73; }
+.toast-error { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: white; background: #e05252; }
+.toast-info { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--brand); }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 7px); } to { opacity: 1; transform: translate(-50%,0); } }
+
+/* Modern MagicPath Modals & Dialogs */
+.magicpath-scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 16px; animation: modal-fade-in .15s ease-out; }
+.magicpath-modal { width: 100%; max-width: 520px; background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.18); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; animation: modal-scale-in .15s ease-out; }
+.magicpath-modal.modal-sm { max-width: 400px; }
+.magicpath-modal.modal-lg { max-width: 680px; }
+.magicpath-modal.modal-xl { max-width: 840px; }
+.magicpath-modal-header { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.magicpath-modal-title { display: flex; align-items: center; gap: 10px; }
+.magicpath-modal-title h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.02em; }
+.magicpath-modal-title p { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+.magicpath-modal-body { padding: 20px; overflow-y: auto; font-size: 12px; line-height: 1.5; }
+.magicpath-modal-footer { padding: 14px 20px; display: flex; align-items: center; justify-content: flex-end; gap: 9px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+@keyframes modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-scale-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
 .mobile-scrim { display: none; }
 
 .certificate-layout { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(250px,.8fr); gap: 14px; align-items: start; max-width: 980px; margin: 0 auto; }

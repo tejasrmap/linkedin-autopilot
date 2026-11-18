@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
+import { Icon } from '@/components/magicpath/icons';
 
 export type ToastType = 'success' | 'error' | 'info';
 
@@ -33,7 +33,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       type = 'info',
       title,
       message,
-      duration = 4000,
+      duration = 3200,
     }: {
       type?: ToastType;
       title?: string;
@@ -61,7 +61,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const error = useCallback(
     (message: string, title = 'Error') => {
-      addToast({ type: 'error', title, message, duration: 6000 });
+      addToast({ type: 'error', title, message, duration: 5000 });
     },
     [addToast]
   );
@@ -76,47 +76,27 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast: addToast, success, error, info }}>
       {children}
-      {/* Toast Notification Container */}
-      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
-        {toasts.map((t) => {
-          const icon = {
-            success: <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />,
-            error: <AlertCircle className="w-4 h-4 text-rose-500 mt-0.5 flex-shrink-0" />,
-            info: <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />,
-          }[t.type];
+      {toasts.length > 0 && (
+        <div style={{ position: 'fixed', zIndex: 9999, left: '50%', bottom: '24px', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center', pointerEvents: 'none' }}>
+          {toasts.map((t) => {
+            const isError = t.type === 'error';
+            const isSuccess = t.type === 'success';
 
-          const borderColor = {
-            success: 'border-emerald-500/20 bg-white/95 dark:bg-[#0f172a]/95 text-slate-800 dark:text-slate-100',
-            error: 'border-rose-500/20 bg-white/95 dark:bg-[#0f172a]/95 text-slate-800 dark:text-slate-100',
-            info: 'border-blue-500/20 bg-white/95 dark:bg-[#0f172a]/95 text-slate-800 dark:text-slate-100',
-          }[t.type];
-
-          return (
-            <div
-              key={t.id}
-              className={`pointer-events-auto p-3.5 rounded-2xl border shadow-xl backdrop-blur-xl transition-all animate-in slide-in-from-bottom-5 fade-in duration-200 flex items-start gap-3 ${borderColor}`}
-            >
-              {icon}
-              <div className="flex-1 min-w-0 text-xs">
-                {t.title && (
-                  <div className="font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-                    {t.title}
-                  </div>
-                )}
-                <div className="text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed break-words">
-                  {t.message}
-                </div>
-              </div>
-              <button
-                onClick={() => removeToast(t.id)}
-                className="w-5 h-5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center justify-center transition-colors flex-shrink-0"
+            return (
+              <div
+                key={t.id}
+                className="toast-message"
+                style={{ position: 'relative', left: 'auto', bottom: 'auto', transform: 'none', pointerEvents: 'auto' }}
               >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+                <span className={isError ? 'toast-error' : isSuccess ? 'toast-check' : 'toast-info'}>
+                  <Icon name={isError ? 'close' : isSuccess ? 'check' : 'info'} size={12} strokeWidth={2.2} />
+                </span>
+                <span>{t.message}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </ToastContext.Provider>
   );
 }
@@ -128,4 +108,3 @@ export function useToast() {
   }
   return context;
 }
-
