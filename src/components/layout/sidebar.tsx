@@ -74,7 +74,7 @@ function NavLinks() {
             <Link
               key={item.name}
               href={item.href}
-              className={`app-nav-link group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+              className={`app-nav-link ${item.highlight && !isActive ? 'app-new-post' : ''} group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                 isActive
                   ? 'app-nav-active bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
                   : item.highlight
