@@ -45,7 +45,7 @@ export default function CertificateAnnouncementPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="chat-page chat-page-certificate space-y-6">
       <header className="flex items-start gap-3">
         <div className="rounded-xl bg-indigo-500/10 p-3 text-indigo-500"><Award className="w-6 h-6" /></div>
         <div><h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Certificate post</h1>
