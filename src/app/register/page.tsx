@@ -70,7 +70,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="auth-page h-screen max-h-screen w-full flex bg-[#070b14] text-slate-100 relative overflow-hidden font-sans select-none">
+    <div className="auth-page auth-page-centered h-screen max-h-screen w-full flex bg-[#070b14] text-slate-100 relative overflow-hidden font-sans select-none">
+
+      <div className="auth-brand-lockup">
+        <span className="auth-brand-mark"><GTInnoXLogo className="h-9 w-9" /></span>
+        <span><b>LinkedIn Autopilot</b><small>by GT InnoX LLP</small></span>
+      </div>
+
       {/* Background Decorative Ambient Glows */}
       <div className="absolute -top-32 -left-32 w-80 h-80 bg-blue-600/20 rounded-full blur-[110px] pointer-events-none" />
       <div className="absolute top-1/2 -right-32 w-96 h-96 bg-indigo-600/15 rounded-full blur-[130px] pointer-events-none" />
@@ -85,7 +91,7 @@ export default function RegisterPage() {
         }}
       />
 
-      <div className="relative z-10 w-full grid grid-cols-1 lg:grid-cols-12 h-screen max-h-screen overflow-hidden">
+      <div className="auth-layout relative z-10 w-full grid grid-cols-1 lg:grid-cols-12 h-screen max-h-screen overflow-hidden">
         {/* Left Side: Brand Narrative */}
         <div className="hidden lg:flex lg:col-span-7 flex-col justify-between p-8 xl:p-12 border-r border-slate-800/60 bg-gradient-to-b from-slate-900/40 via-transparent to-slate-950/60 backdrop-blur-sm h-full overflow-hidden">
           {/* Top Brand Logo */}
@@ -337,6 +343,10 @@ export default function RegisterPage() {
           </div>
         </div>
       </div>
+      <footer className="auth-site-footer">
+        <span>© 2026 GT InnoX LLP</span>
+        <span><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></span>
+      </footer>
     </div>
   );
 }
