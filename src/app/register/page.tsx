@@ -70,7 +70,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="h-screen max-h-screen w-full flex bg-[#070b14] text-slate-100 relative overflow-hidden font-sans select-none">
+    <div className="auth-page h-screen max-h-screen w-full flex bg-[#070b14] text-slate-100 relative overflow-hidden font-sans select-none">
       {/* Background Decorative Ambient Glows */}
       <div className="absolute -top-32 -left-32 w-80 h-80 bg-blue-600/20 rounded-full blur-[110px] pointer-events-none" />
       <div className="absolute top-1/2 -right-32 w-96 h-96 bg-indigo-600/15 rounded-full blur-[130px] pointer-events-none" />

@@ -74,9 +74,9 @@ function NavLinks() {
             <Link
               key={item.name}
               href={item.href}
-              className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+              className={`app-nav-link group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                 isActive
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
+                  ? 'app-nav-active bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
                   : item.highlight
                   ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
@@ -87,7 +87,7 @@ function NavLinks() {
                   isActive ? 'text-white' : item.highlight ? 'text-blue-500' : 'text-slate-400'
                 }`}
               />
-              <span className="flex-1 truncate">{item.name}</span>
+              <span className="app-nav-label flex-1 truncate">{item.name}</span>
               {item.badge && !isActive && (
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                   {item.badge}
@@ -102,7 +102,7 @@ function NavLinks() {
       </nav>
 
       <div className="pt-4">
-        <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2 flex items-center justify-between">
+        <div className="app-section-label text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2 flex items-center justify-between">
           <span>Workspace &amp; Settings</span>
         </div>
         <nav className="space-y-1">
@@ -139,9 +139,9 @@ function NavLinks() {
 
 export function Sidebar() {
   return (
-    <aside className="w-64 flex-shrink-0 flex flex-col border-r border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-xl h-screen sticky top-0 select-none z-30 transition-colors">
+    <aside className="app-sidebar w-64 flex-shrink-0 flex flex-col border-r border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-xl h-screen sticky top-0 select-none z-30 transition-colors">
       {/* Brand Header */}
-      <div className="h-16 flex items-center px-5 border-b border-slate-200/80 dark:border-slate-800/80 gap-3">
+      <div className="app-brand h-16 flex items-center px-5 border-b border-slate-200/80 dark:border-slate-800/80 gap-3">
         <div className="w-10 h-10 rounded-xl bg-slate-900/90 dark:bg-slate-950 border border-slate-700/60 p-1 flex items-center justify-center shadow-lg shadow-indigo-500/10 flex-shrink-0 group">
           <GTInnoXLogo className="w-full h-full drop-shadow-md transition-transform group-hover:scale-105" />
         </div>
@@ -162,7 +162,7 @@ export function Sidebar() {
       {/* Navigation List */}
       <div className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
         <div>
-          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-1.5 flex items-center justify-between">
+          <div className="app-section-label text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-1.5 flex items-center justify-between">
             <span>Publishing Engine</span>
           </div>
           <Suspense fallback={<div className="h-40 animate-pulse bg-slate-100 dark:bg-slate-800/40 rounded-xl" />}>
@@ -181,7 +181,7 @@ export function Sidebar() {
             <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">
               OAuth 2.0 &amp; RLS
             </div>
-            <div className="text-[10px] text-slate-400 truncate">
+            <div className="app-security-copy text-[10px] text-slate-400 truncate">
               AES-256 Token Encryption
             </div>
           </div>

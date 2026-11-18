@@ -202,7 +202,7 @@ export function TopNav() {
   return (
     <header
       ref={navRef}
-      className="h-16 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-[#0b0f19]/80 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 transition-colors"
+      className="app-topbar h-16 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-[#0b0f19]/80 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 transition-colors"
     >
       {/* Left: Workspace Selector & Menu */}
       <div className="relative">
