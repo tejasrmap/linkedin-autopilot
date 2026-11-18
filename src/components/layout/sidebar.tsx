@@ -28,7 +28,7 @@ import {
 
 const mainNavigation = [
   { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'AI Studio', href: '/ai-studio', icon: Sparkles, badge: 'AI' },
+  { name: 'AI Studio', href: '/ai-studio', icon: Sparkles },
   { name: 'Certificate Post', href: '/ai-studio/certificate', icon: Award },
   { name: 'Content Calendar', href: '/calendar', icon: Calendar },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
@@ -79,25 +79,18 @@ function NavLinks() {
               key={item.name}
               href={item.href}
               title={item.name}
-              className={`app-nav-link ${item.highlight && !isActive ? 'app-new-post' : ''} group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+              className={`app-nav-link group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                 isActive
-                  ? 'app-nav-active bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
-                  : item.highlight
-                  ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40'
+                  ? 'app-nav-active'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               <Icon
                 className={`w-4 h-4 transition-transform group-hover:scale-110 flex-shrink-0 ${
-                  isActive ? 'text-white' : item.highlight ? 'text-blue-500' : 'text-slate-400'
+                  isActive ? 'text-current' : 'text-slate-400'
                 }`}
               />
               <span className="app-nav-label flex-1 truncate">{item.name}</span>
-              {item.badge && !isActive && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                  {item.badge}
-                </span>
-              )}
               {isActive && (
                 <ChevronRight className="w-3.5 h-3.5 animate-in fade-in" />
               )}
