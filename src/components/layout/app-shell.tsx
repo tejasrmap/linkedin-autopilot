@@ -10,15 +10,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/register');
 
   if (isAuthPage) {
-    return <main className="min-h-screen bg-slate-50 dark:bg-[#0b0f19]">{children}</main>;
+    return <main className="min-h-screen bg-background text-foreground">{children}</main>;
   }
 
   return (
-    <div className="app-shell flex min-h-screen bg-slate-50 dark:bg-[#0b0f19]">
+    <div className="app-shell flex min-h-screen bg-background text-foreground">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <TopNav />
-        <main className="app-main flex-1 p-6 lg:p-8 w-full mx-auto">{children}</main>
+        <main className="app-main flex-1 w-full mx-auto">{children}</main>
       </div>
     </div>
   );

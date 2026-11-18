@@ -20,10 +20,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const saved = localStorage.getItem('theme') as Theme | null;
-    const hasMagicPathTheme = localStorage.getItem('theme-magicpath-v1') === 'true';
-    const initial = hasMagicPathTheme && (saved === 'dark' || saved === 'light') ? saved : 'light';
+    const hasMagicPathThemeV2 = localStorage.getItem('theme-magicpath-v2') === 'true';
+    const initial = hasMagicPathThemeV2 && (saved === 'dark' || saved === 'light') ? saved : 'light';
     localStorage.setItem('theme', initial);
-    localStorage.setItem('theme-magicpath-v1', 'true');
+    localStorage.setItem('theme-magicpath-v2', 'true');
     setTheme(initial);
     if (initial === 'dark') {
       document.documentElement.classList.add('dark');

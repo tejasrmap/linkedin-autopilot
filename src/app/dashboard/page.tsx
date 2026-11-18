@@ -2,29 +2,30 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { OnboardingCard } from '@/components/dashboard/onboarding-card';
 import {
-  CheckCircle2,
   Clock,
-  FileText,
-  AlertOctagon,
-  TrendingUp,
-  Linkedin,
-  ArrowUpRight,
-  PlusCircle,
+  CheckCircle2,
   Eye,
-  ThumbsUp,
-  MessageSquare,
-  Repeat2,
-  Calendar,
-  AlertCircle,
-  Sparkles,
+  TrendingUp,
+  FileText,
+  Linkedin,
   Building,
   User,
+  PlusCircle,
+  Calendar,
+  Sparkles,
   ArrowRight,
-  RefreshCw,
-  Loader2,
 } from 'lucide-react';
+
+function MetricCard({ label, value, icon }: { label: string; value: React.ReactNode; icon: 'published' | 'scheduled' | 'impressions' | 'engagement' }) {
+  const Icon = icon === 'published' ? CheckCircle2 : icon === 'scheduled' ? Clock : icon === 'impressions' ? Eye : TrendingUp;
+  return (
+    <article className="workspace-metric-card">
+      <div className="workspace-metric-top"><span>{label}</span><span className="workspace-metric-icon"><Icon className="w-4 h-4" /></span></div>
+      <strong>{value}</strong>
+    </article>
+  );
+}
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<any>(() => {
@@ -107,46 +108,12 @@ export default function DashboardPage() {
 
   return (
     <div className="chat-page chat-page-dashboard space-y-6 animate-in fade-in duration-300">
-      {/* Top Banner / Welcome Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="workspace-page-header">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              Overview
-            </h1>
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Your publishing command center. Plan, create, and measure every LinkedIn post in one place.
-          </p>
+          <h1>Overview</h1>
+          <p>Your LinkedIn workspace, at a glance.</p>
         </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={loadDashboardData}
-            disabled={loading}
-            className="w-9 h-9 rounded-xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm"
-            title="Refresh Metrics"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-
-          <Link
-            href="/ai-studio"
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100/50 transition-all shadow-sm"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            <span>AI Studio</span>
-          </Link>
-
-          <Link
-            href="/composer"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>Create Post</span>
-          </Link>
-        </div>
-      </div>
+      </header>
 
       <section className="chat-prompt-card chat-prompt-card-designed">
         <div className="chat-prompt-intro">
@@ -181,9 +148,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Interactive Onboarding Checklist */}
-      <OnboardingCard accountsConnected={metrics.accountsConnected} totalPosts={metrics.totalPosts} />
-
       {/* Onboarding Banner if no accounts are connected */}
       {metrics.accountsConnected === 0 && !loading && (
         <div className="p-5 rounded-2xl border border-blue-200/80 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4 backdrop-blur-sm">
@@ -210,148 +174,21 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Metric Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Published */}
-        <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm hover:shadow-md transition-all space-y-2 group">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Total Published</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center transition-transform group-hover:scale-110">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight">
-            {metrics.publishedCount}
-          </div>
-          <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Confirmed via LinkedIn REST API</span>
-          </div>
-        </div>
-
-        {/* Scheduled */}
-        <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm hover:shadow-md transition-all space-y-2 group">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Scheduled Queue</span>
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center transition-transform group-hover:scale-110">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight">
-            {metrics.scheduledCount}
-          </div>
-          <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-            <Calendar className="w-3.5 h-3.5 text-blue-500" />
-            <span>Automated by background worker</span>
-          </div>
-        </div>
-
-        {/* Drafts */}
-        <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm hover:shadow-md transition-all space-y-2 group">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Drafts Saved</span>
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center transition-transform group-hover:scale-110">
-              <FileText className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight">
-            {metrics.draftCount}
-          </div>
-          <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-            Ready for review or scheduling
-          </div>
-        </div>
-
-        {/* Failed */}
-        <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm hover:shadow-md transition-all space-y-2 group">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Failed Attempts</span>
-            <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center transition-transform group-hover:scale-110">
-              <AlertOctagon className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-3xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight">
-            {metrics.failedCount}
-          </div>
-          <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-            Retryable with 1-click in Queue
-          </div>
-        </div>
-      </div>
-
-      {/* Engagement Stats Grid (Real Data / Official Notice) */}
-      <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-blue-500" />
-              <span>Official Engagement Analytics</span>
-            </h2>
-            <p className="text-xs text-slate-400">Retrieved from LinkedIn Share Statistics API</p>
-          </div>
-          <Link
-            href="/analytics"
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1 hover:underline"
-          >
-            <span>Full Report</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-              <Eye className="w-3.5 h-3.5 text-blue-500" /> Impressions
-            </div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              {metrics.engagement.impressions !== null ? metrics.engagement.impressions : 'Pending'}
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-              <ThumbsUp className="w-3.5 h-3.5 text-emerald-500" /> Reactions
-            </div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              {metrics.engagement.reactions !== null ? metrics.engagement.reactions : 'Pending'}
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-              <MessageSquare className="w-3.5 h-3.5 text-indigo-500" /> Comments
-            </div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              {metrics.engagement.comments !== null ? metrics.engagement.comments : 'Pending'}
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-              <Repeat2 className="w-3.5 h-3.5 text-amber-500" /> Reposts
-            </div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              {metrics.engagement.reposts !== null ? metrics.engagement.reposts : 'Pending'}
-            </div>
-          </div>
-        </div>
-
-        {metrics.engagement.notice && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 text-[11px] text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/50">
-            <AlertCircle className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-            <span>{metrics.engagement.notice}</span>
-          </div>
-        )}
-      </div>
+      <section className="workspace-metric-grid" aria-label="Workspace performance">
+        <MetricCard label="Posts published" value={loading ? '—' : metrics.publishedCount ?? 0} icon="published" />
+        <MetricCard label="Scheduled" value={loading ? '—' : metrics.scheduledCount ?? 0} icon="scheduled" />
+        <MetricCard label="Impressions" value={metrics.engagement?.impressions == null ? '—' : Number(metrics.engagement.impressions).toLocaleString()} icon="impressions" />
+        <MetricCard label="Engagement rate" value={metrics.engagement?.impressions > 0 ? `${(((Number(metrics.engagement.reactions || 0) + Number(metrics.engagement.comments || 0) + Number(metrics.engagement.reposts || 0)) / Number(metrics.engagement.impressions)) * 100).toFixed(1)}%` : '—'} icon="engagement" />
+      </section>
 
       {/* Dual Column: Upcoming Scheduled & Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="workspace-post-panels grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming Scheduled Posts */}
         <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <div className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-500" />
-              <span>Upcoming Scheduled Posts</span>
+              <span>Upcoming</span>
             </div>
             <Link href="/posts?tab=scheduled" className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
               View All
@@ -409,10 +246,10 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-emerald-500" />
-              <span>Recent Publishing Activity</span>
+              <span>Recent posts</span>
             </div>
             <Link href="/posts?tab=published" className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
-              View History
+              View all
             </Link>
           </div>
 

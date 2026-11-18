@@ -1808,3 +1808,120 @@ body {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+
+/* Workspace shell: compact navigation and predictable responsive sizing. */
+.app-shell { min-height: 100svh; background: var(--background); }
+.app-sidebar {
+  width: 252px;
+  flex-basis: 252px;
+  background: var(--card);
+  border-color: var(--border);
+}
+.app-sidebar .app-brand { height: 68px; }
+.app-sidebar .app-brand-mark { border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.app-sidebar.is-collapsed .app-brand-copy,
+.app-sidebar.is-collapsed .app-profile-copy,
+.app-sidebar.is-collapsed .app-profile-settings { display: none; }
+.app-sidebar.is-collapsed .app-brand { padding-inline: 12px; justify-content: center; }
+.app-sidebar.is-collapsed .app-brand-mark { width: 38px; height: 38px; }
+.app-sidebar .app-new-post { margin: 14px 12px 8px; min-height: 42px; }
+.app-sidebar .app-nav-link { min-height: 38px; border-radius: 9px; font-size: 13px; }
+.app-sidebar .app-section-label { font-size: 10px; letter-spacing: .09em; }
+.app-sidebar .app-nav-active {
+  color: var(--foreground) !important;
+  background: var(--accent) !important;
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.app-sidebar-footer { background: var(--card); }
+.app-profile-avatar { flex: 0 0 auto; }
+.app-topbar {
+  height: 64px;
+  padding-inline: clamp(16px, 2.2vw, 32px);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  border-color: var(--border);
+}
+.workspace-header-context { padding-left: 2px; }
+.app-user-avatar { flex: 0 0 auto; }
+.app-main { padding: clamp(22px, 2.4vw, 36px) clamp(22px, 3.2vw, 58px) 48px; }
+.chat-page { width: 100%; max-width: 1280px; }
+.chat-page:not(.chat-page-privacy):not(.chat-page-terms):not(.chat-page-ai-studio)::before {
+  content: none;
+}
+.workspace-page-header { margin-bottom: 22px; }
+.workspace-page-header h1 { margin: 0; font-size: clamp(26px, 2vw, 32px); line-height: 1.2; letter-spacing: -.045em; }
+.workspace-page-header p { margin: 7px 0 0; color: var(--muted-foreground); font-size: 14px; }
+.chat-prompt-card-designed {
+  min-height: 390px;
+  justify-content: center;
+  padding: clamp(28px, 4vw, 54px);
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, #f6f8ff 0%, #f6f5fb 55%, #f3f8ff 100%);
+}
+.workspace-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.workspace-metric-card {
+  min-width: 0;
+  padding: 18px 19px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(20,30,50,.035);
+}
+.workspace-metric-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.workspace-metric-top > span:first-child { color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
+.workspace-metric-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  color: #5d57a7;
+  border-radius: 10px;
+  background: #f0efff;
+}
+.workspace-metric-card strong {
+  display: block;
+  margin-top: 13px;
+  color: var(--foreground);
+  font-size: clamp(24px, 2vw, 30px);
+  line-height: 1;
+  font-weight: 650;
+  letter-spacing: -.04em;
+}
+.workspace-post-panels > div {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(20,30,50,.035);
+}
+.dark .chat-prompt-card-designed {
+  background: linear-gradient(135deg, #171717 0%, #111 55%, #191919 100%);
+  border-color: #292929;
+}
+.dark .workspace-metric-icon { color: #c5c0ff; background: #27243d; }
+@media (max-width: 1080px) {
+  .app-sidebar { width: 228px; flex-basis: 228px; }
+  .workspace-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .app-sidebar { width: 64px; flex-basis: 64px; }
+  .app-sidebar .app-brand { padding-inline: 8px; justify-content: center; }
+  .app-sidebar .app-brand-copy,
+  .app-sidebar .app-sidebar-toggle { display: none !important; }
+  .app-main { padding: 20px 16px 32px; }
+  .app-topbar { padding-inline: 12px; }
+  .workspace-header-context { display: none; }
+  .chat-prompt-card-designed { min-height: 0; padding: 24px 16px; }
+  .workspace-metric-grid { gap: 10px; }
+  .workspace-metric-card { padding: 14px; }
+  .workspace-post-panels { gap: 14px; }
+}
+@media (max-width: 420px) {
+  .workspace-metric-grid { grid-template-columns: minmax(0, 1fr); }
+  .workspace-metric-card { display: flex; align-items: center; justify-content: space-between; }
+  .workspace-metric-card strong { margin-top: 0; }
+}
