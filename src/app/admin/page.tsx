@@ -94,7 +94,7 @@ export default function AdminDashboardPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50 flex items-center gap-2">
               <ShieldCheck className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-              GT InnoX SaaS Operations & Admin
+              Workspace administration
             </h1>
             <span
               className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
