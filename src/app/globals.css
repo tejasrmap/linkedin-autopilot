@@ -1526,3 +1526,10 @@ body {
   .auth-page-centered .rounded-2xl { padding: 22px !important; }
   .auth-site-footer { bottom: 14px; left: 16px; right: 16px; }
 }
+
+.auth-page-centered [class*="bg-slate-900/95"] {
+  border-color: #e4e4e7 !important;
+  background: #fff !important;
+  box-shadow: 0 16px 48px rgba(16,24,40,.16) !important;
+}
+.auth-page-centered .fixed.inset-0 { background: rgba(24,24,27,.42) !important; }
