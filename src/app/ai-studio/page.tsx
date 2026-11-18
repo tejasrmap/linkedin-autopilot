@@ -676,18 +676,14 @@ function AIStudioContent() {
 
   return (
     <div className="chat-page chat-page-ai-studio space-y-6 animate-in fade-in duration-200">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-indigo-500" />
-          AI Content Studio
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          Powered by Google Gemini. Generate viral posts, rewrite hooks, extract hashtags, and build strategic calendars.
-        </p>
+      <div className="magicpath-studio-heading">
+        <span className="magicpath-studio-kicker"><Sparkles className="w-3.5 h-3.5" /> AI STUDIO</span>
+        <h1>What would you like to create?</h1>
+        <p>Six focused tools to plan, write, and publish in your own voice.</p>
       </div>
 
       {/* Studio Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1 text-xs font-semibold">
+      <div className="ai-studio-tabs flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1 text-xs font-semibold">
         <button
           onClick={() => setActiveTab('generate')}
           className={`flex items-center gap-2 px-3 py-2 rounded-t-lg transition-colors ${
@@ -733,7 +729,7 @@ function AIStudioContent() {
           }`}
         >
           <Lightbulb className="w-3.5 h-3.5" />
-          Post Ideas
+          Ideas
         </button>
 
         <button
@@ -745,7 +741,7 @@ function AIStudioContent() {
           }`}
         >
           <Calendar className="w-3.5 h-3.5" />
-          7-Day Plan
+          Calendar
         </button>
 
         <button
@@ -767,7 +763,7 @@ function AIStudioContent() {
           <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Post Topic or Prompt
+                What do you want to talk about?
               </label>
               <textarea
                 value={topic}
@@ -780,7 +776,7 @@ function AIStudioContent() {
 
             {/* Quick-Start Prompt Starters */}
             <div className="space-y-1.5">
-              <span className="text-[10px] font-semibold text-slate-400">Quick Prompt Starters:</span>
+              <span className="text-[10px] font-semibold text-slate-400">Ideas to get started</span>
               <div className="flex flex-wrap gap-1.5">
                 {[
                   'Why most B2B founders struggle with enterprise sales in year one',
@@ -803,7 +799,7 @@ function AIStudioContent() {
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Target Audience
+                  Audience
                 </label>
                 <input
                   type="text"
@@ -815,7 +811,7 @@ function AIStudioContent() {
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Desired Tone
+                  Voice
                 </label>
                 <input
                   type="text"
@@ -829,7 +825,7 @@ function AIStudioContent() {
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Post Length
+                  Length
                 </label>
                 <div className="relative">
                   <select
@@ -847,7 +843,7 @@ function AIStudioContent() {
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Content Mode
+                  Format
                 </label>
                 <div className="relative">
                   <select
@@ -874,7 +870,7 @@ function AIStudioContent() {
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
             >
               {loadingGenerate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              Generate Grounded Post
+              Generate post
             </button>
           </div>
 
@@ -884,7 +880,7 @@ function AIStudioContent() {
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    AI Generated Draft
+                    Your draft
                   </span>
                   {uniquenessReport && (
                     <span

@@ -125,7 +125,7 @@ export default function CalendarPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                Content Calendar
+                Calendar
               </h1>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                 {thisMonthPostsCount} Posts This Month

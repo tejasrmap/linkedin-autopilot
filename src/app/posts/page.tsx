@@ -208,15 +208,15 @@ function PostsContent() {
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="chat-page chat-page-posts space-y-6 animate-in fade-in duration-200">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            Publishing Queue &amp; History
+            Your posts
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Monitor, edit, and audit personal and company page publications across workspaces.
+            Manage drafts, scheduled posts, and published content.
           </p>
         </div>
 

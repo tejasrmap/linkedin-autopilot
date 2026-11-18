@@ -148,10 +148,10 @@ export default function TeamPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Users className="w-5 h-5 text-blue-500" />
-            Team Workspace & Access Control
+            Team
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Multi-seat role-based permissions with row-level security isolation (Owner, Admin, Editor, Approver, Viewer).
+            Invite teammates and manage their workspace access.
           </p>
         </div>
 

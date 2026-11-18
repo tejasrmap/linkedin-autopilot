@@ -105,10 +105,10 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Settings className="w-5 h-5 text-blue-500" />
-          Workspace & Security Settings
+          Settings
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Configure default publishing timezones, brand voice architecture, notification channels, and encryption keys.
+          Manage your workspace preferences, brand voice, and security.
         </p>
       </div>
 

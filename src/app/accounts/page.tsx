@@ -222,10 +222,10 @@ function AccountsContent() {
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Linkedin className="w-5 h-5 text-blue-600" />
-            LinkedIn Destinations
+            LinkedIn accounts
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Manage authorized LinkedIn personal profiles and organization company pages for your workspace.
+            Manage the LinkedIn profiles and Pages connected to your workspace.
           </p>
         </div>
 

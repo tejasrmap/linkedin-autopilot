@@ -112,7 +112,7 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              Workspace Overview
+              Overview
             </h1>
             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
               WORKSPACE

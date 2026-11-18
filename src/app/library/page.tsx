@@ -119,10 +119,10 @@ export default function LibraryPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <FolderOpen className="w-5 h-5 text-blue-500" />
-            Media &amp; Asset Library
+            Media library
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Store and organize high-resolution images, videos, carousel PDFs, and brand collateral.
+            Keep the images and media you use in one place.
           </p>
         </div>
 
