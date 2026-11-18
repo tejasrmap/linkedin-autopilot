@@ -114,9 +114,6 @@ export default function DashboardPage() {
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
               Overview
             </h1>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-              WORKSPACE
-            </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Your publishing command center. Plan, create, and measure every LinkedIn post in one place.
