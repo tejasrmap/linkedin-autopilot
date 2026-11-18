@@ -104,7 +104,7 @@ export default function DashboardPage() {
   const recentPublished = recentPosts.filter((p) => p.status === 'published').slice(0, 4);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="chat-page chat-page-dashboard space-y-6 animate-in fade-in duration-300">
       {/* Top Banner / Welcome Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
