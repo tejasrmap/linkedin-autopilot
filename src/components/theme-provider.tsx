@@ -10,17 +10,20 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: 'dark',
+  theme: 'light',
   toggleTheme: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('theme') as Theme | null;
-    const initial = saved || 'dark';
+    const hasMagicPathThemeV2 = localStorage.getItem('theme-magicpath-v2') === 'true';
+    const initial = hasMagicPathThemeV2 && (saved === 'dark' || saved === 'light') ? saved : 'light';
+    localStorage.setItem('theme', initial);
+    localStorage.setItem('theme-magicpath-v2', 'true');
     setTheme(initial);
     if (initial === 'dark') {
       document.documentElement.classList.add('dark');
