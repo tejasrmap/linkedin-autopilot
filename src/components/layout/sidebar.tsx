@@ -206,7 +206,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
         <div>
           <div className="app-section-label text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-1.5 flex items-center justify-between">
-            <span>Publishing Engine</span>
+            <span>Workspace</span>
           </div>
           <Suspense fallback={<div className="h-40 animate-pulse bg-slate-100 dark:bg-slate-800/40 rounded-xl" />}>
             <NavLinks />
