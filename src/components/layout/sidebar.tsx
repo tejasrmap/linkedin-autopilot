@@ -21,7 +21,6 @@ import {
   Settings,
   CreditCard,
   ChevronRight,
-  ShieldCheck,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -169,21 +168,13 @@ export function Sidebar() {
   return (
     <aside className={`app-sidebar w-64 flex-shrink-0 flex flex-col border-r border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-xl h-screen sticky top-0 select-none z-30 transition-colors ${collapsed ? "is-collapsed" : ""}`}>
       {/* Brand Header */}
-      <div className="app-brand h-16 flex items-center px-5 border-b border-slate-200/80 dark:border-slate-800/80 gap-3">
-        <div className="w-10 h-10 rounded-xl bg-slate-900/90 dark:bg-slate-950 border border-slate-700/60 p-1 flex items-center justify-center shadow-lg shadow-indigo-500/10 flex-shrink-0 group">
-          <GTInnoXLogo className="w-full h-full drop-shadow-md transition-transform group-hover:scale-105" />
+      <div className="app-brand h-16 flex items-center px-4 border-b border-slate-200/80 dark:border-slate-800/80 gap-3">
+        <div className="app-brand-mark w-10 h-10 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center flex-shrink-0">
+          <GTInnoXLogo className="w-full h-full" />
         </div>
-        <div className="min-w-0">
-          <div className="font-bold text-sm tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-            <span className="truncate">LinkedIn Autopilot</span>
-            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex-shrink-0">
-              PRO
-            </span>
-          </div>
-          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
-            <span>by</span>
-            <span className="font-semibold bg-gradient-to-r from-cyan-400 via-indigo-400 to-pink-400 bg-clip-text text-transparent">GT InnoX LLP</span>
-          </div>
+        <div className="app-brand-copy min-w-0 flex-1">
+          <div className="font-semibold text-[15px] tracking-tight text-slate-900 dark:text-slate-100">autopilot</div>
+          <div className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500 dark:text-slate-400">LinkedIn workspace</div>
         </div>
         <button
           type="button"
@@ -214,21 +205,16 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Status & Security Badge Footer */}
-      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30">
-        <div className="flex items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 text-[11px]">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
-            <ShieldCheck className="w-4 h-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-              OAuth 2.0 &amp; RLS
-            </div>
-            <div className="app-security-copy text-[10px] text-slate-400 truncate">
-              AES-256 Token Encryption
-            </div>
-          </div>
-        </div>
+      {/* Account footer */}
+      <div className="app-sidebar-footer p-3 border-t border-slate-200/80 dark:border-slate-800/80">
+        <Link href="/settings" className="app-profile-card flex items-center gap-2.5 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors">
+          <span className="app-profile-avatar grid place-items-center w-9 h-9 rounded-full bg-[#e8e7ff] text-[#5046a5] text-xs font-semibold">TG</span>
+          <span className="app-profile-copy min-w-0 flex-1">
+            <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-200">Teja Ganugula</span>
+            <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">Pro workspace</span>
+          </span>
+          <Settings className="app-profile-settings w-4 h-4 text-slate-400" />
+        </Link>
       </div>
     </aside>
   );
