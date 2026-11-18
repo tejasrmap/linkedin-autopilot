@@ -104,20 +104,20 @@ export default function DashboardPage() {
   const recentPublished = recentPosts.filter((p) => p.status === 'published').slice(0, 4);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-6 animate-in fade-in duration-300">
       {/* Top Banner / Welcome Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
               Workspace Overview
             </h1>
             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-              Enterprise Live
+              WORKSPACE
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Centralized multi-destination publishing, automated scheduling, and AI studio for GT InnoX LLP.
+            Your publishing command center. Plan, create, and measure every LinkedIn post in one place.
           </p>
         </div>
 
