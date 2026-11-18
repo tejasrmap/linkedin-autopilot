@@ -52,10 +52,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (cached) return JSON.parse(cached);
       } catch {}
     }
-    return {
-      name: "Lead Developer (GT InnoX)'s Workspace",
-      id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31',
-    };
+    return null;
   });
 
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
@@ -65,7 +62,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (cached) return JSON.parse(cached);
       } catch {}
     }
-    return { full_name: 'Teja Ganugula', email: 'teja@gtinnox.com' };
+    return { full_name: '', email: '' };
   });
 
   const setCurrentWs = (ws: Workspace) => {
@@ -86,15 +83,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           (data.workspaces || []).find((w: any) => w.id === data.currentWorkspaceId) ||
           data.workspaces?.[0];
         const resolvedWs =
-          active || {
-            name: "Lead Developer (GT InnoX)'s Workspace",
-            id: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31',
-          };
-        setCurrentWs(resolvedWs);
+          active || (data.user ? {
+            name: `${data.user.full_name || data.user.email?.split('@')[0] || 'My'}'s Workspace`,
+            id: data.currentWorkspaceId || '',
+          } : null);
+        if (resolvedWs) setCurrentWs(resolvedWs);
 
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('autopilot_workspaces', JSON.stringify(data.workspaces || []));
-          sessionStorage.setItem('autopilot_current_ws', JSON.stringify(resolvedWs));
+          if (resolvedWs) sessionStorage.setItem('autopilot_current_ws', JSON.stringify(resolvedWs));
           sessionStorage.setItem('autopilot_user', JSON.stringify(data.user || {}));
         }
       }

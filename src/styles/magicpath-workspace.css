@@ -638,8 +638,9 @@
 .idea-result-card .text-button { white-space: nowrap; font-size: 11px; }
 .calendar-preview { background: var(--surface); border: 1px solid var(--line); padding: 13px; border-radius: 12px; }
 .calendar-preview-head { display: flex; justify-content: space-between; align-items: center; font-size: 10px; letter-spacing: .06em; }
-.calendar-day-row { display: flex; align-items: center; gap: 11px; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.calendar-day-row > span { width: 33px; color: #7658d6; font-size: 9px; font-weight: 700; }
+.calendar-day-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.calendar-day-row > span { min-width: 75px; flex-shrink: 0; color: #7658d6; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.is-dark .calendar-day-row > span { color: #a58aff; }
 .calendar-day-row div { flex: 1; display: grid; gap: 3px; }
 .calendar-day-row b { font-size: 11px; }
 .calendar-day-row small { font-size: 10px; color: var(--muted); }

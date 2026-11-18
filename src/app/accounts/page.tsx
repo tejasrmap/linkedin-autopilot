@@ -173,16 +173,16 @@ function AccountsContent() {
 
                 <div className="account-stats">
                   <div>
-                    <b>18</b>
-                    <small>Published posts</small>
+                    <b>OAuth 2.0</b>
+                    <small>Authentication</small>
                   </div>
                   <div>
-                    <b>24.8k</b>
-                    <small>Impressions this month</small>
+                    <b>{new Date(acc.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</b>
+                    <small>Connected date</small>
                   </div>
                   <div>
-                    <b>6.4%</b>
-                    <small>Engagement rate</small>
+                    <b>{isOrg ? 'Organization' : 'Profile'}</b>
+                    <small>Account scope</small>
                   </div>
                 </div>
 

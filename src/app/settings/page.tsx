@@ -8,14 +8,14 @@ import { useToast } from '@/components/ui/toast';
 export default function SettingsPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'notifications' | 'brand' | 'security'>('profile');
-  const [fullName, setFullName] = useState('Teja Ganugula');
-  const [email, setEmail] = useState('teja@gtinnox.com');
-  const [workspaceName, setWorkspaceName] = useState('GT InnoX Workspace');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [workspaceName, setWorkspaceName] = useState('');
   const [timezone, setTimezone] = useState(
-    Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'
+    typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' : 'UTC'
   );
-  const [industry, setIndustry] = useState('Technology & Software');
-  const [brandVoice, setBrandVoice] = useState('Thoughtful & direct');
+  const [industry, setIndustry] = useState('');
+  const [brandVoice, setBrandVoice] = useState('');
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -29,10 +29,20 @@ export default function SettingsPage() {
         if (cachedWs.name) setWorkspaceName(cachedWs.name);
       }
 
-      const [wsRes, brandRes] = await Promise.all([
+      const [userRes, wsRes, brandRes] = await Promise.all([
+        fetch('/api/auth/me'),
         fetch('/api/workspaces'),
         fetch('/api/brand-settings'),
       ]);
+
+      if (userRes.ok) {
+        const uData = await userRes.json();
+        if (uData.user) {
+          const name = uData.user.user_metadata?.full_name || uData.user.email?.split('@')[0] || '';
+          setFullName(name);
+          setEmail(uData.user.email || '');
+        }
+      }
 
       if (brandRes.ok) {
         const bData = await brandRes.json();

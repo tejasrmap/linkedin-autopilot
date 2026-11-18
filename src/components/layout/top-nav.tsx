@@ -469,10 +469,10 @@ export function TopNav() {
             >
               <div style={{ padding: '8px', borderBottom: '1px solid var(--line)' }}>
                 <b style={{ fontSize: '11px', display: 'block' }}>
-                  {userProfile?.full_name || 'Teja Ganugula'}
+                  {userProfile?.full_name || userProfile?.email?.split('@')[0] || 'My Account'}
                 </b>
                 <small style={{ color: 'var(--muted)', fontSize: '10px' }}>
-                  {userProfile?.email || 'teja@gtinnox.com'}
+                  {userProfile?.email || ''}
                 </small>
               </div>
               <div style={{ paddingTop: '4px' }}>

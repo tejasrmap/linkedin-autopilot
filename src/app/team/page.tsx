@@ -42,37 +42,11 @@ export default function TeamPage() {
         const data = await res.json();
         setMembers(data.members || []);
         setCurrentRole(data.currentRole || 'viewer');
+      } else {
+        setMembers([]);
       }
     } catch {
-      // Fallback display
-      setMembers([
-        {
-          id: '1',
-          userId: 'u1',
-          name: 'Teja Ganugula',
-          email: 'teja@gtinnox.com',
-          role: 'owner',
-          createdAt: new Date().toISOString(),
-          isCurrent: true,
-        },
-        {
-          id: '2',
-          userId: 'u2',
-          name: 'Aarav Mehta',
-          email: 'aarav@gtinnox.com',
-          role: 'editor',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: '3',
-          userId: 'u3',
-          name: 'Riya Kapoor',
-          email: 'riya@gtinnox.com',
-          role: 'approver',
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-      setCurrentRole('owner');
+      setMembers([]);
     } finally {
       setLoading(false);
     }

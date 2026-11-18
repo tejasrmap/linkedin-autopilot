@@ -239,11 +239,10 @@ function AIStudioContent() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch hashtags');
-      const tags = data.hashtags || ['#ProductLeadership', '#BuildInPublic', '#FutureOfWork', '#Innovation', '#Growth'];
-      setHashtags(tags);
+      setHashtags(data.hashtags || []);
       toast.success('Hashtag suggestions ready.');
-    } catch {
-      setHashtags(['#ProductLeadership', '#BuildInPublic', '#FutureOfWork', '#Innovation', '#Leadership']);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to suggest hashtags.');
     } finally {
       setLoadingHashtags(false);
     }
@@ -265,24 +264,8 @@ function AIStudioContent() {
       if (!res.ok) throw new Error(data.error || 'Failed to generate ideas');
       setIdeas(data.ideas || []);
       toast.success('Fresh ideas generated below.');
-    } catch {
-      setIdeas([
-        {
-          title: 'The assumption worth challenging',
-          hook: 'What if the standard advice in your field is holding teams back?',
-          topic: 'A common assumption in my industry that deserves a closer look',
-        },
-        {
-          title: 'A small change with a big effect',
-          hook: 'Share one practical shift that made your work noticeably better.',
-          topic: 'A small change that made a meaningful difference in my work',
-        },
-        {
-          title: 'A lesson you learned the hard way',
-          hook: 'Make an experience useful by sharing what you would do differently.',
-          topic: 'A lesson I learned the hard way and what I would do differently',
-        },
-      ]);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate ideas. Please verify your Gemini API key in Brand Voice settings.');
     } finally {
       setLoadingIdeas(false);
     }
@@ -305,14 +288,8 @@ function AIStudioContent() {
       if (!res.ok) throw new Error(data.error || 'Failed to build calendar');
       setCalendarPlan(data.plan || []);
       toast.success('Your 7-day plan is ready.');
-    } catch {
-      setCalendarPlan([
-        { day: 'MON', title: 'A point of view', kind: 'Thought leadership', draft: 'Most teams optimize for velocity when they should optimize for clarity.' },
-        { day: 'TUE', title: 'A practical tip', kind: 'Educational', draft: 'Here is a simple framework for running high-impact customer discovery sessions.' },
-        { day: 'WED', title: 'A question for your network', kind: 'Conversation', draft: 'What is one tool that genuinely transformed how your team works this year?' },
-        { day: 'THU', title: 'A behind-the-scenes lesson', kind: 'Storytelling', draft: 'Last month we rebuilt our publishing engine from scratch. Here is what we learned.' },
-        { day: 'FRI', title: 'A weekly reflection', kind: 'Personal insight', draft: 'Three observations from building in public this week.' },
-      ]);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate 7-day plan. Please verify your Gemini API key in Brand Voice settings.');
     } finally {
       setLoadingCalendar(false);
     }
@@ -907,17 +884,32 @@ function AIStudioContent() {
             )}
 
             <div className="ai-side-bottom">
-              <span className="mini-avatar">TG</span>
+              <span className="mini-avatar">
+                {accounts[0]?.account_name
+                  ? accounts[0].account_name
+                      .split(' ')
+                      .map((n: string) => n[0])
+                      .join('')
+                      .substring(0, 2)
+                      .toUpperCase()
+                  : 'LI'}
+              </span>
               <span>
-                <b>Teja Ganugula</b>
-                <small>Personal profile</small>
+                <b>{accounts[0]?.account_name || 'No account connected'}</b>
+                <small>
+                  {accounts[0]
+                    ? accounts[0].account_type === 'organization'
+                      ? 'Company Page'
+                      : 'Personal profile'
+                    : 'Connect via Accounts'}
+                </small>
               </span>
               <button
                 type="button"
                 className="text-button"
-                onClick={() => router.push('/composer')}
+                onClick={() => router.push(accounts[0] ? '/composer' : '/accounts')}
               >
-                Open composer <Icon name="arrow" size={14} />
+                {accounts[0] ? 'Open composer' : 'Connect'} <Icon name="arrow" size={14} />
               </button>
             </div>
           </section>

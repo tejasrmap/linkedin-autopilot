@@ -529,12 +529,18 @@ Return a valid JSON array of objects with the structure:
         if (match) {
           return JSON.parse(match[0]);
         }
-      } catch {
-        // Fallback
+      } catch (err: any) {
+        if (process.env.MOCK_SUPABASE_FOR_TESTS !== 'true') {
+          throw new Error(err.message || 'Gemini API call failed during idea generation.');
+        }
       }
     }
 
-    // Dynamic idea pool tailored strictly to the requested domain
+    if (process.env.MOCK_SUPABASE_FOR_TESTS !== 'true') {
+      throw new Error('Gemini API is unavailable or unconfigured. Please configure your GEMINI_API_KEY in Brand Voice settings.');
+    }
+
+    // Only in offline test harness: return basic test structures
     const cleanIndustry = industryOrCategory.replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'Modern Operations';
     const tag = cleanIndustry.split(' ')[0] || 'Leadership';
 
@@ -643,11 +649,18 @@ Return ONLY a valid JSON array of 7 objects with the structure:
         if (match) {
           return JSON.parse(match[0]);
         }
-      } catch {
-        // Fallback
+      } catch (err: any) {
+        if (process.env.MOCK_SUPABASE_FOR_TESTS !== 'true') {
+          throw new Error(err.message || 'Gemini API call failed during calendar generation.');
+        }
       }
     }
 
+    if (process.env.MOCK_SUPABASE_FOR_TESTS !== 'true') {
+      throw new Error('Gemini API is unavailable or unconfigured. Please configure your GEMINI_API_KEY in Brand Voice settings.');
+    }
+
+    // Only in offline test harness: return basic test structures
     const cleanInd = industry.replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'Engineering';
     const tag = cleanInd.split(' ')[0] || 'Leadership';
 

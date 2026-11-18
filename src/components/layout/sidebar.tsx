@@ -32,7 +32,7 @@ const navGroups: {
   {
     label: 'YOUR CONTENT',
     items: [
-      { id: 'scheduled', label: 'Scheduled', icon: 'clock', href: '/posts?tab=scheduled', badge: '6' },
+      { id: 'scheduled', label: 'Scheduled', icon: 'clock', href: '/posts?tab=scheduled' },
       { id: 'drafts', label: 'Drafts', icon: 'file', href: '/posts?tab=draft' },
       { id: 'published', label: 'Published', icon: 'check', href: '/posts?tab=published' },
       { id: 'library', label: 'Media library', icon: 'folder', href: '/library' },
@@ -208,8 +208,8 @@ export function Sidebar() {
         <div className="sidebar-profile">
           <div className="profile-avatar small">{getInitials(userProfile?.full_name)}</div>
           <div className="profile-user">
-            <b>{userProfile?.full_name || 'Teja Ganugula'}</b>
-            <small>{currentWs?.name || 'Pro workspace'}</small>
+            <b>{userProfile?.full_name || userProfile?.email?.split('@')[0] || 'My Account'}</b>
+            <small>{currentWs?.name || 'Workspace'}</small>
           </div>
           <button
             type="button"

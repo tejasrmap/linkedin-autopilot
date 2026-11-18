@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/magicpath/common';
 import { Icon } from '@/components/magicpath/icons';
@@ -40,9 +40,27 @@ export default function AnalyticsPage() {
   };
 
   const topPost = posts[0];
-  const impressions = metrics?.engagement?.impressions ?? '24,810';
-  const reactions = metrics?.engagement?.reactions ?? '1,592';
-  const comments = metrics?.engagement?.comments ?? '284';
+  const impressions = metrics?.engagement?.impressions ?? 0;
+  const reactions = metrics?.engagement?.reactions ?? 0;
+  const comments = metrics?.engagement?.comments ?? 0;
+  const engagementRate = metrics?.engagement?.rate ?? '0%';
+
+  // 30-Day Activity Distribution from Real Published Posts
+  const chartBars = useMemo(() => {
+    const bars: number[] = new Array(30).fill(0);
+    const now = new Date();
+
+    for (const post of posts) {
+      const pubDate = new Date(post.published_at || post.created_at);
+      const diffDays = Math.floor((now.getTime() - pubDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays >= 0 && diffDays < 30) {
+        bars[29 - diffDays]++;
+      }
+    }
+
+    const max = Math.max(...bars, 1);
+    return bars.map((count) => (count > 0 ? Math.min(100, Math.round((count / max) * 100)) : 4));
+  }, [posts]);
 
   return (
     <>
@@ -51,12 +69,12 @@ export default function AnalyticsPage() {
       {/* KPI Stats Grid */}
       <div className="stat-grid analytics-stats">
         {[
-          ['Impressions', impressions, '18.6%'],
-          ['Reactions', reactions, '12.4%'],
-          ['Comments', comments, '9.2%'],
-          ['Engagement', '6.4%', '0.8%'],
-        ].map(([label, value, delta], i) => (
-          <div className="stat-card" key={label}>
+          ['Impressions', impressions, 'Total views'],
+          ['Reactions', reactions, 'Likes & endorsements'],
+          ['Comments', comments, 'Community responses'],
+          ['Engagement', engagementRate, 'Interactions per view'],
+        ].map(([label, value, note], i) => (
+          <div className="stat-card" key={label as string}>
             <div className="stat-top">
               <span>{label}</span>
               <span className={`stat-icon ${['blue', 'violet', 'mint', 'amber'][i]}`}>
@@ -64,7 +82,7 @@ export default function AnalyticsPage() {
               </span>
             </div>
             <strong>{value}</strong>
-            <small className="positive">↑ {delta} vs previous period</small>
+            <small>{note}</small>
           </div>
         ))}
       </div>
@@ -74,20 +92,19 @@ export default function AnalyticsPage() {
         <section className="panel chart-panel">
           <div className="panel-heading">
             <div>
-              <h3>Audience engagement</h3>
-              <p>Last 30 days</p>
+              <h3>Publishing activity</h3>
+              <p>Last 30 days ({posts.length} published post{posts.length === 1 ? '' : 's'})</p>
             </div>
-            <button type="button" className="view-toggle">
-              Last 30 days <Icon name="chevron" size={14} />
-            </button>
+            <span className="view-toggle">
+              Last 30 days
+            </span>
           </div>
 
           <div className="chart-area">
             <div className="chart-y">
-              <span>1.2k</span>
-              <span>900</span>
-              <span>600</span>
-              <span>300</span>
+              <span>High</span>
+              <span>Med</span>
+              <span>Low</span>
               <span>0</span>
             </div>
             <div className="chart-plot">
@@ -96,22 +113,18 @@ export default function AnalyticsPage() {
                 <i />
                 <i />
                 <i />
-                <i />
               </div>
               <div className="chart-bars">
-                {[
-                  32, 48, 39, 67, 53, 81, 45, 61, 74, 48, 88, 66, 55, 73, 92, 58, 70, 42, 85, 62,
-                  78, 54, 90, 70, 58, 82, 46, 68, 94, 74,
-                ].map((h, i) => (
+                {chartBars.map((h, i) => (
                   <i key={i} style={{ height: `${h}%` }} />
                 ))}
               </div>
               <div className="chart-x">
-                <span>Day 1</span>
-                <span>Day 7</span>
-                <span>Day 14</span>
-                <span>Day 21</span>
-                <span>Day 30</span>
+                <span>30d ago</span>
+                <span>21d ago</span>
+                <span>14d ago</span>
+                <span>7d ago</span>
+                <span>Today</span>
               </div>
             </div>
           </div>
@@ -121,35 +134,38 @@ export default function AnalyticsPage() {
           <div className="panel-heading">
             <div>
               <h3>Top performing post</h3>
-              <p>This month</p>
+              <p>Based on published engagement</p>
             </div>
             <Icon name="chart" size={17} />
           </div>
 
-          <div className="top-post-card">
-            <span className="top-post-badge">BEST THIS MONTH</span>
-            <h4>
-              {topPost?.content?.substring(0, 75) ||
-                'The best product teams don’t move faster. They remove friction.'}
-            </h4>
-            <div className="top-post-numbers">
-              <div>
-                <b>8.2k</b>
-                <small>Impressions</small>
+          {topPost ? (
+            <div className="top-post-card">
+              <span className="top-post-badge">RECENT PUBLISHED</span>
+              <h4>{topPost.content?.substring(0, 85) + (topPost.content?.length > 85 ? '…' : '')}</h4>
+              <div className="top-post-numbers">
+                <div>
+                  <b>{(topPost as any).stats?.impressions || 0}</b>
+                  <small>Impressions</small>
+                </div>
+                <div>
+                  <b>{(topPost as any).stats?.reactions || 0}</b>
+                  <small>Reactions</small>
+                </div>
               </div>
-              <div>
-                <b>8.1%</b>
-                <small>Engagement</small>
-              </div>
+              <Link
+                href={`/posts?tab=published`}
+                className="text-button"
+                style={{ textDecoration: 'none' }}
+              >
+                View post <Icon name="arrow" size={14} />
+              </Link>
             </div>
-            <Link
-              href="/posts?tab=published"
-              className="text-button"
-              style={{ textDecoration: 'none' }}
-            >
-              View post <Icon name="arrow" size={14} />
-            </Link>
-          </div>
+          ) : (
+            <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+              No published posts yet. Scheduled and published updates will appear here with engagement statistics.
+            </div>
+          )}
         </section>
       </div>
     </>

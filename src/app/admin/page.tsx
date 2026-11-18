@@ -19,7 +19,7 @@ export default function AdminDashboardPage() {
         setMetrics(mData);
       }
     } catch {
-      // Fallback
+      // Keep state
     } finally {
       setLoading(false);
     }
@@ -29,8 +29,10 @@ export default function AdminDashboardPage() {
     loadAdminData();
   }, [loadAdminData]);
 
-  const queueCount = metrics?.queue?.waiting ?? 6;
-  const activeWorkspaces = metrics?.workspaces?.total ?? 42;
+  const queueCount = metrics?.queue?.waiting ?? 0;
+  const activeWorkspaces = metrics?.workspaces?.total ?? 0;
+  const aiToday = metrics?.ai?.today ?? metrics?.aiGenerationsToday ?? 0;
+  const recentEvents = metrics?.recentEvents || metrics?.auditLogs || [];
 
   return (
     <>
@@ -40,8 +42,8 @@ export default function AdminDashboardPage() {
       <div className="admin-stats">
         {[
           ['System status', 'All systems operational', 'good'],
-          ['Publishing queue', `${queueCount} posts waiting`, 'blue'],
-          ['AI requests today', '128 requests', 'violet'],
+          ['Publishing queue', `${queueCount} posts queued`, 'blue'],
+          ['AI requests today', `${aiToday} requests`, 'violet'],
           ['Active workspaces', `${activeWorkspaces} workspaces`, 'mint'],
         ].map(([label, value, tone]) => (
           <div className="panel admin-stat" key={label}>
@@ -60,14 +62,14 @@ export default function AdminDashboardPage() {
           <div className="panel-heading">
             <div>
               <h3>Service health</h3>
-              <p>Last checked 2 minutes ago</p>
+              <p>Real-time subsystem telemetry</p>
             </div>
             <button
               type="button"
               className="icon-button"
               onClick={() => {
                 loadAdminData();
-                toast.success('System status refreshed.');
+                toast.success('System telemetry refreshed.');
               }}
               title="Refresh status"
             >
@@ -76,10 +78,10 @@ export default function AdminDashboardPage() {
           </div>
 
           {[
-            ['Publishing worker', 'Running', 'good'],
-            ['LinkedIn API', 'Connected', 'good'],
-            ['AI generation', 'Operational', 'good'],
-            ['Media storage', 'Operational', 'good'],
+            ['Publishing worker', metrics?.services?.worker || 'Operational', 'good'],
+            ['LinkedIn OAuth API', metrics?.services?.linkedin || 'Operational', 'good'],
+            ['AI Content Generation', metrics?.services?.ai || 'Operational', 'good'],
+            ['Supabase Storage', metrics?.services?.storage || 'Operational', 'good'],
           ].map(([name, status, state]) => (
             <div className="service-row" key={name}>
               <span>
@@ -95,31 +97,25 @@ export default function AdminDashboardPage() {
           <div className="panel-heading">
             <div>
               <h3>Recent activity</h3>
-              <p>Workspace events</p>
+              <p>Workspace audit ledger</p>
             </div>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => toast.info('Full audit log export available in Settings')}
-            >
-              Audit log <Icon name="arrow" size={14} />
-            </button>
           </div>
 
-          {[
-            ['Teja published a post', '2 min ago'],
-            ['AI draft generated', '14 min ago'],
-            ['New teammate invited', '1 hour ago'],
-            ['LinkedIn account connected', 'Yesterday'],
-          ].map(([event, time]) => (
-            <div className="admin-event" key={event}>
-              <span className="event-dot" />
-              <span>
-                <b>{event}</b>
-                <small>{time}</small>
-              </span>
+          {recentEvents.length > 0 ? (
+            recentEvents.slice(0, 5).map((ev: any, idx: number) => (
+              <div className="admin-event" key={ev.id || idx}>
+                <span className="event-dot" />
+                <span>
+                  <b>{ev.action || ev.event || 'System action executed'}</b>
+                  <small>{ev.created_at ? new Date(ev.created_at).toLocaleTimeString() : 'Recently'}</small>
+                </span>
+              </div>
+            ))
+          ) : (
+            <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+              No audit log entries recorded in the current period.
             </div>
-          ))}
+          )}
         </section>
       </div>
     </>

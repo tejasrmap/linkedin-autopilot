@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PageHeader, PostRow, PostItem } from '@/components/magicpath/common';
@@ -18,16 +18,17 @@ export default function DashboardPage() {
     }
     return {
       totalPosts: 0,
-      publishedCount: 18,
-      scheduledCount: 6,
-      draftCount: 4,
+      publishedCount: 0,
+      scheduledCount: 0,
+      draftCount: 0,
       failedCount: 0,
-      accountsConnected: 1,
+      accountsConnected: 0,
       engagement: {
-        impressions: '24.8k',
-        reactions: '1,592',
-        comments: '284',
-        reposts: '42',
+        impressions: 0,
+        reactions: 0,
+        comments: 0,
+        reposts: 0,
+        rate: '0%',
       },
     };
   });
@@ -84,56 +85,58 @@ export default function DashboardPage() {
     }
   };
 
-  // Default display posts if empty
-  const displayPosts: PostItem[] =
-    recentPosts.length > 0
-      ? recentPosts.slice(0, 4).map((p: any) => ({
-          id: p.id,
-          title: p.content?.substring(0, 70) + (p.content?.length > 70 ? '…' : '') || 'Untitled update',
-          status:
-            p.status === 'published'
-              ? 'Published'
-              : p.status === 'scheduled'
-              ? 'Scheduled'
-              : 'Draft',
-          time: p.scheduled_at
-            ? new Date(p.scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
-            : p.created_at
-            ? new Date(p.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
-            : 'Recently',
-          type: 'LinkedIn post',
-          color: p.status === 'published' ? 'blue' : p.status === 'scheduled' ? 'violet' : 'mint',
-        }))
-      : [
-          {
-            title: 'The best product teams don’t move faster. They remove friction.',
-            status: 'Published',
-            time: 'Today · 9:42 AM',
-            type: 'Text post',
-            color: 'blue',
-          },
-          {
-            title: 'Three lessons from building in public this quarter',
-            status: 'Scheduled',
-            time: 'Tomorrow · 10:00 AM',
-            type: 'Thought leadership',
-            color: 'violet',
-          },
-          {
-            title: 'A small framework for better customer interviews',
-            status: 'Draft',
-            time: 'Edited yesterday',
-            type: 'Text post',
-            color: 'mint',
-          },
-          {
-            title: 'What we learned from our latest launch',
-            status: 'Published',
-            time: 'Nov 14 · 8:30 AM',
-            type: 'Product update',
-            color: 'amber',
-          },
-        ];
+  // Map real posts
+  const displayPosts: PostItem[] = recentPosts.slice(0, 4).map((p: any) => ({
+    id: p.id,
+    title: p.content?.substring(0, 70) + (p.content?.length > 70 ? '…' : '') || 'Untitled update',
+    status:
+      p.status === 'published'
+        ? 'Published'
+        : p.status === 'scheduled'
+        ? 'Scheduled'
+        : 'Draft',
+    time: p.scheduled_at
+      ? new Date(p.scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
+      : p.created_at
+      ? new Date(p.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
+      : 'Recently',
+    type: 'LinkedIn post',
+    color: p.status === 'published' ? 'blue' : p.status === 'scheduled' ? 'violet' : 'mint',
+  }));
+
+  // Calculate real week rhythm from posts
+  const weekData = useMemo(() => {
+    const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const now = new Date();
+    // Monday of current week
+    const currentDay = (now.getDay() + 6) % 7;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - currentDay);
+    monday.setHours(0, 0, 0, 0);
+
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    let plannedCount = 0;
+
+    for (const post of recentPosts) {
+      const targetDate = post.scheduled_at ? new Date(post.scheduled_at) : new Date(post.created_at);
+      const diffDays = Math.floor((targetDate.getTime() - monday.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays >= 0 && diffDays < 7) {
+        counts[diffDays]++;
+        if (post.status === 'scheduled' || post.status === 'published') {
+          plannedCount++;
+        }
+      }
+    }
+
+    const maxCount = Math.max(...counts, 1);
+    const bars = days.map((day, i) => ({
+      day,
+      count: counts[i],
+      height: counts[i] > 0 ? Math.min(100, Math.round((counts[i] / maxCount) * 100)) : 0,
+    }));
+
+    return { bars, plannedCount };
+  }, [recentPosts]);
 
   return (
     <>
@@ -205,7 +208,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* 4 Key Stat Cards */}
+      {/* 4 Real KPI Stat Cards */}
       <section className="stat-grid">
         <div className="stat-card">
           <div className="stat-top">
@@ -214,8 +217,8 @@ export default function DashboardPage() {
               <Icon name="check" size={16} />
             </span>
           </div>
-          <strong>{metrics.publishedCount ?? 18}</strong>
-          <small>+4 this month</small>
+          <strong>{metrics.publishedCount ?? 0}</strong>
+          <small>{metrics.publishedCount > 0 ? `${metrics.publishedCount} total` : 'None published yet'}</small>
         </div>
 
         <div className="stat-card">
@@ -225,8 +228,8 @@ export default function DashboardPage() {
               <Icon name="calendar" size={16} />
             </span>
           </div>
-          <strong>{metrics.scheduledCount ?? 6}</strong>
-          <small>Next one tomorrow</small>
+          <strong>{metrics.scheduledCount ?? 0}</strong>
+          <small>{metrics.scheduledCount > 0 ? `${metrics.scheduledCount} queued` : 'No upcoming posts'}</small>
         </div>
 
         <div className="stat-card">
@@ -236,8 +239,8 @@ export default function DashboardPage() {
               <Icon name="chart" size={16} />
             </span>
           </div>
-          <strong>{metrics.engagement?.impressions || '24.8k'}</strong>
-          <small>+18.6% vs last month</small>
+          <strong>{metrics.engagement?.impressions || 0}</strong>
+          <small>Total post views</small>
         </div>
 
         <div className="stat-card">
@@ -247,31 +250,37 @@ export default function DashboardPage() {
               <Icon name="sparkles" size={16} />
             </span>
           </div>
-          <strong>6.4%</strong>
-          <small>+0.8% vs last month</small>
+          <strong>{metrics.engagement?.rate || '0%'}</strong>
+          <small>Reactions and comments</small>
         </div>
       </section>
 
-      {/* Recent Posts + Week Rhythm */}
+      {/* Recent Posts + Real Week Rhythm */}
       <div className="overview-grid">
         <section className="panel">
           <div className="panel-heading">
             <div>
               <h3>Recent posts</h3>
-              <p>Your latest activity</p>
+              <p>Your latest writing and updates</p>
             </div>
-            <Link href="/posts?tab=published" className="text-button" style={{ textDecoration: 'none' }}>
+            <Link href="/posts" className="text-button" style={{ textDecoration: 'none' }}>
               View all <Icon name="arrow" size={14} />
             </Link>
           </div>
           <div className="post-list">
-            {displayPosts.slice(0, 3).map((p, idx) => (
-              <PostRow
-                key={p.id || idx}
-                post={p}
-                href={p.status === 'Draft' ? `/composer?draftId=${p.id || ''}` : `/posts?tab=${p.status.toLowerCase()}`}
-              />
-            ))}
+            {displayPosts.length > 0 ? (
+              displayPosts.slice(0, 3).map((p, idx) => (
+                <PostRow
+                  key={p.id || idx}
+                  post={p}
+                  href={p.status === 'Draft' ? `/composer?draftId=${p.id || ''}` : `/posts?tab=${p.status.toLowerCase()}`}
+                />
+              ))
+            ) : (
+              <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                No posts created yet. Start with a prompt above or click <b>New post</b>.
+              </div>
+            )}
           </div>
         </section>
 
@@ -286,32 +295,25 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="week-chart">
-            {[
-              ['M', 42],
-              ['T', 68],
-              ['W', 34],
-              ['T', 84],
-              ['F', 55],
-              ['S', 23],
-              ['S', 15],
-            ].map(([day, height], i) => (
+            {weekData.bars.map((item, i) => (
               <button
                 key={i}
                 type="button"
                 className="week-day"
                 onClick={() => router.push('/calendar')}
+                title={`${item.count} post${item.count === 1 ? '' : 's'}`}
               >
                 <span className="bar-track">
-                  <i style={{ height: `${height}%` }} />
+                  <i style={{ height: `${item.height}%` }} />
                 </span>
-                <small>{day}</small>
+                <small>{item.day}</small>
               </button>
             ))}
           </div>
           <div className="week-note">
             <span className="live-dot" />
             <span>
-              <b>2 posts planned</b> this week
+              <b>{weekData.plannedCount} post{weekData.plannedCount === 1 ? '' : 's'} planned</b> this week
             </span>
             <button type="button" onClick={() => router.push('/calendar')}>
               See calendar
