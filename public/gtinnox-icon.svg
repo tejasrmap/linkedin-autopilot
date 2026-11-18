@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%" role="img" aria-label="GT InnoX logo">
   <g fill="#1E3A8A">
     <path d="M30 16h8v68h-8zM8 46h50v8H8z"/>
-    <text x="43" y="84" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="700" letter-spacing="-7">G</text>
+    <text x="40" y="84" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="700" letter-spacing="-7">G</text>
   </g>
-  <g transform="rotate(45)">
-    <rect x="24.5" y="-6.5" width="13" height="13" rx="1" fill="#2AA6CC"/>
-    <rect x="48.5" y="-6.5" width="13" height="13" rx="1" fill="#8C4BC0"/>
-    <rect x="24.5" y="17.5" width="13" height="13" rx="1" fill="#8C4BC0"/>
-    <rect x="48.5" y="17.5" width="13" height="13" rx="1" fill="#2AA6CC"/>
+  <g>
+    <polygon points="16,17 23,24 16,31 9,24" fill="#2AA6CC"/>
+    <polygon points="39,17 46,24 39,31 32,24" fill="#8C4BC0"/>
+    <polygon points="16,67 23,74 16,81 9,74" fill="#8C4BC0"/>
+    <polygon points="39,67 46,74 39,81 32,74" fill="#2AA6CC"/>
   </g>
 </svg>
