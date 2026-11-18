@@ -53,10 +53,10 @@ export default function AnalyticsPage() {
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-blue-500" />
-          LinkedIn Engagement Analytics
+          Analytics
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Official engagement data, post-level performance, and API metrics telemetry.
+          See how your LinkedIn content is performing.
         </p>
       </div>
 
