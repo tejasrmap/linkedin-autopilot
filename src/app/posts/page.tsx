@@ -390,7 +390,7 @@ function PostsContent() {
                     const isLongText = (post.content || '').length > 180 || (post.content || '').includes('\n');
 
                     return (
-                      <div className="relative">
+                      <div className="chat-page chat-page-posts relative">
                         <p className={`text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap ${isExpanded ? '' : 'line-clamp-3'}`}>
                           {post.content}
                         </p>
