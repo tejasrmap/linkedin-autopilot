@@ -27,16 +27,18 @@ import {
 } from 'lucide-react';
 
 const mainNavigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Create Post', href: '/composer', icon: PenSquare, highlight: true },
+  { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
   { name: 'AI Studio', href: '/ai-studio', icon: Sparkles, badge: 'AI' },
   { name: 'Certificate Post', href: '/ai-studio/certificate', icon: Award },
   { name: 'Content Calendar', href: '/calendar', icon: Calendar },
-  { name: 'Scheduled Posts', href: '/posts?tab=scheduled', icon: Clock },
-  { name: 'Drafts', href: '/posts?tab=draft', icon: FileText },
-  { name: 'Published Posts', href: '/posts?tab=published', icon: CheckCircle2 },
-  { name: 'Content Library', href: '/library', icon: FolderOpen },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+];
+
+const contentNavigation = [
+  { name: 'Scheduled', href: '/posts?tab=scheduled', icon: Clock },
+  { name: 'Drafts', href: '/posts?tab=draft', icon: FileText },
+  { name: 'Published', href: '/posts?tab=published', icon: CheckCircle2 },
+  { name: 'Media Library', href: '/library', icon: FolderOpen },
 ];
 
 const managementNavigation = [
@@ -97,7 +99,7 @@ function NavLinks() {
                 </span>
               )}
               {isActive && (
-                <ChevronRight className="w-3.5 h-3.5 text-white/70 animate-in fade-in" />
+                <ChevronRight className="w-3.5 h-3.5 animate-in fade-in" />
               )}
             </Link>
           );
@@ -105,8 +107,36 @@ function NavLinks() {
       </nav>
 
       <div className="pt-4">
+        <div className="app-section-label text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2">
+          <span>Your Content</span>
+        </div>
+        <nav className="space-y-1">
+          {contentNavigation.map((item) => {
+            const isActive = checkIsActive(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                title={item.name}
+                className={`app-nav-link group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  isActive
+                    ? 'app-nav-active'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-current' : 'text-slate-400'}`} />
+                <span className="app-nav-label flex-1 truncate">{item.name}</span>
+                {isActive && <ChevronRight className="w-3.5 h-3.5 animate-in fade-in" />}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+
+      <div className="pt-4">
         <div className="app-section-label text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2 flex items-center justify-between">
-          <span>Workspace &amp; Settings</span>
+          <span>Manage</span>
         </div>
         <nav className="space-y-1">
           {managementNavigation.map((item) => {
@@ -116,15 +146,15 @@ function NavLinks() {
               <Link
                 key={item.name}
                 href={item.href}
-                className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                className={`app-nav-link group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                   isActive
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
+                    ? 'app-nav-active'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 <Icon
                   className={`w-4 h-4 transition-transform group-hover:scale-110 flex-shrink-0 ${
-                    isActive ? 'text-white' : 'text-slate-400'
+                    isActive ? 'text-current' : 'text-slate-400'
                   }`}
                 />
                 <span className="flex-1 truncate">{item.name}</span>
@@ -172,6 +202,12 @@ export function Sidebar() {
           {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
         </button>
       </div>
+
+      <Link href="/composer" title="New post" className="app-new-post">
+        <PenSquare className="w-4 h-4 flex-shrink-0" />
+        <span>New post</span>
+        <kbd>N</kbd>
+      </Link>
 
       {/* Navigation List */}
       <div className="flex-1 overflow-y-auto py-3 px-3 space-y-4">

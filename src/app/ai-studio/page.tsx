@@ -42,6 +42,7 @@ function AIStudioContent() {
   const urlTab = searchParams.get('tab');
   const urlDraftId = searchParams.get('draftId');
   const urlContent = searchParams.get('content');
+  const urlTopic = searchParams.get('topic');
   const urlTone = searchParams.get('tone');
 
   const [activeTab, setActiveTab] = useState<'generate' | 'rewrite' | 'hashtags' | 'ideas' | 'calendar' | 'brand'>(() => {
@@ -58,7 +59,7 @@ function AIStudioContent() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
 
   // Generate State
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(urlTopic || '');
   const [audience, setAudience] = useState('Founders, CTOs, and Engineers');
   const [tone, setTone] = useState('Thought leadership & inspiring');
   const [postLength, setPostLength] = useState<'short' | 'medium' | 'long'>('medium');
@@ -92,10 +93,14 @@ function AIStudioContent() {
     if (urlContent) {
       setDraftToRewrite(urlContent);
     }
+    if (urlTopic) {
+      setTopic(urlTopic);
+      setActiveTab('generate');
+    }
     if (urlTone && ['professional', 'conversational', 'technical', 'educational', 'persuasive', 'storytelling'].includes(urlTone)) {
       setRewriteTone(urlTone as any);
     }
-  }, [urlTab, urlDraftId, urlContent, urlTone]);
+  }, [urlTab, urlDraftId, urlContent, urlTopic, urlTone]);
 
   // Hashtags State
   const [hashtagTopic, setHashtagTopic] = useState('');
