@@ -48,8 +48,8 @@ export default function CertificateAnnouncementPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <header className="flex items-start gap-3">
         <div className="rounded-xl bg-indigo-500/10 p-3 text-indigo-500"><Award className="w-6 h-6" /></div>
-        <div><h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Certificate Announcement</h1>
-          <p className="text-sm text-slate-500 mt-1">Upload a credential, extract its details, and create an editable LinkedIn post.</p></div>
+        <div><h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Certificate post</h1>
+          <p className="text-sm text-slate-500 mt-1">Turn a certificate into a polished LinkedIn post.</p></div>
       </header>
 
       <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
