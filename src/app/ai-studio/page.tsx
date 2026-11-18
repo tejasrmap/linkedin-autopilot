@@ -670,7 +670,7 @@ function AIStudioContent() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="chat-page chat-page-ai-studio space-y-6 animate-in fade-in duration-200">
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-indigo-500" />

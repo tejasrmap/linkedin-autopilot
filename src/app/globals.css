@@ -766,3 +766,398 @@ body {
 @media (max-width: 639px) {
   .app-main { padding-top: 1.25rem; }
 }
+
+
+/* ChatGPT-inspired workspace system */
+:root {
+  --background: #ffffff;
+  --foreground: #212121;
+  --card: #ffffff;
+  --card-foreground: #212121;
+  --popover: #ffffff;
+  --popover-foreground: #212121;
+  --primary: #0a66c2;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f7f8;
+  --secondary-foreground: #303030;
+  --muted: #f7f7f8;
+  --muted-foreground: #6b7280;
+  --accent: #eef5fb;
+  --accent-foreground: #174f7f;
+  --border: #e5e5e5;
+  --input: #d9d9d9;
+  --ring: #8bbce5;
+  --sidebar-background: #f7f7f8;
+  --sidebar-foreground: #242424;
+  --sidebar-border: #e5e5e5;
+}
+
+.dark {
+  --background: #212121;
+  --foreground: #ececec;
+  --card: #2a2a2a;
+  --card-foreground: #ececec;
+  --popover: #2a2a2a;
+  --popover-foreground: #ececec;
+  --primary: #70b5f9;
+  --primary-foreground: #122b41;
+  --secondary: #2f2f2f;
+  --secondary-foreground: #ededed;
+  --muted: #2f2f2f;
+  --muted-foreground: #a1a1aa;
+  --accent: #26394a;
+  --accent-foreground: #c6e4ff;
+  --border: #3a3a3a;
+  --input: #484848;
+  --ring: #70b5f9;
+  --sidebar-background: #171717;
+  --sidebar-foreground: #ececec;
+  --sidebar-border: #2c2c2c;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.app-shell {
+  background: var(--background);
+}
+
+.app-sidebar {
+  width: 264px;
+  background: var(--sidebar-background);
+  color: var(--sidebar-foreground);
+  border-color: var(--sidebar-border);
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.015);
+}
+
+.app-sidebar .app-brand {
+  border-color: var(--sidebar-border);
+}
+
+.app-sidebar .app-brand-copy,
+.app-sidebar .app-brand-copy > div:first-child {
+  color: var(--sidebar-foreground);
+}
+
+.app-sidebar .app-section-label {
+  color: #8a8a8a;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.dark .app-sidebar .app-section-label {
+  color: #858585;
+}
+
+.app-sidebar nav a {
+  min-height: 38px;
+  border-radius: 8px;
+  color: #4b4b4b;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dark .app-sidebar nav a {
+  color: #c5c5c5;
+}
+
+.app-sidebar nav a svg {
+  color: #777;
+}
+
+.dark .app-sidebar nav a svg {
+  color: #a1a1a1;
+}
+
+.app-sidebar nav a:hover {
+  background: #ececee;
+  color: #202020;
+}
+
+.dark .app-sidebar nav a:hover {
+  background: #262626;
+  color: #f2f2f2;
+}
+
+.app-sidebar nav a.app-nav-active,
+.dark .app-sidebar nav a.app-nav-active {
+  color: var(--foreground);
+  background: #e9e9eb;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+.dark .app-sidebar nav a.app-nav-active {
+  background: #2f2f2f;
+}
+
+.app-sidebar nav a.app-nav-active svg {
+  color: var(--foreground);
+}
+
+.app-sidebar .app-new-post {
+  margin-bottom: 10px;
+  min-height: 42px;
+  border: 1px solid #dedee1;
+  background: rgba(255, 255, 255, 0.8);
+  color: #252525;
+  font-weight: 600;
+}
+
+.dark .app-sidebar .app-new-post {
+  border-color: #404040;
+  background: #202020;
+  color: #ececec;
+}
+
+.app-sidebar .app-new-post:hover {
+  background: #ffffff;
+  border-color: #c7c7ca;
+}
+
+.dark .app-sidebar .app-new-post:hover {
+  background: #292929;
+  border-color: #525252;
+}
+
+.app-sidebar > div:last-child {
+  border-color: var(--sidebar-border);
+  background: transparent;
+}
+
+.app-sidebar > div:last-child > div {
+  border-color: var(--sidebar-border);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+.dark .app-sidebar > div:last-child > div {
+  background: #202020;
+}
+
+.app-sidebar > div:last-child .font-semibold {
+  color: var(--foreground);
+}
+
+.app-topbar {
+  min-height: 60px;
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.app-main {
+  width: 100%;
+  padding: 2rem clamp(1.25rem, 4vw, 3.5rem) 3rem;
+}
+
+.chat-page {
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+}
+
+.chat-page h1 {
+  color: var(--foreground);
+  font-size: clamp(1.65rem, 2.2vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+}
+
+.chat-page h2 {
+  color: var(--foreground);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.chat-page .rounded-2xl.border,
+.chat-page .rounded-xl.border {
+  border-color: var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.025);
+}
+
+.dark .chat-page .rounded-2xl.border,
+.dark .chat-page .rounded-xl.border {
+  box-shadow: none;
+}
+
+.chat-page .grid > .rounded-2xl.border,
+.chat-page .grid > .rounded-xl.border {
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.chat-page .grid > .rounded-2xl.border:hover,
+.chat-page .grid > .rounded-xl.border:hover {
+  transform: translateY(-1px);
+  border-color: #cdd7e1;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.045);
+}
+
+.dark .chat-page .grid > .rounded-2xl.border:hover,
+.dark .chat-page .grid > .rounded-xl.border:hover {
+  border-color: #555;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.18);
+}
+
+.chat-page input:not([type="checkbox"]):not([type="radio"]),
+.chat-page textarea,
+.chat-page select {
+  min-height: 42px;
+  border-radius: 9px;
+  background-color: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+.chat-page textarea {
+  min-height: 120px;
+}
+
+.chat-page input:not([type="checkbox"]):not([type="radio"]):focus,
+.chat-page textarea:focus,
+.chat-page select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(10, 102, 194, 0.1);
+}
+
+.chat-page button[class*="from-blue-600"],
+.chat-page a[class*="from-blue-600"],
+.app-topbar a[class*="from-blue-600"] {
+  background-image: none;
+  background-color: #0a66c2;
+  box-shadow: none;
+}
+
+.chat-page button[class*="bg-blue-600"],
+.chat-page a[class*="bg-blue-600"] {
+  background-color: #0a66c2;
+}
+
+.dark .chat-page :is(.text-blue-600, .text-blue-500) {
+  color: #70b5f9;
+}
+
+.chat-page table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.chat-page th {
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.chat-page tbody tr:hover td {
+  background: color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.chat-page :focus-visible {
+  outline-color: rgba(10, 102, 194, 0.35);
+}
+
+.chat-prompt-card {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.055);
+}
+
+.dark .chat-prompt-card {
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.22);
+}
+
+.chat-prompt-link {
+  min-height: 58px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background);
+  color: var(--muted-foreground);
+}
+
+.chat-prompt-link:hover {
+  border-color: #aac7e2;
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.auth-page {
+  background: #171717;
+}
+
+@media (max-width: 1023px) {
+  .app-main { padding: 1.5rem 1.25rem 2rem; }
+}
+
+@media (max-width: 639px) {
+  .app-sidebar { width: 64px; }
+  .app-main { padding: 1rem 0.875rem 2rem; }
+  .app-topbar { min-height: 56px; }
+}
+
+
+.app-sidebar {
+  transition: width 180ms ease, background-color 180ms ease;
+}
+
+.app-sidebar.is-collapsed {
+  width: 72px;
+}
+
+.app-sidebar.is-collapsed .app-brand {
+  padding-inline: 4px;
+  gap: 2px;
+  justify-content: center;
+}
+
+.app-sidebar.is-collapsed .app-brand > div:first-child {
+  width: 34px;
+  height: 34px;
+}
+
+.app-sidebar.is-collapsed .app-brand-copy,
+.app-sidebar.is-collapsed .app-section-label,
+.app-sidebar.is-collapsed .app-nav-label,
+.app-sidebar.is-collapsed .app-security-copy {
+  display: none;
+}
+
+.app-sidebar.is-collapsed .app-sidebar-toggle {
+  width: 26px;
+  height: 26px;
+  color: #666;
+}
+
+.dark .app-sidebar.is-collapsed .app-sidebar-toggle {
+  color: #bbb;
+}
+
+.app-sidebar.is-collapsed nav a {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.app-sidebar.is-collapsed nav a svg {
+  margin: 0;
+}
+
+.app-sidebar.is-collapsed > div:last-child {
+  padding: 8px;
+}
+
+.app-sidebar.is-collapsed > div:last-child > div {
+  justify-content: center;
+  padding: 6px;
+}
+
+@media (max-width: 639px) {
+  .app-sidebar { transition: none; }
+  .app-sidebar-toggle { display: none !important; }
+}

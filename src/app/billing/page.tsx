@@ -144,7 +144,7 @@ export default function BillingPage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="chat-page chat-page-billing space-y-6 animate-in fade-in duration-200">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">

@@ -642,7 +642,7 @@ function ComposerContent() {
   const selectedAccObj = accounts.find((a) => a.id === selectedAccount);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="chat-page chat-page-composer space-y-6 animate-in fade-in duration-200">
       {/* Top Header & Actions Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
         <div>

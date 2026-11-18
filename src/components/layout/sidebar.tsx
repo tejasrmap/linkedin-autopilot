@@ -22,6 +22,8 @@ import {
   CreditCard,
   ChevronRight,
   ShieldCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 
 const mainNavigation = [
@@ -74,7 +76,8 @@ function NavLinks() {
             <Link
               key={item.name}
               href={item.href}
-              className={`app-nav-link group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+              title={item.name}
+              className={`app-nav-link ${item.highlight && !isActive ? 'app-new-post' : ''} group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                 isActive
                   ? 'app-nav-active bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
                   : item.highlight
@@ -138,8 +141,10 @@ function NavLinks() {
 }
 
 export function Sidebar() {
+  const [collapsed, setCollapsed] = React.useState(false);
+
   return (
-    <aside className="app-sidebar w-64 flex-shrink-0 flex flex-col border-r border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-xl h-screen sticky top-0 select-none z-30 transition-colors">
+    <aside className={`app-sidebar w-64 flex-shrink-0 flex flex-col border-r border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-xl h-screen sticky top-0 select-none z-30 transition-colors ${collapsed ? "is-collapsed" : ""}`}>
       {/* Brand Header */}
       <div className="app-brand h-16 flex items-center px-5 border-b border-slate-200/80 dark:border-slate-800/80 gap-3">
         <div className="w-10 h-10 rounded-xl bg-slate-900/90 dark:bg-slate-950 border border-slate-700/60 p-1 flex items-center justify-center shadow-lg shadow-indigo-500/10 flex-shrink-0 group">
@@ -157,6 +162,15 @@ export function Sidebar() {
             <span className="font-semibold bg-gradient-to-r from-cyan-400 via-indigo-400 to-pink-400 bg-clip-text text-transparent">GT InnoX LLP</span>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="app-sidebar-toggle hidden sm:flex w-8 h-8 items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex-shrink-0"
+        >
+          {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+        </button>
       </div>
 
       {/* Navigation List */}

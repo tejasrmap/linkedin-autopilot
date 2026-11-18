@@ -101,7 +101,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl animate-in fade-in duration-200">
+    <div className="chat-page chat-page-settings space-y-6 max-w-3xl animate-in fade-in duration-200">
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Settings className="w-5 h-5 text-blue-500" />

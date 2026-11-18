@@ -104,7 +104,7 @@ export default function DashboardPage() {
   const recentPublished = recentPosts.filter((p) => p.status === 'published').slice(0, 4);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="chat-page chat-page-dashboard space-y-6 animate-in fade-in duration-300">
       {/* Top Banner / Welcome Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -148,6 +148,35 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      <section className="chat-prompt-card p-5 sm:p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 flex-shrink-0">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">What would you like to share today?</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Start with an idea, shape it with AI, and publish when it feels right.</p>
+          </div>
+        </div>
+        <Link href="/composer" className="chat-prompt-link flex items-center justify-between gap-3 px-4 py-3.5 text-sm transition-colors">
+          <span>Write an idea, paste a draft, or start from scratch</span>
+          <span className="w-8 h-8 rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center flex-shrink-0">
+            <ArrowRight className="w-4 h-4" />
+          </span>
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/ai-studio" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <Sparkles className="w-3.5 h-3.5" /> Generate with AI
+          </Link>
+          <Link href="/calendar" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <Calendar className="w-3.5 h-3.5" /> Plan your week
+          </Link>
+          <Link href="/templates" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <FileText className="w-3.5 h-3.5" /> Browse templates
+          </Link>
+        </div>
+      </section>
 
       {/* Interactive Onboarding Checklist */}
       <OnboardingCard accountsConnected={metrics.accountsConnected} totalPosts={metrics.totalPosts} />
