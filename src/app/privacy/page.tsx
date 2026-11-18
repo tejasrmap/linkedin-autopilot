@@ -18,7 +18,7 @@ export default function PrivacyPolicyPage() {
           >
             <ArrowLeft className="w-4 h-4" /> Back to Dashboard
           </Link>
-          <span className="text-xs text-slate-500 font-mono">Last Updated: November 2026</span>
+          <span className="text-xs text-slate-500 font-mono">Last updated: November 2026</span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 sm:p-12 shadow-sm space-y-8">
