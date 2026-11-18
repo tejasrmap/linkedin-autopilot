@@ -1792,3 +1792,19 @@ body {
   }
   .chat-page:not(.chat-page-privacy):not(.chat-page-terms)::before { margin-bottom: -8px; }
 }
+
+.chat-page-ai-studio [class*="lg:grid-cols-2"] {
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .9fr);
+  align-items: stretch;
+  gap: 16px;
+}
+.chat-page-ai-studio [class*="lg:grid-cols-2"] > div {
+  min-width: 0;
+  padding: 22px;
+  border-radius: 15px;
+}
+@media (max-width: 760px) {
+  .chat-page-ai-studio [class*="lg:grid-cols-2"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
