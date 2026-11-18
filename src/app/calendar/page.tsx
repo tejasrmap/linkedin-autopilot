@@ -115,7 +115,7 @@ export default function CalendarPage() {
   }).length;
 
   return (
-    <div className="h-[calc(100vh-5rem)] flex flex-col justify-between overflow-hidden animate-in fade-in duration-200 gap-3 select-none">
+    <div className="chat-page chat-page-calendar h-[calc(100vh-5rem)] flex flex-col justify-between overflow-hidden animate-in fade-in duration-200 gap-3 select-none">
       {/* Compact Top Header Bar */}
       <div className="flex items-center justify-between gap-4 flex-shrink-0">
         <div className="flex items-center gap-3">
