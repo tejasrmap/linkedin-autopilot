@@ -77,10 +77,10 @@ export default function TemplatesPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Bookmark className="w-5 h-5 text-blue-500" />
-            Content Architecture Templates
+            Templates
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            High-converting LinkedIn post frameworks, viral hooks, and product launch sequences.
+            Start with a framework for your next LinkedIn post.
           </p>
         </div>
 
