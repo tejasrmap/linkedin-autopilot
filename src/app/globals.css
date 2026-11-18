@@ -1101,3 +1101,63 @@ body {
   .app-main { padding: 1rem 0.875rem 2rem; }
   .app-topbar { min-height: 56px; }
 }
+
+
+.app-sidebar {
+  transition: width 180ms ease, background-color 180ms ease;
+}
+
+.app-sidebar.is-collapsed {
+  width: 72px;
+}
+
+.app-sidebar.is-collapsed .app-brand {
+  padding-inline: 4px;
+  gap: 2px;
+  justify-content: center;
+}
+
+.app-sidebar.is-collapsed .app-brand > div:first-child {
+  width: 34px;
+  height: 34px;
+}
+
+.app-sidebar.is-collapsed .app-brand-copy,
+.app-sidebar.is-collapsed .app-section-label,
+.app-sidebar.is-collapsed .app-nav-label,
+.app-sidebar.is-collapsed .app-security-copy {
+  display: none;
+}
+
+.app-sidebar.is-collapsed .app-sidebar-toggle {
+  width: 26px;
+  height: 26px;
+  color: #666;
+}
+
+.dark .app-sidebar.is-collapsed .app-sidebar-toggle {
+  color: #bbb;
+}
+
+.app-sidebar.is-collapsed nav a {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.app-sidebar.is-collapsed nav a svg {
+  margin: 0;
+}
+
+.app-sidebar.is-collapsed > div:last-child {
+  padding: 8px;
+}
+
+.app-sidebar.is-collapsed > div:last-child > div {
+  justify-content: center;
+  padding: 6px;
+}
+
+@media (max-width: 639px) {
+  .app-sidebar { transition: none; }
+  .app-sidebar-toggle { display: none !important; }
+}
