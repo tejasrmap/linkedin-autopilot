@@ -1533,3 +1533,25 @@ body {
   box-shadow: 0 16px 48px rgba(16,24,40,.16) !important;
 }
 .auth-page-centered .fixed.inset-0 { background: rgba(24,24,27,.42) !important; }
+
+
+/* Keep the workspace centered and at the scale of the MagicPath canvas. */
+.chat-page {
+  max-width: 1040px;
+}
+.chat-prompt-card-designed {
+  gap: 18px;
+  padding: clamp(22px, 2.4vw, 34px);
+}
+.chat-prompt-intro h2 {
+  font-size: clamp(19px, 1.8vw, 24px);
+}
+.chat-prompt-composer textarea {
+  min-height: 68px;
+}
+@media (max-width: 639px) {
+  .chat-prompt-card-designed {
+    gap: 16px;
+    padding: 21px 14px;
+  }
+}
