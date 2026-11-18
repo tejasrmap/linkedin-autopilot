@@ -647,7 +647,7 @@ function ComposerContent() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            Post Studio &amp; Composer
+            Create a post
           </h1>
           <div className="flex items-center gap-2 flex-wrap mt-0.5">
             <p className="text-xs text-slate-500 dark:text-slate-400">
