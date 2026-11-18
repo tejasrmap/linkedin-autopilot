@@ -1,13 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Award, UploadCloud, Sparkles, Copy, ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { PageHeader, ActionButton } from '@/components/magicpath/common';
+import { Icon } from '@/components/magicpath/icons';
 import { useToast } from '@/components/ui/toast';
 
 type Certificate = {
-  certificateName: string; issuer: string; recipientName: string; issueDate: string;
-  expiryDate: string; credentialId: string; skills: string[]; confidenceNotes: string[];
+  certificateName: string;
+  issuer: string;
+  recipientName: string;
+  issueDate: string;
+  expiryDate: string;
+  credentialId: string;
+  skills: string[];
+  confidenceNotes: string[];
 };
 
 export default function CertificateAnnouncementPage() {
@@ -20,8 +27,13 @@ export default function CertificateAnnouncementPage() {
   const [draft, setDraft] = useState('');
 
   async function generate() {
-    if (!file) { toast.error('Choose your certificate PDF or image first.'); return; }
-    setBusy(true); setCertificate(null); setDraft('');
+    if (!file) {
+      toast.error('Choose your certificate PDF or image first.');
+      return;
+    }
+    setBusy(true);
+    setCertificate(null);
+    setDraft('');
     try {
       const form = new FormData();
       form.append('certificate', file);
@@ -34,61 +46,215 @@ export default function CertificateAnnouncementPage() {
       if (!response.ok) throw new Error(result.error || 'Certificate processing failed.');
       setCertificate(result.certificate);
       setDraft(result.announcement);
-      toast.success('Draft generated. Check every detail against your certificate.');
-    } catch (error: any) { toast.error(error.message || 'Could not process certificate.'); }
-    finally { setBusy(false); }
+      toast.success('Certificate details extracted. Review the draft before publishing.');
+    } catch (error: any) {
+      toast.error(error.message || 'Could not process certificate.');
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function copyDraft() {
+  const handleCopy = async () => {
+    if (!draft) return;
     await navigator.clipboard.writeText(draft);
-    toast.success('Announcement copied.');
-  }
+    toast.success('Announcement copied to clipboard.');
+  };
+
+  const handleContinueToComposer = () => {
+    if (!draft) return;
+    router.push('/composer?content=' + encodeURIComponent(draft) + '&fromAi=true');
+  };
 
   return (
-    <div className="chat-page chat-page-certificate space-y-6">
-      <header className="flex items-start gap-3">
-        <div className="rounded-xl bg-indigo-500/10 p-3 text-indigo-500"><Award className="w-6 h-6" /></div>
-        <div><h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Certificate post</h1>
-          <p className="text-sm text-slate-500 mt-1">Turn a certificate into a polished LinkedIn post.</p></div>
-      </header>
+    <>
+      <PageHeader screen="certificate" />
 
-      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
-        <div>
-          <label className="block text-sm font-semibold mb-2">Certificate (PDF, PNG, JPG · max 10 MB)</label>
-          <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 p-8 cursor-pointer hover:border-indigo-500">
-            <UploadCloud className="w-8 h-8 text-indigo-500" />
-            <span className="text-sm font-medium text-center">{file ? file.name : 'Choose your certificate file'}</span>
-            <span className="text-xs text-slate-500">Processed in memory; this feature does not save the uploaded file.</span>
-            <input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" className="hidden" onChange={e => setFile(e.target.files?.[0] || null)} />
+      <div className="certificate-layout">
+        <section className="panel certificate-upload-panel">
+          <div className="section-title">
+            <span className="certificate-icon">
+              <Icon name="award" size={19} />
+            </span>
+            <div>
+              <h3>Share a milestone worth celebrating</h3>
+              <p>We’ll help you turn the details into a genuine, editable post.</p>
+            </div>
+          </div>
+
+          <div className="step-line">
+            <span className={`step-number ${!certificate && !draft ? 'active' : ''}`}>1</span>
+            <span>Upload credential</span>
+            <i />
+            <span className={`step-number ${certificate && !draft ? 'active' : ''}`}>2</span>
+            <span>Review details</span>
+            <i />
+            <span className={`step-number ${draft ? 'active' : ''}`}>3</span>
+            <span>Write post</span>
+          </div>
+
+          <label className="field-label">Your certificate</label>
+          <label className="certificate-drop">
+            <input
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+            />
+            <span className="upload-circle">
+              <Icon name="upload" size={20} />
+            </span>
+            <b>{file ? file.name : 'Drop your certificate here'}</b>
+            <small>
+              {file ? 'Ready to process' : 'or browse files · PDF, PNG or JPG · up to 10 MB'}
+            </small>
+            <span className="drop-foot">
+              <Icon name="shield" size={13} /> Your file is processed securely in memory and isn’t saved to disk.
+            </span>
           </label>
-        </div>
-        <div>
-          <label className="block text-sm font-semibold mb-1">Verification URL (optional)</label>
-          <input value={verificationUrl} onChange={e => setVerificationUrl(e.target.value)} placeholder="https://credential-provider.example/..." className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2 text-sm" />
-          <p className="text-xs text-slate-500 mt-1">The URL is recorded as user-provided context only; it is not opened or independently verified.</p>
-        </div>
-        <button onClick={generate} disabled={busy || !file} className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-sm py-3 flex items-center justify-center gap-2">
-          <Sparkles className="w-4 h-4" />{busy ? 'Extracting certificate details…' : 'Generate LinkedIn announcement'}
-        </button>
-      </section>
 
-      {certificate && <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-3">
-        <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> Extracted certificate details</div>
-        <div className="grid sm:grid-cols-2 gap-3 text-sm">
-          {([['Credential', certificate.certificateName], ['Issuer', certificate.issuer], ['Recipient', certificate.recipientName], ['Issue date', certificate.issueDate], ['Expiry date', certificate.expiryDate], ['Credential ID', certificate.credentialId]] as const).map(([label, value]) =>
-            <div key={label} className="rounded-lg bg-slate-50 dark:bg-slate-900 p-3"><div className="text-xs text-slate-500">{label}</div><div className="font-medium mt-1 break-words">{value || 'Not detected'}</div></div>)}
-        </div>
-        {certificate.skills.length > 0 && <p className="text-sm"><b>Skills / subjects:</b> {certificate.skills.join(', ')}</p>}
-        {certificate.confidenceNotes.length > 0 && <p className="text-sm text-amber-600 flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />Please verify: {certificate.confidenceNotes.join('; ')}</p>}
-      </section>}
+          <label className="field-label" htmlFor="verify-url">
+            Verification link <span className="optional">OPTIONAL</span>
+          </label>
+          <input
+            id="verify-url"
+            className="certificate-url"
+            value={verificationUrl}
+            onChange={(e) => setVerificationUrl(e.target.value)}
+            placeholder="https://credential-provider.example/…"
+          />
 
-      {draft && <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-3">
-        <div className="flex items-center justify-between"><h2 className="font-semibold">Review and edit your LinkedIn post</h2>
-          <button onClick={copyDraft} className="text-sm text-indigo-600 flex items-center gap-1"><Copy className="w-4 h-4" />Copy</button></div>
-        <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={12} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent p-3 text-sm leading-6" />
-        <div className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">AI extraction is not proof of authenticity. Verify all details and edit the draft before publishing.</div>
-        <button onClick={() => router.push('/composer?content=' + encodeURIComponent(draft) + '&fromAi=true')} className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-3 flex items-center justify-center gap-2">Continue to LinkedIn composer <ArrowRight className="w-4 h-4" /></button>
-      </section>}
-    </div>
+          <div className="certificate-note">
+            <Icon name="info" size={15} />
+            <span>
+              AI can help organize the details, but always verify the name, issuer, and dates before sharing.
+            </span>
+          </div>
+
+          <ActionButton disabled={!file || busy} onClick={generate}>
+            <Icon name="sparkles" size={15} />{' '}
+            {busy ? 'Extracting certificate details…' : 'Extract details'}{' '}
+            <Icon name="arrow" size={15} />
+          </ActionButton>
+
+          {/* Extracted Certificate Details Card */}
+          {certificate && (
+            <div
+              style={{
+                marginTop: '20px',
+                padding: '16px',
+                borderRadius: '10px',
+                border: '1px solid var(--line)',
+                background: 'var(--surface-soft)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  marginBottom: '12px',
+                }}
+              >
+                <Icon name="check" size={16} /> Extracted certificate details
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: '8px',
+                  fontSize: '11px',
+                }}
+              >
+                {[
+                  ['Credential', certificate.certificateName],
+                  ['Issuer', certificate.issuer],
+                  ['Recipient', certificate.recipientName],
+                  ['Issue date', certificate.issueDate],
+                  ['Expiry date', certificate.expiryDate],
+                  ['Credential ID', certificate.credentialId],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    style={{
+                      background: 'var(--surface)',
+                      padding: '8px 10px',
+                      borderRadius: '7px',
+                      border: '1px solid var(--line)',
+                    }}
+                  >
+                    <div style={{ color: 'var(--muted)', fontSize: '9px', fontWeight: 600 }}>
+                      {label}
+                    </div>
+                    <div style={{ fontWeight: 600, marginTop: '2px' }}>
+                      {value || 'Not detected'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Draft Review & Continue to Composer */}
+          {draft && (
+            <div style={{ marginTop: '20px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '8px',
+                }}
+              >
+                <label className="field-label" style={{ margin: 0 }}>
+                  Generated announcement post
+                </label>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={handleCopy}
+                >
+                  <Icon name="copy" size={14} /> Copy
+                </button>
+              </div>
+
+              <textarea
+                className="output-text"
+                rows={8}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+
+              <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <ActionButton onClick={handleContinueToComposer}>
+                  Continue to LinkedIn composer <Icon name="arrow" size={15} />
+                </ActionButton>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <aside className="panel certificate-side">
+          <span className="certificate-side-mark">
+            <Icon name="award" size={19} />
+          </span>
+          <h3>A post that still sounds like you</h3>
+          <p>
+            Keep the story personal. Share what you learned, why this milestone matters, or who helped you get here.
+          </p>
+
+          <div className="certificate-example">
+            <span className="example-label">A GOOD START</span>
+            <p>
+              “I’m excited to share that I’ve completed… The most useful thing I learned along the way was…”
+            </p>
+          </div>
+
+          <div className="privacy-small">
+            <Icon name="shield" size={14} /> You review every detail before a post is created.
+          </div>
+        </aside>
+      </div>
+    </>
   );
 }

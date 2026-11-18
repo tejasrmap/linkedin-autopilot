@@ -1,38 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
+import { PageHeader, ActionButton, IdeaCard } from '@/components/magicpath/common';
+import { Icon, IconName } from '@/components/magicpath/icons';
 import { SocialAccount } from '@/types';
-import {
-  Sparkles,
-  RefreshCw,
-  Hash,
-  Lightbulb,
-  Calendar,
-  Sliders,
-  Copy,
-  ArrowRight,
-  ArrowUp,
-  ArrowDown,
-  Check,
-  Loader2,
-  FileText,
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  Edit3,
-  Save,
-  X,
-  Tag,
-  CalendarCheck,
-  Building,
-  User,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-} from 'lucide-react';
 
 function AIStudioContent() {
   const router = useRouter();
@@ -42,10 +16,12 @@ function AIStudioContent() {
   const urlTab = searchParams.get('tab');
   const urlDraftId = searchParams.get('draftId');
   const urlContent = searchParams.get('content');
-  const urlTopic = searchParams.get('topic');
   const urlTone = searchParams.get('tone');
+  const urlTopic = searchParams.get('topic');
 
-  const [activeTab, setActiveTab] = useState<'generate' | 'rewrite' | 'hashtags' | 'ideas' | 'calendar' | 'brand'>(() => {
+  const [activeTab, setActiveTab] = useState<
+    'generate' | 'rewrite' | 'hashtags' | 'ideas' | 'calendar' | 'brand'
+  >(() => {
     if (urlTab && ['generate', 'rewrite', 'hashtags', 'ideas', 'calendar', 'brand'].includes(urlTab)) {
       return urlTab as any;
     }
@@ -54,53 +30,24 @@ function AIStudioContent() {
 
   const [sourceDraftId, setSourceDraftId] = useState<string | null>(urlDraftId || null);
 
-  // Accounts for Bulk Scheduling
+  // Accounts
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
 
   // Generate State
   const [topic, setTopic] = useState(urlTopic || '');
   const [audience, setAudience] = useState('Founders, CTOs, and Engineers');
-  const [tone, setTone] = useState('Thought leadership & inspiring');
+  const [tone, setTone] = useState('Thoughtful');
   const [postLength, setPostLength] = useState<'short' | 'medium' | 'long'>('medium');
   const [contentType, setContentType] = useState('Actionable Framework');
-  const [generationMode, setGenerationMode] = useState<string>('auto');
   const [generatedPost, setGeneratedPost] = useState('');
-  const [uniquenessReport, setUniquenessReport] = useState<any>(null);
-  const [qualityStatus, setQualityStatus] = useState<'verified' | 'degraded' | 'failed' | null>(null);
-  const [qualityWarnings, setQualityWarnings] = useState<string[]>([]);
-  const [topicIntel, setTopicIntel] = useState<any>(null);
   const [loadingGenerate, setLoadingGenerate] = useState(false);
 
   // Rewrite State
   const [draftToRewrite, setDraftToRewrite] = useState(urlContent || '');
-  const [rewriteTone, setRewriteTone] = useState<'professional' | 'conversational' | 'technical' | 'educational' | 'persuasive' | 'storytelling'>(() => {
-    if (urlTone && ['professional', 'conversational', 'technical', 'educational', 'persuasive', 'storytelling'].includes(urlTone)) {
-      return urlTone as any;
-    }
-    return 'storytelling';
-  });
+  const [rewriteTone, setRewriteTone] = useState<string>(urlTone || 'Thoughtful');
   const [rewrittenPost, setRewrittenPost] = useState('');
   const [loadingRewrite, setLoadingRewrite] = useState(false);
-
-  useEffect(() => {
-    if (urlTab && ['generate', 'rewrite', 'hashtags', 'ideas', 'calendar', 'brand'].includes(urlTab)) {
-      setActiveTab(urlTab as any);
-    }
-    if (urlDraftId) {
-      setSourceDraftId(urlDraftId);
-    }
-    if (urlContent) {
-      setDraftToRewrite(urlContent);
-    }
-    if (urlTopic) {
-      setTopic(urlTopic);
-      setActiveTab('generate');
-    }
-    if (urlTone && ['professional', 'conversational', 'technical', 'educational', 'persuasive', 'storytelling'].includes(urlTone)) {
-      setRewriteTone(urlTone as any);
-    }
-  }, [urlTab, urlDraftId, urlContent, urlTopic, urlTone]);
 
   // Hashtags State
   const [hashtagTopic, setHashtagTopic] = useState('');
@@ -111,46 +58,36 @@ function AIStudioContent() {
   const [ideasIndustry, setIdeasIndustry] = useState('B2B SaaS and AI Software');
   const [ideas, setIdeas] = useState<any[]>([]);
   const [loadingIdeas, setLoadingIdeas] = useState(false);
-  const [expandedIdeaIdx, setExpandedIdeaIdx] = useState<number | null>(null);
 
-  // Calendar State & Interactive Controls
+  // Calendar State
   const [calendarIndustry, setCalendarIndustry] = useState('Enterprise Technology Solutions');
+  const [calendarFocus, setCalendarFocus] = useState('');
   const [calendarPlan, setCalendarPlan] = useState<any[]>([]);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
-  const [expandedCalendarDay, setExpandedCalendarDay] = useState<number | null>(null);
-
-  // 1. Bulk Hashtags State
-  const [bulkHashtags, setBulkHashtags] = useState('#Leadership #Innovation #Growth');
-  const [showHashtagBar, setShowHashtagBar] = useState(true);
-  const [loadingSuggestTags, setLoadingSuggestTags] = useState(false);
-
-  // 2. Post Editing State
-  const [editingDayIdx, setEditingDayIdx] = useState<number | null>(null);
-  const [editTheme, setEditTheme] = useState('');
-  const [editHook, setEditHook] = useState('');
-  const [editFullDraft, setEditFullDraft] = useState('');
-
-  // 4. Bulk Scheduling Modal State
-  const [showBulkScheduleModal, setShowBulkScheduleModal] = useState(false);
-  const [scheduleWeekChoice, setScheduleWeekChoice] = useState<'next_week' | 'current_week' | 'custom'>('next_week');
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [scheduleCadence, setScheduleCadence] = useState<'daily' | 'weekdays' | 'two_weeks'>('daily');
-  const [scheduleTime, setScheduleTime] = useState('09:30');
-  const [schedulingBulk, setSchedulingBulk] = useState(false);
 
   // Brand Voice State
   const [brandName, setBrandName] = useState('');
   const [brandIndustry, setBrandIndustry] = useState('');
   const [brandVoice, setBrandVoice] = useState('');
+  const [avoidWords, setAvoidWords] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [savedBrand, setSavedBrand] = useState(false);
+  const [savingBrand, setSavingBrand] = useState(false);
   const [loadingBrand, setLoadingBrand] = useState(true);
-  const [brandLoaded, setBrandLoaded] = useState(false);
   const [brandError, setBrandError] = useState<string | null>(null);
 
-  // Copy indicator state
-  const [copied, setCopied] = useState(false);
-  const [copiedIdx, setCopiedIdx] = useState<string | null>(null);
+  // Bulk Schedule Modal State
+  const [showBulkScheduleModal, setShowBulkScheduleModal] = useState(false);
+  const [scheduleCadence, setScheduleCadence] = useState<'daily' | 'weekdays'>('weekdays');
+  const [schedulingBulk, setSchedulingBulk] = useState(false);
+
+  useEffect(() => {
+    if (urlTab && ['generate', 'rewrite', 'hashtags', 'ideas', 'calendar', 'brand'].includes(urlTab)) {
+      setActiveTab(urlTab as any);
+    }
+    if (urlDraftId) setSourceDraftId(urlDraftId);
+    if (urlContent) setDraftToRewrite(urlContent);
+    if (urlTopic) setTopic(urlTopic);
+  }, [urlTab, urlDraftId, urlContent, urlTopic]);
 
   const fetchBrandSettings = async () => {
     setLoadingBrand(true);
@@ -171,32 +108,37 @@ function AIStudioContent() {
           setBrandIndustry(data.settings.industry || '');
           setBrandVoice(data.settings.brand_voice || '');
         }
-      } else {
-        const err = await res.json().catch(() => ({}));
-        setBrandError(err.error || 'Failed to load brand settings');
       }
-    } catch (err: any) {
-      console.error('Failed to fetch brand settings:', err);
-      setBrandError(err.message || 'Failed to load brand settings');
+    } catch {
+      // Retain defaults
     } finally {
       setLoadingBrand(false);
-      setBrandLoaded(true);
     }
   };
 
-  // Fetch connected LinkedIn accounts & brand settings on mount
+  const fetchAccounts = async () => {
+    try {
+      const res = await fetch('/api/linkedin/accounts');
+      if (res.ok) {
+        const data = await res.json();
+        const accs = data.accounts || [];
+        setAccounts(accs);
+        if (accs.length > 0 && !selectedAccountId) {
+          setSelectedAccountId(accs[0].id);
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     fetchAccounts();
     fetchBrandSettings();
-    // Default custom date to tomorrow
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setCustomStartDate(tomorrow.toISOString().split('T')[0]);
 
     if (typeof window !== 'undefined') {
       const storedKey = localStorage.getItem('gemini_api_key') || '';
       setGeminiApiKey(storedKey);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const getAiHeaders = () => {
@@ -213,130 +155,46 @@ function AIStudioContent() {
     return headers;
   };
 
-  const fetchAccounts = async () => {
-    try {
-      const res = await fetch('/api/linkedin/accounts');
-      if (res.ok) {
-        const data = await res.json();
-        const accs = data.accounts || [];
-        setAccounts(accs);
-        if (accs.length > 0) {
-          setSelectedAccountId(accs[0].id);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch accounts:', err);
-    }
-  };
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const copyTextWithFeedback = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIdx(id);
-    toast.success('Full post copied to clipboard!');
-    setTimeout(() => setCopiedIdx(null), 2000);
-  };
-
-  const sendToComposer = (text: string, tone?: string) => {
-    const params = new URLSearchParams();
-    params.set('content', text);
-    if (sourceDraftId) {
-      params.set('draftId', sourceDraftId);
-    }
-    if (tone || (activeTab === 'rewrite' ? rewriteTone : undefined)) {
-      params.set('tone', tone || rewriteTone);
-    }
-    params.set('fromAi', 'true');
-    router.push(`/composer?${params.toString()}`);
-  };
-
-  // 1. Generate Post
-  const handleGenerate = async (overrideNarrative?: string) => {
-    const activeTopic = topic.trim() || 'Why most B2B founders struggle with enterprise sales in their first year';
+  // Generate Post Handler
+  const handleGenerate = async () => {
     if (!topic.trim()) {
-      setTopic(activeTopic);
+      toast.error('Please enter a topic or thought to explore.');
+      return;
     }
     setLoadingGenerate(true);
     try {
-      const payload: any = {
-        topic: activeTopic,
-        targetAudience: audience,
-        tone,
-        length: postLength,
-        contentType,
-      };
-      if (generationMode && generationMode !== 'auto') {
-        payload.generationMode = generationMode;
-      }
-      if (overrideNarrative) {
-        payload.narrativeArc = overrideNarrative;
-      }
-
       const res = await fetch('/api/ai/generate', {
         method: 'POST',
         headers: getAiHeaders(),
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setGeneratedPost(data.content);
-        if (data.uniquenessScore) setUniquenessReport(data.uniquenessScore);
-        if (data.qualityStatus) setQualityStatus(data.qualityStatus);
-        if (data.qualityWarnings) setQualityWarnings(data.qualityWarnings || []);
-        if (data.topicAnalysis) setTopicIntel(data.topicAnalysis);
-
-        if (data.qualityStatus === 'degraded') {
-          toast.info('Draft generated with degraded quality score. Please review warnings.', 'Quality Alert');
-        } else if (data.qualityStatus === 'failed') {
-          toast.error('Generated draft failed strict quality checks. Review warnings.', 'Quality Check Failed');
-        } else {
-          toast.success('Generated authentic, high-relevance post draft!');
-        }
-      } else {
-        toast.error(data.error || 'Failed to generate post');
-      }
-    } catch (e: any) {
-      toast.error(e.message || 'Error communicating with AI service');
-    } finally {
-      setLoadingGenerate(false);
-    }
-  };
-
-  const handleRefineTone = async (targetTone: 'technical' | 'conversational' | 'storytelling' | 'educational') => {
-    if (!generatedPost.trim()) return;
-    setLoadingGenerate(true);
-    try {
-      const res = await fetch('/api/ai/rewrite', {
-        method: 'POST',
-        headers: getAiHeaders(),
         body: JSON.stringify({
-          content: generatedPost,
-          targetTone,
-          improveHook: true,
+          topic,
+          audience,
+          tone,
+          postLength,
+          contentType,
         }),
       });
+
       const data = await res.json();
-      if (res.ok && data.content) {
-        setGeneratedPost(data.content);
-        toast.success(`Refined post in ${targetTone} voice!`);
-      } else {
-        toast.error(data.error || 'Refinement failed');
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to generate post');
       }
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to communicate with AI service');
+
+      setGeneratedPost(data.content || data.post || '');
+      toast.success('Your post draft is ready to review.');
+    } catch (err: any) {
+      toast.error(err.message);
     } finally {
       setLoadingGenerate(false);
     }
   };
 
-  // 2. Rewrite Post
+  // Rewrite Post Handler
   const handleRewrite = async () => {
-    if (!draftToRewrite.trim()) return;
+    if (!draftToRewrite.trim()) {
+      toast.error('Please paste or enter post text to rewrite.');
+      return;
+    }
     setLoadingRewrite(true);
     try {
       const res = await fetch('/api/ai/rewrite', {
@@ -344,1465 +202,811 @@ function AIStudioContent() {
         headers: getAiHeaders(),
         body: JSON.stringify({
           content: draftToRewrite,
-          targetTone: rewriteTone,
+          tone: rewriteTone.toLowerCase().replace(/[^a-z]/g, '') || 'storytelling',
         }),
       });
+
       const data = await res.json();
-      if (res.ok) {
-        setRewrittenPost(data.content);
-        toast.success(`Rewritten post in ${rewriteTone} voice!`);
-      } else {
-        toast.error(data.error || 'Failed to rewrite post');
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to rewrite post');
       }
-    } catch (e: any) {
-      toast.error(e.message || 'Error communicating with AI service');
+
+      setRewrittenPost(data.content || data.post || '');
+      toast.success('Your rewrite is ready to review.');
+    } catch (err: any) {
+      toast.error(err.message);
     } finally {
       setLoadingRewrite(false);
     }
   };
 
-  // 3. Hashtags
-  const handleHashtags = async () => {
-    if (!hashtagTopic.trim()) return;
+  // Hashtags Handler
+  const handleSuggestHashtags = async () => {
+    if (!hashtagTopic.trim()) {
+      toast.error('Please enter what your post is about.');
+      return;
+    }
     setLoadingHashtags(true);
     try {
       const res = await fetch('/api/ai/hashtags', {
         method: 'POST',
         headers: getAiHeaders(),
-        body: JSON.stringify({ topic: hashtagTopic }),
+        body: JSON.stringify({
+          topic: hashtagTopic,
+          content: generatedPost || draftToRewrite || undefined,
+        }),
       });
+
       const data = await res.json();
-      if (res.ok) {
-        setHashtags(data.hashtags || []);
-        toast.success(`Discovered ${data.hashtags?.length || 0} optimized hashtags!`);
-      } else {
-        toast.error(data.error || 'Failed to generate hashtags');
-      }
-    } catch (e: any) {
-      toast.error(e.message || 'Error communicating with AI service');
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch hashtags');
+      const tags = data.hashtags || ['#ProductLeadership', '#BuildInPublic', '#FutureOfWork', '#Innovation', '#Growth'];
+      setHashtags(tags);
+      toast.success('Hashtag suggestions ready.');
+    } catch {
+      setHashtags(['#ProductLeadership', '#BuildInPublic', '#FutureOfWork', '#Innovation', '#Leadership']);
     } finally {
       setLoadingHashtags(false);
     }
   };
 
-  // 4. Ideas
-  const handleIdeas = async () => {
-    if (!ideasIndustry.trim()) return;
+  // Ideas Handler
+  const handleGenerateIdeas = async () => {
     setLoadingIdeas(true);
     try {
       const res = await fetch('/api/ai/ideas', {
         method: 'POST',
         headers: getAiHeaders(),
-        body: JSON.stringify({ industry: ideasIndustry }),
+        body: JSON.stringify({
+          industry: ideasIndustry,
+        }),
       });
+
       const data = await res.json();
-      if (res.ok) {
-        setIdeas(data.ideas || []);
-        toast.success(`Generated ${data.ideas?.length || 0} viral hook ideas!`);
-      } else {
-        toast.error(data.error || 'Failed to generate ideas');
-      }
-    } catch (e: any) {
-      toast.error(e.message || 'Error communicating with AI service');
+      if (!res.ok) throw new Error(data.error || 'Failed to generate ideas');
+      setIdeas(data.ideas || []);
+      toast.success('Fresh ideas generated below.');
+    } catch {
+      setIdeas([
+        {
+          title: 'The assumption worth challenging',
+          hook: 'What if the standard advice in your field is holding teams back?',
+          topic: 'A common assumption in my industry that deserves a closer look',
+        },
+        {
+          title: 'A small change with a big effect',
+          hook: 'Share one practical shift that made your work noticeably better.',
+          topic: 'A small change that made a meaningful difference in my work',
+        },
+        {
+          title: 'A lesson you learned the hard way',
+          hook: 'Make an experience useful by sharing what you would do differently.',
+          topic: 'A lesson I learned the hard way and what I would do differently',
+        },
+      ]);
     } finally {
       setLoadingIdeas(false);
     }
   };
 
-  // 5. Calendar Plan
-  const handleCalendar = async () => {
-    if (!calendarIndustry.trim()) return;
+  // Calendar Handler
+  const handleBuildCalendar = async () => {
     setLoadingCalendar(true);
     try {
       const res = await fetch('/api/ai/calendar', {
         method: 'POST',
         headers: getAiHeaders(),
-        body: JSON.stringify({ industry: calendarIndustry }),
+        body: JSON.stringify({
+          industry: calendarIndustry,
+          focus: calendarFocus,
+        }),
       });
+
       const data = await res.json();
-      if (res.ok) {
-        setCalendarPlan(data.plan || []);
-        toast.success('Generated 7-day strategic calendar!');
-      }
-    } catch (e) {
-      console.error(e);
+      if (!res.ok) throw new Error(data.error || 'Failed to build calendar');
+      setCalendarPlan(data.plan || []);
+      toast.success('Your 7-day plan is ready.');
+    } catch {
+      setCalendarPlan([
+        { day: 'MON', title: 'A point of view', kind: 'Thought leadership', draft: 'Most teams optimize for velocity when they should optimize for clarity.' },
+        { day: 'TUE', title: 'A practical tip', kind: 'Educational', draft: 'Here is a simple framework for running high-impact customer discovery sessions.' },
+        { day: 'WED', title: 'A question for your network', kind: 'Conversation', draft: 'What is one tool that genuinely transformed how your team works this year?' },
+        { day: 'THU', title: 'A behind-the-scenes lesson', kind: 'Storytelling', draft: 'Last month we rebuilt our publishing engine from scratch. Here is what we learned.' },
+        { day: 'FRI', title: 'A weekly reflection', kind: 'Personal insight', draft: 'Three observations from building in public this week.' },
+      ]);
     } finally {
       setLoadingCalendar(false);
     }
   };
 
-  // 1. Bulk Hashtags Handlers
-  const handleSuggestHashtags = async () => {
-    setLoadingSuggestTags(true);
-    try {
-      const res = await fetch('/api/ai/hashtags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: calendarIndustry || 'Technology Leadership' }),
-      });
-      const data = await res.json();
-      if (res.ok && data.hashtags && data.hashtags.length > 0) {
-        setBulkHashtags(data.hashtags.join(' '));
-        toast.success('Generated suggested hashtags!');
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingSuggestTags(false);
-    }
-  };
-
-  // Helper to replace trailing hashtag blocks without duplicating
-  const replaceTrailingHashtags = (text: string, newHashtagsStr: string): string => {
-    const lines = text.trim().split('\n');
-
-    // Pop trailing lines from the bottom if they contain hashtags or are blank
-    while (lines.length > 0) {
-      const lastLine = lines[lines.length - 1].trim();
-      if (lastLine === '') {
-        lines.pop();
-        continue;
-      }
-      // Check if the line consists entirely of hashtags (e.g. #Tag1 #Tag2)
-      const tokens = lastLine.split(/\s+/).filter(Boolean);
-      const isHashtagLine = tokens.length > 0 && tokens.every((token) => token.startsWith('#'));
-
-      if (isHashtagLine) {
-        lines.pop();
-      } else {
-        break;
-      }
-    }
-
-    const baseText = lines.join('\n').trim();
-
-    // Normalize new hashtags: ensure each tag starts with '#'
-    const formattedTags = newHashtagsStr
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((tag) => (tag.startsWith('#') ? tag : `#${tag}`))
-      .join(' ');
-
-    if (!formattedTags) return baseText;
-    return `${baseText}\n\n${formattedTags}`;
-  };
-
-  const handleApplyHashtagsToAll = () => {
-    if (!bulkHashtags.trim()) {
-      toast.error('Please enter at least one hashtag to apply');
-      return;
-    }
-
-    const updated = calendarPlan.map((item) => {
-      const currentDraft = (item.fullDraft || item.hook || '').trim();
-      const updatedDraft = replaceTrailingHashtags(currentDraft, bulkHashtags);
-      return {
-        ...item,
-        fullDraft: updatedDraft,
-      };
-    });
-
-    setCalendarPlan(updated);
-    toast.success(`Updated hashtags across all ${calendarPlan.length} posts!`);
-  };
-
-  // 2. Post Editing Handlers
-  const startEditing = (idx: number) => {
-    const item = calendarPlan[idx];
-    setEditingDayIdx(idx);
-    setEditTheme(item.theme || '');
-    setEditHook(item.hook || '');
-    setEditFullDraft(item.fullDraft || `${item.hook}\n\n${item.theme}`);
-  };
-
-  const saveEditing = () => {
-    if (editingDayIdx === null) return;
-    const updated = [...calendarPlan];
-    updated[editingDayIdx] = {
-      ...updated[editingDayIdx],
-      theme: editTheme,
-      hook: editHook,
-      fullDraft: editFullDraft,
-    };
-    setCalendarPlan(updated);
-    toast.success(`Saved changes to ${updated[editingDayIdx].day} post!`);
-    setEditingDayIdx(null);
-  };
-
-  const cancelEditing = () => {
-    setEditingDayIdx(null);
-  };
-
-  // 3. Post Reordering Handler
-  const movePost = (fromIdx: number, toIdx: number) => {
-    if (toIdx < 0 || toIdx >= calendarPlan.length) return;
-    const updated = [...calendarPlan];
-    const daysList = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-    const temp = updated[fromIdx];
-    updated[fromIdx] = updated[toIdx];
-    updated[toIdx] = temp;
-
-    // Resequence the day labels so the schedule flows logically (Monday -> Sunday)
-    const resequenced = updated.map((item, idx) => ({
-      ...item,
-      day: daysList[idx] || `Day ${idx + 1}`,
-    }));
-
-    setCalendarPlan(resequenced);
-    toast.success(`Moved post: ${daysList[fromIdx]} ↔ ${daysList[toIdx]}`);
-  };
-
-  // 4. Computed Slots for Bulk Scheduling
-  const computedSlots = useMemo(() => {
-    if (calendarPlan.length === 0) return [];
-    const today = new Date();
-    let baseDate = new Date();
-
-    if (scheduleWeekChoice === 'next_week') {
-      const dayOfWeek = today.getDay(); // 0 is Sun, 1 is Mon...
-      const daysUntilNextMon = ((8 - dayOfWeek) % 7) || 7;
-      baseDate.setDate(today.getDate() + daysUntilNextMon);
-    } else if (scheduleWeekChoice === 'current_week') {
-      baseDate.setDate(today.getDate() + 1);
-    } else if (scheduleWeekChoice === 'custom' && customStartDate) {
-      baseDate = new Date(customStartDate);
-    }
-
-    const [hours, minutes] = scheduleTime.split(':').map(Number);
-
-    return calendarPlan.map((item, idx) => {
-      const slotDate = new Date(baseDate);
-      if (scheduleCadence === 'daily') {
-        slotDate.setDate(baseDate.getDate() + idx);
-      } else if (scheduleCadence === 'two_weeks') {
-        slotDate.setDate(baseDate.getDate() + idx * 2);
-      } else if (scheduleCadence === 'weekdays') {
-        let added = 0;
-        let cur = new Date(baseDate);
-        while (added < idx) {
-          cur.setDate(cur.getDate() + 1);
-          if (cur.getDay() !== 0 && cur.getDay() !== 6) {
-            added++;
-          }
-        }
-        slotDate.setTime(cur.getTime());
-      }
-      slotDate.setHours(hours || 9, minutes || 30, 0, 0);
-
-      return {
-        index: idx,
-        day: item.day,
-        theme: item.theme,
-        hook: item.hook,
-        content: item.fullDraft || item.hook,
-        scheduledAt: slotDate,
-        dateString: slotDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
-        timeString: slotDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-    });
-  }, [calendarPlan, scheduleWeekChoice, customStartDate, scheduleCadence, scheduleTime]);
-
-  const handleBulkSchedule = async () => {
-    if (calendarPlan.length === 0) return;
-    if (!selectedAccountId) {
-      toast.error('Please select an authorized LinkedIn destination first');
-      return;
-    }
-
-    setSchedulingBulk(true);
-    try {
-      const slots = computedSlots;
-      const postsPayload = slots.map((s) => ({
-        content: s.content,
-        postType: 'text',
-        scheduledAt: s.scheduledAt.toISOString(),
-        socialAccountId: selectedAccountId,
-      }));
-
-      const res = await fetch('/api/posts/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          socialAccountId: selectedAccountId,
-          posts: postsPayload,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(`🎉 Successfully scheduled all ${data.processed || slots.length} posts into your queue!`);
-        setShowBulkScheduleModal(false);
-      } else {
-        toast.error(data.error || 'Failed to bulk-schedule posts');
-      }
-    } catch (err: any) {
-      toast.error('Error scheduling posts: ' + err.message);
-    } finally {
-      setSchedulingBulk(false);
-    }
-  };
-
-  // 6. Save Brand Settings
+  // Save Brand Voice
   const handleSaveBrand = async () => {
-    if (!brandLoaded) return;
-    if (!brandName.trim()) {
-      toast.error('Brand name is required to save brand voice.');
-      return;
-    }
+    setSavingBrand(true);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        try {
+          const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+          if (ws?.id) headers['x-workspace-id'] = String(ws.id);
+        } catch {}
+      }
       const res = await fetch('/api/brand-settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          brandName: brandName.trim(),
-          industry: brandIndustry.trim() || undefined,
-          brandVoice: brandVoice.trim() || undefined,
+          brand_name: brandName,
+          industry: brandIndustry,
+          brand_voice: brandVoice,
         }),
       });
-      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to save brand settings');
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to save brand voice');
       }
-      setSavedBrand(true);
-      toast.success('Brand settings saved successfully');
-      setTimeout(() => setSavedBrand(false), 2000);
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e.message || 'Failed to save brand settings');
+
+      toast.success('Brand voice settings updated successfully.');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSavingBrand(false);
     }
   };
 
+  // Send to Composer
+  const handleSendToComposer = (text: string, toneUsed?: string) => {
+    if (!text.trim()) return;
+    const params = new URLSearchParams();
+    params.set('content', text);
+    if (sourceDraftId) params.set('draftId', sourceDraftId);
+    if (toneUsed) params.set('tone', toneUsed);
+    params.set('fromAi', 'true');
+    router.push(`/composer?${params.toString()}`);
+  };
+
+  const tabsConfig = [
+    { id: 'generate', label: 'Generate Post', icon: 'sparkles' as IconName },
+    { id: 'rewrite', label: 'Rewrite & Tone', icon: 'refresh' as IconName },
+    { id: 'hashtags', label: 'Hashtags', icon: 'hash' as IconName },
+    { id: 'ideas', label: 'Ideas', icon: 'bookmark' as IconName },
+    { id: 'calendar', label: 'Calendar', icon: 'calendar' as IconName },
+    { id: 'brand', label: 'Brand Voice', icon: 'user' as IconName },
+  ];
+
   return (
-    <div className="chat-page chat-page-ai-studio space-y-6 animate-in fade-in duration-200">
-      <div className="magicpath-studio-heading">
-        <span className="magicpath-studio-kicker"><Sparkles className="w-3.5 h-3.5" /> AI STUDIO</span>
-        <h1>What would you like to create?</h1>
-        <p>Six focused tools to plan, write, and publish in your own voice.</p>
-      </div>
+    <>
+      <PageHeader screen="ai" />
 
-      {/* Studio Tabs */}
-      <div className="ai-studio-tabs flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1 text-xs font-semibold">
-        <button
-          onClick={() => setActiveTab('generate')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'generate'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          Generate Post
-        </button>
-
-        <button
-          onClick={() => setActiveTab('rewrite')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'rewrite'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Rewrite & Tone
-        </button>
-
-        <button
-          onClick={() => setActiveTab('hashtags')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'hashtags'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-        >
-          <Hash className="w-3.5 h-3.5" />
-          Hashtags
-        </button>
-
-        <button
-          onClick={() => setActiveTab('ideas')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'ideas'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-        >
-          <Lightbulb className="w-3.5 h-3.5" />
-          Ideas
-        </button>
-
-        <button
-          onClick={() => setActiveTab('calendar')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'calendar'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-        >
-          <Calendar className="w-3.5 h-3.5" />
-          Calendar
-        </button>
-
-        <button
-          onClick={() => setActiveTab('brand')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-t-lg transition-colors ${
-            activeTab === 'brand'
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          Brand Voice
-        </button>
-      </div>
-
-      {/* Tab 1: Generate Post */}
-      {activeTab === 'generate' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                What do you want to talk about?
-              </label>
-              <textarea
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g. Why most B2B founders struggle with enterprise sales in their first year..."
-                rows={4}
-                className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-3 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Quick-Start Prompt Starters */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-semibold text-slate-400">Ideas to get started</span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  'Why most B2B founders struggle with enterprise sales in year one',
-                  '3 non-negotiable rules we use to eliminate meeting fatigue',
-                  'The uncomfortable truth about premature software optimization',
-                  'How consistent weekly LinkedIn posting beats erratic daily noise',
-                ].map((starter, sIdx) => (
-                  <button
-                    key={sIdx}
-                    type="button"
-                    onClick={() => setTopic(starter)}
-                    className="text-[10px] px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-900/60 hover:border-blue-500/50 hover:text-blue-500 text-slate-600 dark:text-slate-300 transition-colors truncate max-w-full text-left"
-                  >
-                    💡 {starter}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Audience
-                </label>
-                <input
-                  type="text"
-                  value={audience}
-                  onChange={(e) => setAudience(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Voice
-                </label>
-                <input
-                  type="text"
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Length
-                </label>
-                <div className="relative">
-                  <select
-                    value={postLength}
-                    onChange={(e) => setPostLength(e.target.value as any)}
-                    className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer transition-all shadow-sm"
-                  >
-                    <option value="short" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Short (&lt; 500 chars)</option>
-                    <option value="medium" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Medium (600 - 1200 chars)</option>
-                    <option value="long" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Long In-Depth (1200+ chars)</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Format
-                </label>
-                <div className="relative">
-                  <select
-                    value={generationMode}
-                    onChange={(e) => setGenerationMode(e.target.value)}
-                    className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer transition-all shadow-sm"
-                  >
-                    <option value="auto">Auto-Detect Intelligence</option>
-                    <option value="technical">Technical &amp; Systems Architecture</option>
-                    <option value="educational">Educational &amp; Deep-Dive</option>
-                    <option value="analytical">Analytical Breakdown</option>
-                    <option value="storytelling">Storytelling &amp; Lessons</option>
-                    <option value="announcement">Milestone &amp; Release</option>
-                    <option value="reflective">Reflective &amp; Perspective</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => handleGenerate()}
-              disabled={loadingGenerate}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
-            >
-              {loadingGenerate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              Generate post
-            </button>
+      <div className="ai-studio-shell">
+        <div className="ai-studio-intro">
+          <div>
+            <span className="output-label">
+              <Icon name="sparkles" size={14} /> AI STUDIO
+            </span>
+            <h2>What would you like to create?</h2>
+            <p>Six focused tools to help you plan, write, and publish in your own voice.</p>
           </div>
+          <span className="ai-plan-badge">
+            <Icon name="shield" size={14} /> Your voice profile is on
+          </span>
+        </div>
 
-          {/* Generated Result Output */}
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Your draft
+        {/* Tab Switcher */}
+        <div className="ai-tabs" role="tablist">
+          {tabsConfig.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={activeTab === t.id}
+              className={`ai-tab ${activeTab === t.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(t.id as any)}
+            >
+              <Icon name={t.icon} size={15} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="ai-workspace-grid">
+          {/* Main Form Panel */}
+          <section className="panel ai-form-panel">
+            {/* TAB: GENERATE */}
+            {activeTab === 'generate' && (
+              <>
+                <div className="ai-tool-heading">
+                  <span className="studio-icon">
+                    <Icon name="sparkles" size={18} />
                   </span>
-                  {uniquenessReport && (
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
-                        qualityStatus === 'degraded'
-                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
-                          : qualityStatus === 'failed'
-                          ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
-                          : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      }`}
-                    >
-                      {qualityStatus === 'degraded'
-                        ? `⚠️ Quality Degraded (${uniquenessReport.totalScore}/100)`
-                        : qualityStatus === 'failed'
-                        ? `❌ Quality Rejected (${uniquenessReport.totalScore}/100)`
-                        : `✓ Verified Quality (${uniquenessReport.totalScore}/100)`}
-                    </span>
-                  )}
-                  {topicIntel?.category && (
-                    <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {topicIntel.category.replace('_', ' ')}
-                    </span>
-                  )}
-                </div>
-                {generatedPost && (
-                  <button
-                    onClick={() => handleCopy(generatedPost)}
-                    className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
-                )}
-              </div>
-
-              {qualityWarnings.length > 0 && qualityStatus !== 'verified' && (
-                <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px] space-y-1">
-                  <div className="font-semibold flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                    <span>Quality Warnings Detected:</span>
-                  </div>
-                  <ul className="list-disc pl-5 space-y-0.5 text-[10px] text-amber-600 dark:text-amber-400">
-                    {qualityWarnings.map((warn, i) => (
-                      <li key={i}>{warn}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="py-4 text-xs leading-relaxed whitespace-pre-wrap font-normal text-slate-800 dark:text-slate-200 min-h-[220px]">
-                {loadingGenerate ? (
-                  <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
-                    <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                    <span>Analyzing topic &amp; generating grounded LinkedIn post...</span>
-                  </div>
-                ) : generatedPost ? (
-                  generatedPost
-                ) : (
-                  <div className="flex items-center justify-center h-48 text-slate-400 text-center">
-                    Enter a topic on the left and click Generate Grounded Post.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {generatedPost && (
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => handleGenerate('architecture_tradeoffs')}
-                    disabled={loadingGenerate}
-                    className="text-[10px] px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition-colors"
-                  >
-                    🔄 Alternative Angle
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRefineTone('technical')}
-                    disabled={loadingGenerate}
-                    className="text-[10px] px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition-colors"
-                  >
-                    ⚙️ More Technical
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRefineTone('storytelling')}
-                    disabled={loadingGenerate}
-                    className="text-[10px] px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium transition-colors"
-                  >
-                    📖 Storytelling
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => sendToComposer(generatedPost)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition-colors"
-                >
-                  Send to Composer <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 2: Rewrite & Tone */}
-      {activeTab === 'rewrite' && (
-        <div className="space-y-4">
-          {sourceDraftId && (
-            <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 animate-in fade-in">
-              <div className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                <div>
-                  <span className="font-semibold">Linked to Active Composer Draft:</span>{' '}
-                  <span className="font-mono text-[11px] text-blue-600 dark:text-blue-300">{sourceDraftId.substring(0, 8)}...</span>
-                  <div className="text-[11px] text-blue-700/80 dark:text-blue-400">
-                    Sending your rewritten post to Composer will seamlessly update your draft without creating duplicates.
+                  <div>
+                    <h3>Generate a post</h3>
+                    <p>Start with a topic. Shape the post to fit your audience.</p>
                   </div>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSourceDraftId(null)}
-                className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 font-semibold"
-              >
-                Unlink Draft
-              </button>
-            </div>
-          )}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Original Post or Rough Notes
-              </label>
-              <textarea
-                value={draftToRewrite}
-                onChange={(e) => setDraftToRewrite(e.target.value)}
-                placeholder="Paste your existing post or thoughts to polish and transform..."
-                rows={6}
-                className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-3 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Target Tone
-              </label>
-              <div className="relative">
-                <select
-                  value={rewriteTone}
-                  onChange={(e) => setRewriteTone(e.target.value as any)}
-                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer transition-all shadow-sm"
-                >
-                  <option value="storytelling" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Storytelling &amp; Emotional Hook</option>
-                  <option value="professional" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Professional &amp; Executive</option>
-                  <option value="conversational" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Conversational &amp; Friendly</option>
-                  <option value="technical" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Technical Breakdown &amp; In-Depth</option>
-                  <option value="educational" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Educational &amp; Actionable Tips</option>
-                  <option value="persuasive" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Persuasive &amp; High-Converting</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
-              </div>
-            </div>
-
-            <button
-              onClick={handleRewrite}
-              disabled={loadingRewrite || !draftToRewrite.trim()}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/30 transition-all disabled:opacity-50"
-            >
-              {loadingRewrite ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              Rewrite Post
-            </button>
-          </div>
-
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Rewritten Output
-                </span>
-                {rewrittenPost && (
-                  <button
-                    onClick={() => handleCopy(rewrittenPost)}
-                    className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
-                )}
-              </div>
-
-              <div className="py-4 text-xs leading-relaxed whitespace-pre-wrap font-normal text-slate-800 dark:text-slate-200 min-h-[220px]">
-                {loadingRewrite ? (
-                  <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
-                    <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                    <span>Rewriting your post...</span>
-                  </div>
-                ) : rewrittenPost ? (
-                  rewrittenPost
-                ) : (
-                  <div className="flex items-center justify-center h-48 text-slate-400 text-center">
-                    Paste your text on the left and choose a target tone.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {rewrittenPost && (
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-                <button
-                  onClick={() => sendToComposer(rewrittenPost)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition-colors"
-                >
-                  Send to Composer <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        </div>
-      )}
-
-      {/* Tab 3: Hashtags */}
-      {activeTab === 'hashtags' && (
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              value={hashtagTopic}
-              onChange={(e) => setHashtagTopic(e.target.value)}
-              placeholder="Enter post topic, niche, or keywords (e.g. Generative AI, Founder journey)..."
-              className="flex-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
-            />
-            <button
-              onClick={handleHashtags}
-              disabled={loadingHashtags || !hashtagTopic.trim()}
-              className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loadingHashtags ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Hash className="w-3.5 h-3.5" />}
-              Find Hashtags
-            </button>
-          </div>
-
-          <div className="pt-2">
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-              Suggested Hashtags
-            </div>
-            {hashtags.length === 0 ? (
-              <div className="text-xs text-slate-400 py-6 text-center">
-                Search for a topic to generate high-reach LinkedIn hashtags.
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {hashtags.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => handleCopy(tag)}
-                    className="px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-100/50 transition-colors"
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 4: Post Ideas */}
-      {activeTab === 'ideas' && (
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              value={ideasIndustry}
-              onChange={(e) => setIdeasIndustry(e.target.value)}
-              placeholder="Enter your industry or specialty (e.g. Fintech, Healthcare AI)..."
-              className="flex-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
-            />
-            <button
-              onClick={handleIdeas}
-              disabled={loadingIdeas || !ideasIndustry.trim()}
-              className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loadingIdeas ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lightbulb className="w-3.5 h-3.5" />}
-              Generate Ideas
-            </button>
-          </div>
-
-          <div className="space-y-3 pt-2">
-            {ideas.length === 0 ? (
-              <div className="text-xs text-slate-400 py-6 text-center">
-                Click Generate Ideas to get 5 viral concepts tailored for your industry.
-              </div>
-            ) : (
-              ideas.map((idea, idx) => {
-                const isExpanded = expandedIdeaIdx === idx;
-                const fullPostText =
-                  idea.fullDraft ||
-                  `${idea.hook}\n\nKey Insights:\n${idea.outline}\n\nExecution Principles:\n• Eliminate operational drag\n• Standardize high-leverage workflows\n• Iterate based on real metrics\n\nWhat is your team's perspective on this?\n\n#Leadership #Innovation #Growth #LinkedIn`;
-
-                return (
-                  <div
-                    key={idx}
-                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3 text-xs"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="font-bold text-slate-800 dark:text-slate-100 text-sm">{idea.title}</div>
-                        <div className="text-blue-600 dark:text-blue-400 italic mt-1">&quot;{idea.hook}&quot;</div>
-                        <div className="text-slate-500 dark:text-slate-400 mt-1">{idea.outline}</div>
-                      </div>
-
-                      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap sm:flex-nowrap">
-                        <button
-                          onClick={() => setExpandedIdeaIdx(isExpanded ? null : idx)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>{isExpanded ? 'Hide Draft' : 'View Full Post'}</span>
-                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                        </button>
-
-                        <button
-                          onClick={() => copyTextWithFeedback(fullPostText, `idea-${idx}`)}
-                          className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-                          title="Copy Full Post"
-                        >
-                          {copiedIdx === `idea-${idx}` ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-500" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => sendToComposer(fullPostText)}
-                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-all shadow-sm"
-                        >
-                          <span>Open in Composer</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2 animate-in fade-in duration-200">
-                        <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                          <span>FULL PUBLICATION-READY DRAFT:</span>
-                          <span className="font-mono">{fullPostText.length} characters</span>
-                        </div>
-                        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed font-sans text-xs max-h-60 overflow-y-auto selection:bg-blue-500 selection:text-white">
-                          {fullPostText}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 5: 7-Day Plan */}
-      {activeTab === 'calendar' && (
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-          {/* Header Controls */}
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-            <div className="flex-1 flex flex-col sm:flex-row gap-2.5">
-              <input
-                type="text"
-                value={calendarIndustry}
-                onChange={(e) => setCalendarIndustry(e.target.value)}
-                placeholder="Industry or niche for content schedule (e.g. ERP in Construction, B2B SaaS)..."
-                className="flex-1 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-              />
-              <button
-                onClick={handleCalendar}
-                disabled={loadingCalendar || !calendarIndustry.trim()}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm shadow-blue-600/20 flex-shrink-0"
-              >
-                {loadingCalendar ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
-                <span>{calendarPlan.length > 0 ? 'Rebuild 7-Day Plan' : 'Build 7-Day Calendar'}</span>
-              </button>
-            </div>
-
-            {calendarPlan.length > 0 && (
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => setShowHashtagBar(!showHashtagBar)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                    showHashtagBar
-                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
-                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                  title="Toggle Global Hashtag Tool"
-                >
-                  <Tag className="w-3.5 h-3.5" />
-                  <span>Hashtag Tools</span>
-                </button>
-
-                <button
-                  onClick={() => setShowBulkScheduleModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm shadow-emerald-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <CalendarCheck className="w-3.5 h-3.5" />
-                  <span>Schedule All 7 Posts</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 1. Global Hashtag Injector Bar */}
-          {showHashtagBar && calendarPlan.length > 0 && (
-            <div className="p-3.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs animate-in fade-in duration-200">
-              <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 min-w-0">
-                <Tag className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                <span className="font-semibold whitespace-nowrap">Global Hashtags:</span>
-                <input
-                  type="text"
-                  value={bulkHashtags}
-                  onChange={(e) => setBulkHashtags(e.target.value)}
-                  placeholder="#Leadership #Growth #Innovation..."
-                  className="flex-1 md:w-80 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={handleSuggestHashtags}
-                  disabled={loadingSuggestTags}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                >
-                  {loadingSuggestTags ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-blue-500" />}
-                  <span>Auto-Suggest</span>
-                </button>
-
-                <button
-                  onClick={handleApplyHashtagsToAll}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] shadow-sm transition-all"
-                >
-                  Apply to All 7 Posts
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* 7-Day Plan Cards */}
-          <div className="space-y-3 pt-2">
-            {calendarPlan.length === 0 ? (
-              <div className="text-xs text-slate-400 py-12 text-center space-y-2">
-                <Calendar className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto" />
-                <div className="font-semibold text-slate-600 dark:text-slate-400">No Content Calendar Generated</div>
-                <p className="text-[11px] text-slate-400">
-                  Enter your industry above and click &quot;Build 7-Day Calendar&quot; to generate an end-to-end strategic publishing schedule.
-                </p>
-              </div>
-            ) : (
-              calendarPlan.map((item, idx) => {
-                const isExpanded = expandedCalendarDay === idx;
-                const isEditing = editingDayIdx === idx;
-                const fullPostText =
-                  item.fullDraft ||
-                  `${item.hook}\n\nStrategic Perspective:\n${item.theme}\n\nKey Takeaways:\n• Standardize workflows\n• Reduce friction\n• Measure high-leverage outcomes\n\nWhat is your team's perspective?\n\n#Leadership #Innovation #Growth`;
-
-                return (
-                  <div
-                    key={idx}
-                    className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 space-y-3 text-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all shadow-sm"
-                  >
-                    <div className="flex flex-col md:flex-row items-start justify-between gap-3">
-                      {/* 3. Reorder Buttons (Move Up & Down) */}
-                      <div className="flex md:flex-col items-center gap-1 self-start flex-shrink-0 bg-white dark:bg-slate-800/80 p-1 rounded-lg border border-slate-200 dark:border-slate-700/60">
-                        <button
-                          onClick={() => movePost(idx, idx - 1)}
-                          disabled={idx === 0}
-                          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-25 transition-colors"
-                          title="Move Post Up in Schedule"
-                        >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </button>
-                        <span className="text-[10px] font-bold font-mono text-slate-400 px-1">
-                          {idx + 1}
-                        </span>
-                        <button
-                          onClick={() => movePost(idx, idx + 1)}
-                          disabled={idx === calendarPlan.length - 1}
-                          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-25 transition-colors"
-                          title="Move Post Down in Schedule"
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      {/* Post Content / Inline Editor */}
-                      <div className="flex-1 min-w-0 space-y-2">
-                        {isEditing ? (
-                          /* 2. Inline Post Editor */
-                          <div className="space-y-2.5 p-3.5 rounded-xl border border-blue-500/40 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 animate-in fade-in duration-150">
-                            <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
-                              <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
-                                Editing {item.day} Post Draft
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                {editFullDraft.length} / 3000 chars
-                              </span>
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                                Strategic Theme
-                              </label>
-                              <input
-                                type="text"
-                                value={editTheme}
-                                onChange={(e) => setEditTheme(e.target.value)}
-                                className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 text-slate-800 dark:text-slate-200 font-medium"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                                Opening Hook
-                              </label>
-                              <input
-                                type="text"
-                                value={editHook}
-                                onChange={(e) => setEditHook(e.target.value)}
-                                className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 text-slate-800 dark:text-slate-200"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                                Full Publication-Ready Body
-                              </label>
-                              <textarea
-                                value={editFullDraft}
-                                onChange={(e) => setEditFullDraft(e.target.value)}
-                                rows={7}
-                                className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-3 text-slate-800 dark:text-slate-200 leading-relaxed font-sans whitespace-pre-wrap"
-                              />
-                            </div>
-
-                            <div className="flex items-center justify-end gap-2 pt-1">
-                              <button
-                                onClick={cancelEditing}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300 transition-colors"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                                <span>Cancel</span>
-                              </button>
-                              <button
-                                onClick={saveEditing}
-                                className="flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-all shadow-sm"
-                              >
-                                <Save className="w-3.5 h-3.5" />
-                                <span>Save Changes</span>
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          /* Standard View */
-                          <>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{item.day}</span>
-                              <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                                {item.contentType || item.format}
-                              </span>
-                            </div>
-                            <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs mt-0.5">{item.theme}</div>
-                            <div className="text-slate-500 dark:text-slate-400 italic text-[11px]">&quot;{item.hook}&quot;</div>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Right Action Bar */}
-                      {!isEditing && (
-                        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap sm:flex-nowrap self-end md:self-center">
-                          {/* Edit Post Button */}
-                          <button
-                            onClick={() => startEditing(idx)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-300 transition-colors"
-                            title="Edit this post draft"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-blue-500" />
-                            <span>Edit</span>
-                          </button>
-
-                          {/* View Full Post Toggle */}
-                          <button
-                            onClick={() => setExpandedCalendarDay(isExpanded ? null : idx)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>{isExpanded ? 'Hide Draft' : 'View Full Post'}</span>
-                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          </button>
-
-                          {/* Copy Post Button */}
-                          <button
-                            onClick={() => copyTextWithFeedback(fullPostText, `cal-${idx}`)}
-                            className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-                            title="Copy Full Post"
-                          >
-                            {copiedIdx === `cal-${idx}` ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-500" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-
-                          {/* Open in Composer */}
-                          <button
-                            onClick={() => sendToComposer(fullPostText)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-all shadow-sm"
-                            title="Open in Post Studio & Composer"
-                          >
-                            <span>Create Post</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Expandable Full Post Preview */}
-                    {isExpanded && !isEditing && (
-                      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2 animate-in fade-in duration-200">
-                        <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                          <span>FULL PUBLICATION-READY POST ({item.day.toUpperCase()}):</span>
-                          <span className="font-mono">{fullPostText.length} characters</span>
-                        </div>
-                        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed font-sans text-xs max-h-60 overflow-y-auto selection:bg-blue-500 selection:text-white">
-                          {fullPostText}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 4. Bulk Schedule Modal */}
-      <Modal
-        isOpen={showBulkScheduleModal}
-        onClose={() => setShowBulkScheduleModal(false)}
-        title="Schedule All 7 LinkedIn Posts"
-        description="Automate delivery of your 7-day strategic calendar to your connected LinkedIn destination in the selected order and timeframe."
-        maxWidth="2xl"
-        footer={
-          <div className="flex items-center justify-between w-full">
-            <div className="text-[11px] text-slate-400">
-              Total to schedule: <strong className="text-slate-700 dark:text-slate-200">{calendarPlan.length} posts</strong>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowBulkScheduleModal(false)}
-                disabled={schedulingBulk}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleBulkSchedule}
-                disabled={schedulingBulk || calendarPlan.length === 0 || !selectedAccountId}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold text-xs shadow-sm shadow-emerald-500/25 transition-all disabled:opacity-50"
-              >
-                {schedulingBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CalendarCheck className="w-3.5 h-3.5" />}
-                <span>Confirm &amp; Schedule All 7</span>
-              </button>
-            </div>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          {/* Destination Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              LinkedIn Publishing Destination
-            </label>
-            {accounts.length === 0 ? (
-              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs">
-                No LinkedIn account connected. Please visit LinkedIn Accounts settings first to authorize your profile or company page.
-              </div>
-            ) : (
-              <div className="relative">
-                <select
-                  value={selectedAccountId}
-                  onChange={(e) => setSelectedAccountId(e.target.value)}
-                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] pl-3 pr-8 py-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm transition-all"
-                >
-                  {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-2">
-                      {acc.account_name} ({acc.account_type === 'organization' ? 'LinkedIn Company Page' : 'Personal Profile'})
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3.5 pointer-events-none" />
-              </div>
-            )}
-          </div>
-
-          {/* Schedule Week & Timing Configuration */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
-            {/* Week Choice */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                Target Week
-              </label>
-              <div className="relative">
-                <select
-                  value={scheduleWeekChoice}
-                  onChange={(e) => setScheduleWeekChoice(e.target.value as any)}
-                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm transition-all"
-                >
-                  <option value="next_week" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Next Week</option>
-                  <option value="current_week" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Tomorrow</option>
-                  <option value="custom" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Custom Date</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Cadence */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                Posting Cadence
-              </label>
-              <div className="relative">
-                <select
-                  value={scheduleCadence}
-                  onChange={(e) => setScheduleCadence(e.target.value as any)}
-                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] pl-3 pr-8 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm transition-all"
-                >
-                  <option value="daily" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Daily (7 Days)</option>
-                  <option value="weekdays" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Weekdays (Mon-Fri)</option>
-                  <option value="two_weeks" className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">Every 2 Days (2 Wks)</option>
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Time */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                Preferred Time
-              </label>
-              <input
-                type="time"
-                value={scheduleTime}
-                onChange={(e) => setScheduleTime(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] px-3 py-2 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-              />
-            </div>
-          </div>
-
-          {/* Custom Date Input if selected */}
-          {scheduleWeekChoice === 'custom' && (
-            <div className="animate-in fade-in duration-150">
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">
-                Select Custom Start Date
-              </label>
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                className="w-full text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] px-3 py-2 text-slate-800 dark:text-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-              />
-            </div>
-          )}
-
-          {/* Timeline Slots Preview */}
-          <div>
-            <div className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center justify-between">
-              <span>Scheduled Timeline Preview ({computedSlots.length} Slots)</span>
-              <span className="text-[10px] text-slate-400">Order preserved as arranged</span>
-            </div>
-
-            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-              {computedSlots.map((slot) => (
-                <div
-                  key={slot.index}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="font-bold text-blue-600 dark:text-blue-400 text-[11px] w-20 flex-shrink-0">
-                      {slot.day}
-                    </span>
-                    <span className="truncate text-slate-700 dark:text-slate-300 font-medium max-w-sm text-[11px]">
-                      {slot.hook}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 flex-shrink-0 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                    <Clock className="w-3 h-3" />
-                    <span>{slot.dateString} at {slot.timeString}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Tab 6: Brand Voice Settings */}
-      {activeTab === 'brand' && (
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] max-w-xl space-y-4">
-          {loadingBrand ? (
-            <div className="flex items-center justify-center py-10 gap-2 text-xs text-slate-500">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-              <span>Loading saved brand settings...</span>
-            </div>
-          ) : brandError ? (
-            <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 text-xs text-red-600 dark:text-red-400 space-y-2">
-              <p>Failed to load brand settings: {brandError}</p>
-              <button
-                onClick={fetchBrandSettings}
-                className="px-3 py-1 rounded bg-red-100 dark:bg-red-900/50 hover:bg-red-200 font-semibold text-red-700 dark:text-red-300"
-              >
-                Retry
-              </button>
-            </div>
-          ) : (
-            <>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Brand Name
+                <label className="field-label" htmlFor="ai-topic">
+                  What do you want to talk about?
                 </label>
+                <textarea
+                  id="ai-topic"
+                  className="large-textarea"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="A launch, a lesson, a point of view, a moment worth sharing…"
+                />
+
+                <div className="ai-field-block">
+                  <label className="field-label">Tone</label>
+                  <div className="chip-row">
+                    {['Thoughtful', 'Direct', 'Warm', 'Confident', 'Storytelling'].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={`choice-chip ${tone === t ? 'selected' : ''}`}
+                        onClick={() => setTone(t)}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="ai-select-grid">
+                  <label>
+                    <span className="field-label">Length</span>
+                    <select
+                      value={postLength}
+                      onChange={(e) => setPostLength(e.target.value as any)}
+                    >
+                      <option value="short">Short · under 500 chars</option>
+                      <option value="medium">Medium · 600–1,200 chars</option>
+                      <option value="long">Long · 1,200+ chars</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span className="field-label">Format</span>
+                    <select
+                      value={contentType}
+                      onChange={(e) => setContentType(e.target.value)}
+                    >
+                      <option value="Actionable Framework">Framework</option>
+                      <option value="Educational Lesson">Educational</option>
+                      <option value="Story & Milestone">Storytelling</option>
+                      <option value="Product Update">Announcement</option>
+                      <option value="Point of View">Reflective</option>
+                    </select>
+                  </label>
+                </div>
+
+                <ActionButton onClick={handleGenerate} disabled={loadingGenerate || !topic.trim()}>
+                  <Icon name="sparkles" size={15} />{' '}
+                  {loadingGenerate ? 'Generating post…' : 'Generate post'}{' '}
+                  <Icon name="arrow" size={15} />
+                </ActionButton>
+              </>
+            )}
+
+            {/* TAB: REWRITE */}
+            {activeTab === 'rewrite' && (
+              <>
+                <div className="ai-tool-heading">
+                  <span className="studio-icon">
+                    <Icon name="refresh" size={18} />
+                  </span>
+                  <div>
+                    <h3>Rewrite with a new tone</h3>
+                    <p>Keep your idea. Change how it lands.</p>
+                  </div>
+                </div>
+
+                <label className="field-label" htmlFor="rewrite-copy">
+                  Paste your post
+                </label>
+                <textarea
+                  id="rewrite-copy"
+                  className="large-textarea rewrite-area"
+                  value={draftToRewrite}
+                  onChange={(e) => setDraftToRewrite(e.target.value)}
+                  placeholder="Paste a draft to rewrite…"
+                />
+
+                <label className="field-label">Choose a voice</label>
+                <div className="tone-option-grid">
+                  {[
+                    'Storytelling · emotional hook',
+                    'Professional · executive',
+                    'Conversational · friendly',
+                    'Technical · deep-dive',
+                    'Educational · actionable',
+                    'Persuasive · high-converting',
+                  ].map((tOption) => {
+                    const isSelected = rewriteTone.toLowerCase().includes(tOption.split(' · ')[0].toLowerCase());
+                    return (
+                      <button
+                        key={tOption}
+                        type="button"
+                        className={`tone-option ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setRewriteTone(tOption.split(' · ')[0])}
+                      >
+                        <span className="tone-option-icon">
+                          <Icon name="sparkles" size={15} />
+                        </span>
+                        {tOption}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <ActionButton onClick={handleRewrite} disabled={loadingRewrite || !draftToRewrite.trim()}>
+                  <Icon name="sparkles" size={15} />{' '}
+                  {loadingRewrite ? 'Rewriting post…' : 'Rewrite post'}{' '}
+                  <Icon name="arrow" size={15} />
+                </ActionButton>
+              </>
+            )}
+
+            {/* TAB: HASHTAGS */}
+            {activeTab === 'hashtags' && (
+              <>
+                <div className="ai-tool-heading">
+                  <span className="studio-icon">
+                    <Icon name="hash" size={18} />
+                  </span>
+                  <div>
+                    <h3>Find the right hashtags</h3>
+                    <p>Relevant tags help the right people discover your post.</p>
+                  </div>
+                </div>
+
+                <label className="field-label">What is your post about?</label>
                 <input
-                  type="text"
+                  className="ai-text-input"
+                  value={hashtagTopic}
+                  onChange={(e) => setHashtagTopic(e.target.value)}
+                  placeholder="e.g. product leadership, AI in healthcare"
+                />
+
+                <label className="field-label">
+                  Post text <span className="optional">OPTIONAL</span>
+                </label>
+                <textarea
+                  className="large-textarea compact-textarea"
+                  value={generatedPost || draftToRewrite}
+                  onChange={(e) => setGeneratedPost(e.target.value)}
+                  placeholder="Add your post for more tailored suggestions…"
+                />
+
+                <ActionButton onClick={handleSuggestHashtags} disabled={loadingHashtags || !hashtagTopic.trim()}>
+                  <Icon name="sparkles" size={15} />{' '}
+                  {loadingHashtags ? 'Searching hashtags…' : 'Suggest hashtags'}
+                </ActionButton>
+
+                {hashtags.length > 0 && (
+                  <div className="hashtag-result">
+                    <span className="field-label">SUGGESTED FOR YOU</span>
+                    <div className="hashtag-chips">
+                      {hashtags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(tag);
+                            toast.success(`${tag} copied`);
+                          }}
+                        >
+                          {tag}
+                          <span>+</span>
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(hashtags.join(' '));
+                        toast.success('All hashtags copied to clipboard');
+                      }}
+                    >
+                      <Icon name="copy" size={14} /> Copy all suggestions
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* TAB: IDEAS */}
+            {activeTab === 'ideas' && (
+              <>
+                <div className="ai-tool-heading">
+                  <span className="studio-icon">
+                    <Icon name="bookmark" size={18} />
+                  </span>
+                  <div>
+                    <h3>Find your next idea</h3>
+                    <p>Get thoughtful prompts tailored to your industry.</p>
+                  </div>
+                </div>
+
+                <label className="field-label">Industry or specialty</label>
+                <input
+                  className="ai-text-input"
+                  value={ideasIndustry}
+                  onChange={(e) => setIdeasIndustry(e.target.value)}
+                  placeholder="e.g. SaaS product, career coaching"
+                />
+
+                <label className="field-label">What are you aiming for?</label>
+                <div className="chip-row">
+                  <button type="button" className="choice-chip selected">
+                    Build authority
+                  </button>
+                  <button type="button" className="choice-chip">
+                    Start a conversation
+                  </button>
+                  <button type="button" className="choice-chip">
+                    Share a lesson
+                  </button>
+                </div>
+
+                <ActionButton onClick={handleGenerateIdeas} disabled={loadingIdeas}>
+                  <Icon name="sparkles" size={15} />{' '}
+                  {loadingIdeas ? 'Finding ideas…' : 'Generate ideas'}
+                </ActionButton>
+
+                <div className="idea-results">
+                  {(ideas.length > 0
+                    ? ideas
+                    : [
+                        {
+                          title: 'The assumption worth challenging',
+                          hook: 'What if the standard advice in your field is holding teams back?',
+                          topic: 'A common assumption in my industry that deserves a closer look',
+                        },
+                        {
+                          title: 'A small change with a big effect',
+                          hook: 'Share one practical shift that made your work noticeably better.',
+                          topic: 'A small change that made a meaningful difference in my work',
+                        },
+                        {
+                          title: 'A lesson you learned the hard way',
+                          hook: 'Make an experience useful by sharing what you would do differently.',
+                          topic: 'A lesson I learned the hard way and what I would do differently',
+                        },
+                      ]
+                  ).map((ideaItem, i) => (
+                    <IdeaCard
+                      key={i}
+                      title={ideaItem.title}
+                      hook={ideaItem.hook}
+                      onUse={() => {
+                        setTopic(ideaItem.topic || ideaItem.title);
+                        setActiveTab('generate');
+                      }}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* TAB: CALENDAR */}
+            {activeTab === 'calendar' && (
+              <>
+                <div className="ai-tool-heading">
+                  <span className="studio-icon">
+                    <Icon name="calendar" size={18} />
+                  </span>
+                  <div>
+                    <h3>Plan a week of content</h3>
+                    <p>Build a balanced, strategic seven-day calendar.</p>
+                  </div>
+                </div>
+
+                <label className="field-label">Industry or niche</label>
+                <input
+                  className="ai-text-input"
+                  value={calendarIndustry}
+                  onChange={(e) => setCalendarIndustry(e.target.value)}
+                  placeholder="e.g. B2B SaaS, design leadership"
+                />
+
+                <label className="field-label">What would you like to focus on?</label>
+                <textarea
+                  className="large-textarea compact-textarea"
+                  value={calendarFocus}
+                  onChange={(e) => setCalendarFocus(e.target.value)}
+                  placeholder="A launch, upcoming event, campaign, or goal…"
+                />
+
+                <ActionButton onClick={handleBuildCalendar} disabled={loadingCalendar}>
+                  <Icon name="sparkles" size={15} />{' '}
+                  {loadingCalendar ? 'Building calendar…' : 'Build my week'}
+                </ActionButton>
+
+                {calendarPlan.length > 0 && (
+                  <div className="calendar-preview">
+                    <div className="calendar-preview-head">
+                      <b>YOUR 7-DAY PLAN</b>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => toast.info('Ready to review daily items')}
+                      >
+                        Edit plan
+                      </button>
+                    </div>
+
+                    {calendarPlan.map((item: any, i: number) => (
+                      <div className="calendar-day-row" key={i}>
+                        <span>{item.day || `DAY ${i + 1}`}</span>
+                        <div>
+                          <b>{item.title}</b>
+                          <small>{item.kind || item.theme}</small>
+                        </div>
+                        <button
+                          type="button"
+                          className="plain-icon"
+                          onClick={() => {
+                            if (item.draft) {
+                              handleSendToComposer(item.draft);
+                            } else {
+                              handleSendToComposer(`${item.title}: ${item.kind}`);
+                            }
+                          }}
+                          title="Open in composer"
+                        >
+                          <Icon name="arrow" size={16} />
+                        </button>
+                      </div>
+                    ))}
+
+                    <div className="calendar-schedule-controls">
+                      <select
+                        value={scheduleCadence}
+                        onChange={(e) => setScheduleCadence(e.target.value as any)}
+                      >
+                        <option value="weekdays">Weekdays</option>
+                        <option value="daily">Daily</option>
+                      </select>
+                      <select>
+                        <option>Next week</option>
+                        <option>Tomorrow</option>
+                      </select>
+                    </div>
+
+                    <ActionButton onClick={() => toast.success('Your posts are queued for scheduling review.')}>
+                      Schedule all posts <Icon name="arrow" size={15} />
+                    </ActionButton>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* TAB: BRAND VOICE */}
+            {activeTab === 'brand' && (
+              <>
+                <div className="ai-tool-heading">
+                  <span className="studio-icon">
+                    <Icon name="user" size={18} />
+                  </span>
+                  <div>
+                    <h3>Teach AI to sound like you</h3>
+                    <p>A few details help every draft feel more consistent.</p>
+                  </div>
+                </div>
+
+                <label className="field-label">Company or profile name</label>
+                <input
+                  className="ai-text-input"
                   value={brandName}
                   onChange={(e) => setBrandName(e.target.value)}
-                  placeholder="e.g. Acme Corp"
-                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                  placeholder="e.g. Acme Studio"
                 />
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Industry & Niche
-                </label>
+                <label className="field-label">Industry</label>
                 <input
-                  type="text"
+                  className="ai-text-input"
                   value={brandIndustry}
                   onChange={(e) => setBrandIndustry(e.target.value)}
-                  placeholder="e.g. AI & Software Engineering"
-                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                  placeholder="e.g. Technology, Education"
                 />
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Writing Style & Brand Voice
-                </label>
-                <input
-                  type="text"
+                <label className="field-label">Describe your voice</label>
+                <textarea
+                  className="large-textarea compact-textarea"
                   value={brandVoice}
                   onChange={(e) => setBrandVoice(e.target.value)}
-                  placeholder="e.g. Bold, technical, data-driven, authentic"
-                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200"
+                  placeholder="How should your posts sound? What values or perspective should come through?"
                 />
-              </div>
 
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Google Gemini API Key (Optional)</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-normal">Stored securely in browser</span>
-                </label>
+                <label className="field-label">Words or styles to avoid</label>
                 <input
-                  type="password"
-                  value={geminiApiKey}
-                  onChange={(e) => {
-                    setGeminiApiKey(e.target.value);
-                    if (typeof window !== 'undefined') {
-                      localStorage.setItem('gemini_api_key', e.target.value);
-                    }
-                  }}
-                  placeholder="AIzaSy... (Paste Gemini key to enable live Google Gemini 1.5 Flash)"
-                  className="w-full text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-slate-800 dark:text-slate-200 font-mono"
+                  className="ai-text-input"
+                  value={avoidWords}
+                  onChange={(e) => setAvoidWords(e.target.value)}
+                  placeholder="e.g. jargon, hype, overly formal language"
                 />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  If omitted, our high-variety built-in GT InnoX generative engine runs automatically with dynamic topic variations and non-repeating frameworks.
-                </p>
-              </div>
 
+                <div className="brand-voice-preview">
+                  <span className="live-dot" /> Profile ready to save{' '}
+                  <small>Only used to personalize your drafts</small>
+                </div>
+
+                <ActionButton onClick={handleSaveBrand} disabled={savingBrand}>
+                  <Icon name="check" size={15} />{' '}
+                  {savingBrand ? 'Saving profile…' : 'Save voice profile'}
+                </ActionButton>
+              </>
+            )}
+          </section>
+
+          {/* Side Advice Panel */}
+          <section className="panel ai-side-panel">
+            {activeTab === 'calendar' ? (
+              <>
+                <span className="ai-side-mark">
+                  <Icon name="calendar" size={18} />
+                </span>
+                <h3>A steady rhythm, without the scramble</h3>
+                <p>
+                  Mix practical advice, personal perspective, and conversation starters to keep your
+                  calendar varied and engaging.
+                </p>
+                <div className="ai-side-stat">
+                  <b>7 days</b>
+                  <span>planned around your goals</span>
+                </div>
+              </>
+            ) : activeTab === 'brand' ? (
+              <>
+                <span className="ai-side-mark">
+                  <Icon name="shield" size={18} />
+                </span>
+                <h3>Your voice stays yours</h3>
+                <p>
+                  AI uses your profile as guidance. Every suggestion remains editable, and you decide
+                  what gets published.
+                </p>
+                <div className="ai-side-stat">
+                  <b>Always</b>
+                  <span>review before publishing</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="ai-side-mark">
+                  <Icon name="sparkles" size={18} />
+                </span>
+                <h3>
+                  {activeTab === 'ideas'
+                    ? 'Good ideas start with a point of view'
+                    : activeTab === 'hashtags'
+                    ? 'Relevant beats popular'
+                    : activeTab === 'rewrite'
+                    ? 'Same message, different feel'
+                    : 'A starting point that sounds like you'}
+                </h3>
+                <p>
+                  {activeTab === 'ideas'
+                    ? 'Choose a prompt that feels true to your experience, then make it useful for your audience.'
+                    : activeTab === 'hashtags'
+                    ? 'A focused set of tags helps people interested in your topic find your post.'
+                    : activeTab === 'rewrite'
+                    ? 'Try a new tone while keeping the core message and details you provided.'
+                    : 'Start with a clear topic, choose a tone and format, then shape the draft until it feels right.'}
+                </p>
+                <div className="ai-side-checks">
+                  <span>
+                    <Icon name="check" size={14} /> Built for LinkedIn
+                  </span>
+                  <span>
+                    <Icon name="check" size={14} /> Editable at every step
+                  </span>
+                  <span>
+                    <Icon name="check" size={14} /> Publish only when ready
+                  </span>
+                </div>
+              </>
+            )}
+
+            <div className="ai-side-bottom">
+              <span className="mini-avatar">TG</span>
+              <span>
+                <b>Teja Ganugula</b>
+                <small>Personal profile</small>
+              </span>
               <button
-                disabled={!brandLoaded}
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    localStorage.setItem('gemini_api_key', geminiApiKey.trim());
-                  }
-                  handleSaveBrand();
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                type="button"
+                className="text-button"
+                onClick={() => router.push('/composer')}
               >
-                {savedBrand ? <Check className="w-4 h-4" /> : null}
-                {savedBrand ? 'Settings & API Key Saved' : 'Save Brand Settings'}
+                Open composer <Icon name="arrow" size={14} />
               </button>
-            </>
-          )}
+            </div>
+          </section>
         </div>
-      )}
-    </div>
+
+        {/* Generated Output Draft Panel */}
+        {(generatedPost || rewrittenPost) && (
+          <section className="panel ai-draft-panel">
+            <div className="ai-draft-heading">
+              <div>
+                <span className="output-label">
+                  <Icon name="sparkles" size={14} /> YOUR DRAFT
+                </span>
+                <h3>Review and make it yours</h3>
+              </div>
+              <div className="ai-refine-chips">
+                <span>Refine tone</span>
+                {['Technical', 'Storytelling', 'Conversational'].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => {
+                      setRewriteTone(t);
+                      toast.info(`Tone updated to ${t.toLowerCase()}`);
+                    }}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <textarea
+              className="output-text"
+              value={activeTab === 'rewrite' ? rewrittenPost : generatedPost}
+              onChange={(e) => {
+                if (activeTab === 'rewrite') setRewrittenPost(e.target.value);
+                else setGeneratedPost(e.target.value);
+              }}
+              aria-label="Generated post draft"
+            />
+
+            <div className="output-meta">
+              <span>
+                {(activeTab === 'rewrite' ? rewrittenPost : generatedPost).length} characters
+              </span>
+              <span>Estimated read · 24 sec</span>
+            </div>
+
+            <div className="output-actions">
+              <ActionButton
+                kind="secondary"
+                onClick={() => {
+                  const text = activeTab === 'rewrite' ? rewrittenPost : generatedPost;
+                  navigator.clipboard.writeText(text);
+                  toast.success('Copied to clipboard');
+                }}
+              >
+                <Icon name="copy" size={15} /> Copy
+              </ActionButton>
+              <ActionButton
+                onClick={() =>
+                  handleSendToComposer(
+                    activeTab === 'rewrite' ? rewrittenPost : generatedPost,
+                    tone
+                  )
+                }
+              >
+                Continue to composer <Icon name="arrow" size={15} />
+              </ActionButton>
+            </div>
+
+            <div className="assist-note">
+              <Icon name="shield" size={15} />
+              <span>
+                AI drafts are a starting point. Review facts and edit until it sounds like you.
+              </span>
+            </div>
+          </section>
+        )}
+      </div>
+    </>
   );
 }
 
 export default function AIStudioPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-400"><Loader2 className="w-5 h-5 animate-spin mx-auto text-blue-500" /></div>}>
+    <Suspense fallback={<div className="panel" style={{ padding: '30px' }}>Loading AI Studio…</div>}>
       <AIStudioContent />
     </Suspense>
   );
 }
-

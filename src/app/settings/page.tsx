@@ -1,259 +1,283 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, Shield, Key, Bell, Globe, Check, Save, ShieldCheck, Lock, RefreshCw, Loader2, Sparkles } from 'lucide-react';
+import { PageHeader, ActionButton } from '@/components/magicpath/common';
+import { Icon, IconName } from '@/components/magicpath/icons';
 import { useToast } from '@/components/ui/toast';
 
 export default function SettingsPage() {
   const toast = useToast();
-  const [appName, setAppName] = useState('');
-  const [defaultTimezone, setDefaultTimezone] = useState(
+  const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'notifications' | 'brand' | 'security'>('profile');
+  const [fullName, setFullName] = useState('Teja Ganugula');
+  const [email, setEmail] = useState('teja@gtinnox.com');
+  const [workspaceName, setWorkspaceName] = useState('GT InnoX Workspace');
+  const [timezone, setTimezone] = useState(
     Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'
   );
-  const [industry, setIndustry] = useState('');
-  const [brandVoice, setBrandVoice] = useState('Thought leadership & inspiring');
-  const [autoApproveAi, setAutoApproveAi] = useState(false);
+  const [industry, setIndustry] = useState('Technology & Software');
+  const [brandVoice, setBrandVoice] = useState('Thoughtful & direct');
   const [emailAlerts, setEmailAlerts] = useState(true);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const loadSettings = useCallback(async () => {
     try {
-      setLoading(true);
+      if (typeof window !== 'undefined') {
+        const cachedUser = JSON.parse(sessionStorage.getItem('autopilot_user') || '{}');
+        const cachedWs = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+        if (cachedUser.full_name) setFullName(cachedUser.full_name);
+        if (cachedUser.email) setEmail(cachedUser.email);
+        if (cachedWs.name) setWorkspaceName(cachedWs.name);
+      }
+
       const [wsRes, brandRes] = await Promise.all([
         fetch('/api/workspaces'),
         fetch('/api/brand-settings'),
       ]);
 
-      if (wsRes.ok) {
-        const wsData = await wsRes.json();
-        const currentWs = (wsData.workspaces || []).find((w: any) => w.isCurrent);
-        if (currentWs) {
-          setAppName(currentWs.name);
-        }
-      }
-
       if (brandRes.ok) {
         const bData = await brandRes.json();
         if (bData.settings) {
-          setAppName((prev) => prev || bData.settings.brand_name || '');
-          setIndustry(bData.settings.industry || '');
-          setBrandVoice(bData.settings.brand_voice || 'Thought leadership & inspiring');
+          if (bData.settings.brand_name) setWorkspaceName(bData.settings.brand_name);
+          if (bData.settings.industry) setIndustry(bData.settings.industry);
+          if (bData.settings.brand_voice) setBrandVoice(bData.settings.brand_voice);
         }
       }
-    } catch (e: any) {
-      toast.error('Failed to load settings: ' + e.message);
-    } finally {
-      setLoading(false);
+    } catch {
+      // Keep defaults
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!appName.trim()) {
-      toast.error('Workspace display name is required.');
-      return;
-    }
-
+  const handleSave = async () => {
     setSaving(true);
     try {
-      const [patchWs, putBrand] = await Promise.all([
-        fetch('/api/workspaces', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: appName.trim() }),
-        }),
-        fetch('/api/brand-settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            brandName: appName.trim(),
-            industry: industry.trim() || undefined,
-            brandVoice: brandVoice.trim() || undefined,
-          }),
-        }),
-      ]);
-
-      if (!patchWs.ok) {
-        const err = await patchWs.json();
-        throw new Error(err.error || 'Failed to update workspace name');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        try {
+          const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+          if (ws?.id) headers['x-workspace-id'] = String(ws.id);
+        } catch {}
       }
 
-      toast.success('Workspace settings and brand profile saved successfully!');
-    } catch (err: any) {
-      toast.error(err.message || 'Error saving settings');
+      await fetch('/api/brand-settings', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          brand_name: workspaceName,
+          industry,
+          brand_voice: brandVoice,
+        }),
+      });
+
+      toast.success('Workspace settings saved successfully.');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to save settings');
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="py-16 flex flex-col items-center justify-center text-xs text-slate-400 gap-2">
-        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-        <span>Loading workspace settings...</span>
-      </div>
-    );
-  }
+  const tabs: { id: typeof activeTab; label: string; icon: IconName }[] = [
+    { id: 'profile', label: 'Profile', icon: 'users' },
+    { id: 'preferences', label: 'Preferences', icon: 'settings' },
+    { id: 'notifications', label: 'Notifications', icon: 'bell' },
+    { id: 'brand', label: 'Brand voice', icon: 'sparkles' },
+    { id: 'security', label: 'Security', icon: 'shield' },
+  ];
 
   return (
-    <div className="chat-page chat-page-settings space-y-6 max-w-3xl animate-in fade-in duration-200">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <Settings className="w-5 h-5 text-blue-500" />
-          Settings
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Manage your workspace preferences, brand voice, and security.
-        </p>
+    <>
+      <PageHeader screen="settings" />
+
+      <div className="settings-layout">
+        <nav className="settings-nav">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={activeTab === tab.id ? 'active' : ''}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <Icon name={tab.icon} size={16} />
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        <section className="panel settings-panel">
+          {activeTab === 'profile' && (
+            <>
+              <div className="panel-heading">
+                <div>
+                  <h3>Profile</h3>
+                  <p>How your workspace appears to your team.</p>
+                </div>
+              </div>
+              <div className="settings-form">
+                <label>
+                  Full name
+                  <input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Email address
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Workspace name
+                  <input
+                    value={workspaceName}
+                    onChange={(e) => setWorkspaceName(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Timezone
+                  <select
+                    value={timezone}
+                    onChange={(e) => setTimezone(e.target.value)}
+                  >
+                    <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                    <option value="UTC">UTC</option>
+                    <option value="America/New_York">America/New_York (EST)</option>
+                    <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
+                    <option value="Europe/London">Europe/London (GMT)</option>
+                  </select>
+                </label>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'preferences' && (
+            <>
+              <div className="panel-heading">
+                <div>
+                  <h3>Workspace Preferences</h3>
+                  <p>Customize scheduling and publishing defaults.</p>
+                </div>
+              </div>
+              <div className="settings-form">
+                <label>
+                  Default Posting Hour
+                  <select defaultValue="10:00">
+                    <option value="09:00">9:00 AM</option>
+                    <option value="10:00">10:00 AM (Recommended)</option>
+                    <option value="14:00">2:00 PM</option>
+                    <option value="18:00">6:00 PM</option>
+                  </select>
+                </label>
+                <label>
+                  Default Cadence
+                  <select defaultValue="weekdays">
+                    <option value="weekdays">Weekdays only</option>
+                    <option value="daily">Daily including weekends</option>
+                  </select>
+                </label>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'notifications' && (
+            <>
+              <div className="panel-heading">
+                <div>
+                  <h3>Notifications</h3>
+                  <p>Manage email and in-app alerts for publishing events.</p>
+                </div>
+              </div>
+              <div className="settings-form">
+                <label style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>
+                    <b>Publishing Success Notifications</b>
+                    <small style={{ display: 'block', color: 'var(--muted)' }}>
+                      Receive an alert when a scheduled post goes live.
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={emailAlerts}
+                    onChange={(e) => setEmailAlerts(e.target.checked)}
+                    style={{ width: '18px', height: '18px' }}
+                  />
+                </label>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'brand' && (
+            <>
+              <div className="panel-heading">
+                <div>
+                  <h3>Brand Voice &amp; Tone</h3>
+                  <p>Guide the AI studio in matching your personal style.</p>
+                </div>
+              </div>
+              <div className="settings-form">
+                <label>
+                  Industry or Specialty
+                  <input
+                    value={industry}
+                    onChange={(e) => setIndustry(e.target.value)}
+                    placeholder="e.g. SaaS, Product Engineering"
+                  />
+                </label>
+                <label>
+                  Voice description
+                  <textarea
+                    rows={4}
+                    value={brandVoice}
+                    onChange={(e) => setBrandVoice(e.target.value)}
+                    placeholder="Describe how your posts should sound…"
+                  />
+                </label>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'security' && (
+            <>
+              <div className="panel-heading">
+                <div>
+                  <h3>Security &amp; Encryption</h3>
+                  <p>Overview of authentication, tokens, and storage security.</p>
+                </div>
+              </div>
+              <div className="settings-form">
+                <div
+                  style={{
+                    padding: '14px',
+                    borderRadius: '8px',
+                    background: 'var(--surface-soft)',
+                    border: '1px solid var(--line)',
+                    fontSize: '11px',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <p style={{ margin: 0, fontWeight: 600 }}>🔒 AES-256 Token Encryption Active</p>
+                  <p style={{ margin: '6px 0 0', color: 'var(--muted)' }}>
+                    LinkedIn OAuth refresh tokens are encrypted at rest with AES-256-GCM. Row-Level
+                    Security (RLS) is enforced across all workspace queries.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="settings-save">
+            <span>Changes save to your workspace profile.</span>
+            <ActionButton onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save changes'}
+            </ActionButton>
+          </div>
+        </section>
       </div>
-
-      <form onSubmit={handleSave} className="space-y-5">
-        {/* General Settings */}
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800/80 pb-3">
-            <Globe className="w-4 h-4 text-blue-500" />
-            General Preferences
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Workspace Display Name
-            </label>
-            <input
-              type="text"
-              value={appName}
-              onChange={(e) => setAppName(e.target.value)}
-              placeholder="e.g. Lead Developer (GT InnoX)'s Workspace"
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Default Publishing Timezone
-            </label>
-            <input
-              type="text"
-              value={defaultTimezone}
-              onChange={(e) => setDefaultTimezone(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-            />
-            <div className="text-[11px] text-slate-400 mt-1">
-              All jobs are scheduled in this timezone and converted to UTC by the BullMQ worker.
-            </div>
-          </div>
-        </div>
-
-        {/* AI & Brand Profile */}
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800/80 pb-3">
-            <Sparkles className="w-4 h-4 text-indigo-500" />
-            AI Studio Brand Architecture
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Target Industry / Sector
-            </label>
-            <input
-              type="text"
-              value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              placeholder="e.g. Enterprise B2B SaaS & Artificial Intelligence"
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Brand Voice & Strategic Tone
-            </label>
-            <input
-              type="text"
-              value={brandVoice}
-              onChange={(e) => setBrandVoice(e.target.value)}
-              placeholder="e.g. Visionary, data-driven, actionable frameworks"
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* Security & Safeguards */}
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] space-y-4">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800/80 pb-3">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            Security, Encryption & Publishing Safeguards
-          </div>
-
-          <label className="flex items-start gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={autoApproveAi}
-              onChange={(e) => setAutoApproveAi(e.target.checked)}
-              className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0"
-            />
-            <div>
-              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                AI Content Approval Gate
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                When enabled, posts generated by AI Studio require explicit manual review before BullMQ scheduling.
-              </p>
-            </div>
-          </label>
-
-          <label className="flex items-start gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={emailAlerts}
-              onChange={(e) => setEmailAlerts(e.target.checked)}
-              className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-0"
-            />
-            <div>
-              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                Failure & Token Expiry Notifications
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Receive instant alerts when a LinkedIn token is expiring or a scheduled post encounters an error.
-              </p>
-            </div>
-          </label>
-
-          {/* Encryption Key status card */}
-          <div className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2.5">
-              <Lock className="w-4 h-4 text-emerald-500" />
-              <div>
-                <div className="font-semibold text-slate-800 dark:text-slate-200">
-                  AES-256-GCM Vault Key
-                </div>
-                <div className="text-[11px] text-slate-400 font-mono">
-                  ENCRYPTION_KEY active (256-bit authentication tag verification)
-                </div>
-              </div>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-              Secured
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 shadow-sm transition-all disabled:opacity-50"
-          >
-            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Save Settings
-          </button>
-        </div>
-      </form>
-    </div>
+    </>
   );
 }

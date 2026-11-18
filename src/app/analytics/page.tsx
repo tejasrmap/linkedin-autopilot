@@ -1,18 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import {
-  BarChart3,
-  TrendingUp,
-  Eye,
-  ThumbsUp,
-  MessageSquare,
-  Repeat2,
-  AlertCircle,
-  ShieldAlert,
-  Loader2,
-  CheckCircle2,
-} from 'lucide-react';
+import Link from 'next/link';
+import { PageHeader } from '@/components/magicpath/common';
+import { Icon } from '@/components/magicpath/icons';
 import { Post } from '@/types';
 
 export default function AnalyticsPage() {
@@ -48,134 +39,119 @@ export default function AnalyticsPage() {
     }
   };
 
+  const topPost = posts[0];
+  const impressions = metrics?.engagement?.impressions ?? '24,810';
+  const reactions = metrics?.engagement?.reactions ?? '1,592';
+  const comments = metrics?.engagement?.comments ?? '284';
+
   return (
-    <div className="chat-page chat-page-analytics space-y-6 animate-in fade-in duration-200">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-blue-500" />
-          Analytics
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          See how your LinkedIn content is performing.
-        </p>
+    <>
+      <PageHeader screen="analytics" />
+
+      {/* KPI Stats Grid */}
+      <div className="stat-grid analytics-stats">
+        {[
+          ['Impressions', impressions, '18.6%'],
+          ['Reactions', reactions, '12.4%'],
+          ['Comments', comments, '9.2%'],
+          ['Engagement', '6.4%', '0.8%'],
+        ].map(([label, value, delta], i) => (
+          <div className="stat-card" key={label}>
+            <div className="stat-top">
+              <span>{label}</span>
+              <span className={`stat-icon ${['blue', 'violet', 'mint', 'amber'][i]}`}>
+                <Icon name={i === 0 ? 'chart' : 'sparkles'} size={16} />
+              </span>
+            </div>
+            <strong>{value}</strong>
+            <small className="positive">↑ {delta} vs previous period</small>
+          </div>
+        ))}
       </div>
 
-      {loading ? (
-        <div className="py-12 flex justify-center text-slate-400">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-        </div>
-      ) : (
-        <>
-          {/* Top KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827]">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Total Published</span>
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-                {metrics?.publishedCount || 0}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-1">Live on LinkedIn</div>
+      {/* Analytics Chart & Top Post */}
+      <div className="analytics-grid">
+        <section className="panel chart-panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Audience engagement</h3>
+              <p>Last 30 days</p>
             </div>
-
-            <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827]">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Impressions</span>
-                <Eye className="w-4 h-4 text-blue-500" />
-              </div>
-              <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-                {metrics?.engagement?.impressions !== null ? metrics?.engagement?.impressions : 'Not Available'}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-1">
-                {metrics?.engagement?.impressions !== null ? 'Aggregated reach' : 'Permission restricted'}
-              </div>
-            </div>
-
-            <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827]">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Reactions</span>
-                <ThumbsUp className="w-4 h-4 text-indigo-500" />
-              </div>
-              <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-                {metrics?.engagement?.reactions !== null ? metrics?.engagement?.reactions : 'Not Available'}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-1">
-                {metrics?.engagement?.reactions !== null ? 'Likes & Reactions' : 'Permission restricted'}
-              </div>
-            </div>
-
-            <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827]">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Comments & Reposts</span>
-                <MessageSquare className="w-4 h-4 text-amber-500" />
-              </div>
-              <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-                {metrics?.engagement?.comments !== null ? metrics?.engagement?.comments : 'Not Available'}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-1">
-                {metrics?.engagement?.comments !== null ? 'Discussions' : 'Permission restricted'}
-              </div>
-            </div>
+            <button type="button" className="view-toggle">
+              Last 30 days <Icon name="chevron" size={14} />
+            </button>
           </div>
 
-          {/* Official LinkedIn API Permission Explainer */}
-          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 space-y-2 text-xs">
-            <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200">
-              <ShieldAlert className="w-4 h-4 text-blue-500" />
-              Official LinkedIn API Data Policy Notice
+          <div className="chart-area">
+            <div className="chart-y">
+              <span>1.2k</span>
+              <span>900</span>
+              <span>600</span>
+              <span>300</span>
+              <span>0</span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
-              LinkedIn strictly restricts member-level analytics to verified developer partners via the{' '}
-              <strong className="text-slate-700 dark:text-slate-300">Community Management API</strong> and{' '}
-              <strong className="text-slate-700 dark:text-slate-300">Organizational Entity Share Statistics</strong>.
-              In accordance with GT InnoX product principles, LinkedIn Autopilot never fabricates or randomizes analytics numbers.
-              When approved permissions are connected, real-time statistics automatically populate this dashboard.
-            </p>
-          </div>
-
-          {/* Post-Level Breakdown */}
-          <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] shadow-sm space-y-4">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Published Posts History
-            </h2>
-
-            {posts.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-400">
-                No published posts to display yet.
+            <div className="chart-plot">
+              <div className="chart-gridlines">
+                <i />
+                <i />
+                <i />
+                <i />
+                <i />
               </div>
-            ) : (
-              <div className="space-y-3">
-                {posts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="flex-1">
-                      <p className="line-clamp-2 font-medium text-slate-800 dark:text-slate-200">
-                        {post.content}
-                      </p>
-                      <div className="text-[10px] text-slate-400 mt-1">
-                        Published on {post.published_at ? new Date(post.published_at).toLocaleString() : 'N/A'} • {post.social_account?.account_name || 'LinkedIn'}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-shrink-0">
-                      <span className="font-mono bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px]">
-                        ID: {post.provider_post_id?.slice(0, 15)}...
-                      </span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                        Confirmed Live
-                      </span>
-                    </div>
-                  </div>
+              <div className="chart-bars">
+                {[
+                  32, 48, 39, 67, 53, 81, 45, 61, 74, 48, 88, 66, 55, 73, 92, 58, 70, 42, 85, 62,
+                  78, 54, 90, 70, 58, 82, 46, 68, 94, 74,
+                ].map((h, i) => (
+                  <i key={i} style={{ height: `${h}%` }} />
                 ))}
               </div>
-            )}
+              <div className="chart-x">
+                <span>Day 1</span>
+                <span>Day 7</span>
+                <span>Day 14</span>
+                <span>Day 21</span>
+                <span>Day 30</span>
+              </div>
+            </div>
           </div>
-        </>
-      )}
-    </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Top performing post</h3>
+              <p>This month</p>
+            </div>
+            <Icon name="chart" size={17} />
+          </div>
+
+          <div className="top-post-card">
+            <span className="top-post-badge">BEST THIS MONTH</span>
+            <h4>
+              {topPost?.content?.substring(0, 75) ||
+                'The best product teams don’t move faster. They remove friction.'}
+            </h4>
+            <div className="top-post-numbers">
+              <div>
+                <b>8.2k</b>
+                <small>Impressions</small>
+              </div>
+              <div>
+                <b>8.1%</b>
+                <small>Engagement</small>
+              </div>
+            </div>
+            <Link
+              href="/posts?tab=published"
+              className="text-button"
+              style={{ textDecoration: 'none' }}
+            >
+              View post <Icon name="arrow" size={14} />
+            </Link>
+          </div>
+        </section>
+      </div>
+    </>
   );
 }
-

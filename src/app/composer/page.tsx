@@ -4,32 +4,8 @@ import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
-import {
-  Send,
-  Calendar,
-  Save,
-  Image as ImageIcon,
-  Video,
-  FileText,
-  Sparkles,
-  Trash2,
-  Linkedin,
-  AlertCircle,
-  CheckCircle2,
-  Globe,
-  MessageSquare,
-  ThumbsUp,
-  Share2,
-  Loader2,
-  Building,
-  User,
-  Plus,
-  Clock,
-  Sparkle,
-  Eye,
-  Check,
-  ChevronDown,
-} from 'lucide-react';
+import { PageHeader, ActionButton } from '@/components/magicpath/common';
+import { Icon } from '@/components/magicpath/icons';
 import { SocialAccount } from '@/types';
 
 function ComposerContent() {
@@ -44,7 +20,9 @@ function ComposerContent() {
   const [content, setContent] = useState(initialContent);
   const [draftId, setDraftId] = useState<string | null>(initialDraftId);
   const [sourceTone, setSourceTone] = useState<string | null>(initialTone);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'conflict' | 'offline'>('idle');
+  const [saveStatus, setSaveStatus] = useState<
+    'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'conflict' | 'offline'
+  >('idle');
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [lastSavedUpdatedAt, setLastSavedUpdatedAt] = useState<string | null>(null);
   const [hasUserModified, setHasUserModified] = useState(false);
@@ -64,7 +42,6 @@ function ComposerContent() {
     }
     return true;
   });
-  const [destinationType, setDestinationType] = useState<'member' | 'organization'>('member');
   const [selectedAccount, setSelectedAccount] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -78,16 +55,15 @@ function ComposerContent() {
     }
     return '';
   });
+  const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [mediaAssets, setMediaAssets] = useState<any[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [scheduleMode, setScheduleMode] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [timezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const [submitting, setSubmitting] = useState(false);
-
-  const memberAccounts = accounts.filter((a) => a.account_type === 'member');
-  const orgAccounts = accounts.filter((a) => a.account_type === 'organization');
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
 
   const getStorageKey = useCallback(() => {
     if (typeof window === 'undefined') return 'autopilot_composer_draft';
@@ -193,7 +169,6 @@ function ComposerContent() {
         if (accs.length > 0 && !selectedAccount) {
           const firstMember = accs.find((a) => a.account_type === 'member') || accs[0];
           setSelectedAccount(firstMember.id);
-          setDestinationType(firstMember.account_type);
         }
       }
     } catch (e: any) {
@@ -205,7 +180,6 @@ function ComposerContent() {
 
   useEffect(() => {
     fetchAccounts();
-    // Default scheduled date to tomorrow at 10:00 AM
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     setScheduledDate(tomorrow.toISOString().split('T')[0]);
@@ -213,91 +187,101 @@ function ComposerContent() {
   }, [fetchAccounts]);
 
   // Autosave execution function
-  const triggerAutosave = useCallback(async (forced = false) => {
-    if (!content.trim()) return;
-    if (!hasUserModified && !forced) return;
+  const triggerAutosave = useCallback(
+    async (forced = false) => {
+      if (!content.trim()) return;
+      if (!hasUserModified && !forced) return;
 
-    setSaveStatus('saving');
+      setSaveStatus('saving');
 
-    try {
-      if (draftId) {
-        // Update existing draft
-        const res = await fetch(`/api/posts/${draftId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getWorkspaceHeader(),
-          },
-          body: JSON.stringify({
-            content,
-            postType,
-            socialAccountId: selectedAccount || null,
-            mediaAssets,
-            status: 'draft',
-            expectedUpdatedAt: lastSavedUpdatedAt || undefined,
-          }),
-        });
+      try {
+        if (draftId) {
+          const res = await fetch(`/api/posts/${draftId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              postType,
+              socialAccountId: selectedAccount || null,
+              mediaAssets,
+              status: 'draft',
+              expectedUpdatedAt: lastSavedUpdatedAt || undefined,
+            }),
+          });
 
-        if (res.status === 409) {
-          setSaveStatus('conflict');
-          toast.error('Conflict: Draft was updated in another session.');
-          return;
+          if (res.status === 409) {
+            setSaveStatus('conflict');
+            toast.error('Conflict: Draft was updated in another session.');
+            return;
+          }
+
+          if (!res.ok) {
+            throw new Error('Autosave failed');
+          }
+
+          const data = await res.json();
+          setLastSavedUpdatedAt(data.post.updated_at);
+          setSaveStatus('saved');
+          setLastSavedAt(new Date());
+        } else {
+          const res = await fetch('/api/posts', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getWorkspaceHeader(),
+            },
+            body: JSON.stringify({
+              content,
+              postType,
+              socialAccountId: selectedAccount || null,
+              mediaAssets,
+              status: 'draft',
+            }),
+          });
+
+          if (!res.ok) {
+            throw new Error('Initial draft creation failed');
+          }
+
+          const data = await res.json();
+          const newId = data.post.id;
+          setDraftId(newId);
+          setLastSavedUpdatedAt(data.post.updated_at);
+          setSaveStatus('saved');
+          setLastSavedAt(new Date());
+
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            params.set('draftId', newId);
+            if (sourceTone) params.set('tone', sourceTone);
+            window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+          }
         }
-
-        if (!res.ok) {
-          throw new Error('Autosave failed');
-        }
-
-        const data = await res.json();
-        setLastSavedUpdatedAt(data.post.updated_at);
-        setSaveStatus('saved');
-        setLastSavedAt(new Date());
-      } else {
-        // Create initial draft
-        const res = await fetch('/api/posts', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...getWorkspaceHeader(),
-          },
-          body: JSON.stringify({
-            content,
-            postType,
-            socialAccountId: selectedAccount || null,
-            mediaAssets,
-            status: 'draft',
-          }),
-        });
-
-        if (!res.ok) {
-          throw new Error('Initial draft creation failed');
-        }
-
-        const data = await res.json();
-        const newId = data.post.id;
-        setDraftId(newId);
-        setLastSavedUpdatedAt(data.post.updated_at);
-        setSaveStatus('saved');
-        setLastSavedAt(new Date());
-
-        // Update URL safely without browser refresh
-        if (typeof window !== 'undefined') {
-          const params = new URLSearchParams(window.location.search);
-          params.set('draftId', newId);
-          if (sourceTone) params.set('tone', sourceTone);
-          window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
-        }
+      } catch {
+        setSaveStatus('error');
       }
-    } catch {
-      setSaveStatus('error');
-    }
-  }, [content, hasUserModified, draftId, postType, selectedAccount, mediaAssets, lastSavedUpdatedAt, getWorkspaceHeader, sourceTone, toast]);
+    },
+    [
+      content,
+      hasUserModified,
+      draftId,
+      postType,
+      selectedAccount,
+      mediaAssets,
+      lastSavedUpdatedAt,
+      getWorkspaceHeader,
+      sourceTone,
+      toast,
+    ]
+  );
 
   // Debounced autosave effect
   useEffect(() => {
     if (!hasUserModified) return;
 
-    // 1. Instant local persistence
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(
@@ -316,31 +300,28 @@ function ComposerContent() {
     }
 
     setSaveStatus('unsaved');
-
-    // 2. Debounced server autosave (1.5s)
     const timer = setTimeout(() => {
       triggerAutosave();
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [content, postType, selectedAccount, mediaAssets, hasUserModified, triggerAutosave, getStorageKey, draftId, sourceTone]);
-
-  const handleDestinationSwitch = (type: 'member' | 'organization') => {
-    setDestinationType(type);
-    if (type === 'member') {
-      if (memberAccounts.length > 0) setSelectedAccount(memberAccounts[0].id);
-    } else {
-      if (orgAccounts.length > 0) setSelectedAccount(orgAccounts[0].id);
-      else setSelectedAccount('');
-    }
-  };
+  }, [
+    content,
+    postType,
+    selectedAccount,
+    mediaAssets,
+    hasUserModified,
+    triggerAutosave,
+    getStorageKey,
+    draftId,
+    sourceTone,
+  ]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     setUploadingMedia(true);
-
     try {
       const file = files[0];
       const formData = new FormData();
@@ -358,12 +339,11 @@ function ComposerContent() {
 
       const data = await res.json();
       setMediaAssets([data.media]);
-
-      // Set postType automatically based on file MIME
       if (file.type.startsWith('image/')) setPostType('image');
       else if (file.type.startsWith('video/')) setPostType('video');
       else setPostType('document');
 
+      setHasUserModified(true);
       toast.success(`Media attached: ${file.name}`);
     } catch (err: any) {
       toast.error(err.message);
@@ -375,17 +355,8 @@ function ComposerContent() {
   const removeMedia = () => {
     setMediaAssets([]);
     setPostType('text');
+    setHasUserModified(true);
     toast.info('Media attachment removed');
-  };
-
-  const applySchedulePreset = (hoursFromNow: number) => {
-    const target = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
-    setScheduledDate(target.toISOString().split('T')[0]);
-    const hours = String(target.getHours()).padStart(2, '0');
-    const minutes = String(target.getMinutes()).padStart(2, '0');
-    setScheduledTime(`${hours}:${minutes}`);
-    setScheduleMode(true);
-    toast.info(`Scheduled for ${target.toLocaleDateString()} at ${hours}:${minutes}`);
   };
 
   const handleSavePost = async (publishNow = false, asDraft = false) => {
@@ -421,7 +392,6 @@ function ComposerContent() {
 
     try {
       if (asDraft) {
-        // Saving draft: reuse existing draftId if available to prevent duplicate creation
         if (draftId) {
           const res = await fetch(`/api/posts/${draftId}`, {
             method: 'PATCH',
@@ -440,7 +410,7 @@ function ComposerContent() {
           });
           if (res.status === 409) {
             setSaveStatus('conflict');
-            toast.error('Conflict: Draft was modified in another session. Local edits preserved.');
+            toast.error('Conflict: Draft was modified in another session.');
             setSubmitting(false);
             return;
           }
@@ -476,13 +446,12 @@ function ComposerContent() {
 
         setTimeout(() => {
           router.push('/posts?tab=draft');
-        }, 800);
+        }, 600);
         return;
       }
 
       if (scheduleMode && !publishNow) {
-        // Scheduling: update draft first, then schedule
-        let targetPostId = draftId;
+        const targetPostId = draftId;
         if (targetPostId) {
           const updateRes = await fetch(`/api/posts/${targetPostId}`, {
             method: 'PATCH',
@@ -502,7 +471,7 @@ function ComposerContent() {
           });
           if (updateRes.status === 409) {
             setSaveStatus('conflict');
-            toast.error('Conflict: Draft was modified in another session. Please reload or review before scheduling.');
+            toast.error('Conflict: Draft was modified in another session.');
             setSubmitting(false);
             return;
           }
@@ -544,7 +513,6 @@ function ComposerContent() {
           if (!createRes.ok) throw new Error(createData.error || 'Failed to create and schedule post');
         }
 
-        // Clean up draft cache upon schedule
         if (typeof window !== 'undefined') {
           try {
             localStorage.removeItem(getStorageKey());
@@ -554,13 +522,12 @@ function ComposerContent() {
         toast.success('Post scheduled in queue! 🚀');
         setTimeout(() => {
           router.push('/posts?tab=scheduled');
-        }, 800);
+        }, 600);
         return;
       }
 
       if (publishNow) {
-        // Immediate Publishing
-        let targetPostId = draftId;
+        const targetPostId = draftId;
         if (targetPostId) {
           const updateRes = await fetch(`/api/posts/${targetPostId}`, {
             method: 'PATCH',
@@ -578,7 +545,7 @@ function ComposerContent() {
           });
           if (updateRes.status === 409) {
             setSaveStatus('conflict');
-            toast.error('Conflict: Draft was modified in another session. Please reload or review before publishing.');
+            toast.error('Conflict: Draft was modified in another session.');
             setSubmitting(false);
             return;
           }
@@ -617,7 +584,6 @@ function ComposerContent() {
           }
         }
 
-        // Clean up draft cache upon publish
         if (typeof window !== 'undefined') {
           try {
             localStorage.removeItem(getStorageKey());
@@ -627,7 +593,7 @@ function ComposerContent() {
         toast.success('Post published successfully to LinkedIn! 🎉');
         setTimeout(() => {
           router.push('/posts?tab=published');
-        }, 800);
+        }, 600);
       }
     } catch (err: any) {
       toast.error(err.message);
@@ -636,575 +602,343 @@ function ComposerContent() {
     }
   };
 
-  const charCount = content.length;
-  const maxChars = 3000;
-  const charPercentage = Math.min(100, Math.round((charCount / maxChars) * 100));
-  const selectedAccObj = accounts.find((a) => a.id === selectedAccount);
+  const handleSendToAiRewrite = () => {
+    if (!content.trim()) {
+      toast.error('Enter some text first to rewrite it.');
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('tab', 'rewrite');
+    params.set('content', content);
+    if (draftId) params.set('draftId', draftId);
+    if (sourceTone) params.set('tone', sourceTone);
+    router.push(`/ai-studio?${params.toString()}`);
+  };
+
+  const currentAcc = accounts.find((a) => a.id === selectedAccount);
+  const accountDisplayName = currentAcc?.account_name || 'Personal profile';
+  const accountSubtitle =
+    currentAcc?.account_type === 'organization' ? 'Company page' : 'Personal profile';
+
+  const renderSaveStatusText = () => {
+    if (saveStatus === 'saving') return 'Saving draft…';
+    if (saveStatus === 'saved') {
+      return lastSavedAt ? `Saved ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Saved just now';
+    }
+    if (saveStatus === 'unsaved') return 'Unsaved edits';
+    if (saveStatus === 'conflict') return 'Conflict: edited elsewhere';
+    if (saveStatus === 'error') return 'Save failed · Retrying';
+    return 'Draft ready';
+  };
 
   return (
-    <div className="chat-page chat-page-composer space-y-6 animate-in fade-in duration-200">
-      {/* Top Header & Actions Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            Create a post
-          </h1>
-          <div className="flex items-center gap-2 flex-wrap mt-0.5">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Author, preview, schedule, and publish rich multi-format LinkedIn content.
+    <>
+      <PageHeader screen="composer" />
+
+      {/* Composer Toolbar: Account Selector & Draft Status */}
+      <div className="composer-toolbar">
+        <div style={{ position: 'relative' }}>
+          <div
+            className="account-select"
+            onClick={() => setShowAccountDropdown(!showAccountDropdown)}
+            style={{ cursor: 'pointer' }}
+          >
+            <span className="linkedin-avatar">
+              <Icon name="linkedin" size={16} />
+            </span>
+            <span>
+              <b>{accountDisplayName}</b>
+              <small>{accountSubtitle}</small>
+            </span>
+            <Icon name="chevron" size={15} />
+          </div>
+
+          {showAccountDropdown && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                left: 0,
+                width: '240px',
+                zIndex: 30,
+                background: 'var(--surface)',
+                border: '1px solid var(--line)',
+                borderRadius: '9px',
+                padding: '6px',
+                boxShadow: 'var(--shadow)',
+              }}
+            >
+              {accounts.length === 0 ? (
+                <div style={{ padding: '8px', fontSize: '11px', color: 'var(--muted)' }}>
+                  No accounts found. Connect one in Accounts.
+                </div>
+              ) : (
+                accounts.map((acc) => (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedAccount(acc.id);
+                      setShowAccountDropdown(false);
+                      setHasUserModified(true);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '7px 8px',
+                      borderRadius: '6px',
+                      background: selectedAccount === acc.id ? 'var(--sidebar)' : 'transparent',
+                      border: 0,
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      color: 'var(--ink)',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <span>
+                      <b>{acc.account_name}</b>
+                      <small style={{ display: 'block', color: 'var(--muted)', fontSize: '10px' }}>
+                        {acc.account_type === 'organization' ? 'Company Page' : 'Personal Profile'}
+                      </small>
+                    </span>
+                    {selectedAccount === acc.id && <Icon name="check" size={14} />}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        <span className="draft-saved">
+          <i /> {renderSaveStatusText()}
+        </span>
+      </div>
+
+      {/* Editor & Preview Grid */}
+      <div className="composer-grid">
+        <section className="panel editor-panel">
+          <div className="editor-top">
+            <h3>Your post</h3>
+            <button
+              type="button"
+              className="text-button"
+              onClick={handleSendToAiRewrite}
+              title="Enhance or change tone in AI Studio"
+            >
+              <Icon name="sparkles" size={15} /> Write with AI
+            </button>
+          </div>
+
+          <textarea
+            className="composer-textarea"
+            value={content}
+            onChange={(e) => {
+              setContent(e.target.value);
+              setHasUserModified(true);
+            }}
+            placeholder="What would you like your network to know?"
+            aria-label="Post content"
+          />
+
+          {/* Attached Media Pill */}
+          {mediaAssets.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 10px',
+                margin: '8px 0',
+                background: 'var(--brand-soft)',
+                border: '1px solid var(--brand-line)',
+                borderRadius: '8px',
+                fontSize: '11px',
+              }}
+            >
+              <Icon name="image" size={15} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {mediaAssets[0].name || 'Attached file'}
+              </span>
+              <button
+                type="button"
+                onClick={removeMedia}
+                style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--muted)' }}
+                title="Remove attachment"
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+          )}
+
+          <div className="editor-footer">
+            <div className="editor-tools">
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  color: 'var(--muted)',
+                }}
+              >
+                <input
+                  type="file"
+                  accept="image/*,video/*,application/pdf"
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                />
+                <Icon name="image" size={17} />
+                <span>{uploadingMedia ? 'Uploading…' : 'Add media'}</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const tags = ' #Leadership #BuildInPublic #Innovation';
+                  setContent((prev) => prev + tags);
+                  setHasUserModified(true);
+                  toast.info('Suggested hashtags added');
+                }}
+              >
+                <Icon name="sparkles" size={16} /> Hashtags
+              </button>
+            </div>
+
+            <span>
+              {content.length} / 3,000
+            </span>
+          </div>
+
+          {/* Schedule Row */}
+          <div className="schedule-row">
+            <div>
+              <b>When should this go out?</b>
+              <small>Choose a time that works for your audience.</small>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => {
+                  setScheduledDate(e.target.value);
+                  setScheduleMode(true);
+                }}
+                className="ai-text-input"
+                style={{ width: '130px', padding: '4px 8px', fontSize: '11px' }}
+              />
+              <input
+                type="time"
+                value={scheduledTime}
+                onChange={(e) => {
+                  setScheduledTime(e.target.value);
+                  setScheduleMode(true);
+                }}
+                className="ai-text-input"
+                style={{ width: '90px', padding: '4px 8px', fontSize: '11px' }}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Live LinkedIn Preview */}
+        <section className="preview-wrap">
+          <div className="preview-label">LINKEDIN PREVIEW</div>
+          <article className="linkedin-preview">
+            <div className="preview-profile">
+              <div className="profile-avatar">TG</div>
+              <div>
+                <b>{accountDisplayName}</b>
+                <small>Product builder · GT InnoX</small>
+                <small>
+                  Just now · <Icon name="globe" size={11} />
+                </small>
+              </div>
+              <button type="button" className="plain-icon">
+                <Icon name="more" size={18} />
+              </button>
+            </div>
+
+            <p className="preview-copy">
+              {content || 'Your post preview will appear here as you write.'}
             </p>
 
-            {/* Save Status Indicators */}
-            {saveStatus === 'saved' && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/40 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
-                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                <span>Saved{lastSavedAt ? ` ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
-              </span>
-            )}
-            {saveStatus === 'saving' && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/40 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
-                <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                <span>Saving draft...</span>
-              </span>
-            )}
-            {saveStatus === 'unsaved' && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
-                <Clock className="w-3 h-3 text-slate-400" />
-                <span>Unsaved changes</span>
-              </span>
-            )}
-            {saveStatus === 'error' && (
-              <button
-                type="button"
-                onClick={() => triggerAutosave(true)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 px-2 py-0.5 rounded-full hover:bg-rose-100 transition-colors cursor-pointer"
-                title="Autosave failed. Click to retry."
-              >
-                <AlertCircle className="w-3 h-3 text-rose-500" />
-                <span>Save failed (Retry)</span>
-              </button>
-            )}
-            {saveStatus === 'conflict' && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/40 px-2 py-0.5 rounded-full animate-in fade-in duration-150">
-                <AlertCircle className="w-3 h-3 text-amber-500" />
-                <span>Modified in another session</span>
-              </span>
-            )}
-            {sourceTone && (
-              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 px-2 py-0.5 rounded-full capitalize">
-                Tone: {sourceTone}
-              </span>
-            )}
-            {draftId && (
-              <span className="text-[10px] text-slate-400 font-mono">
-                ID: {draftId.substring(0, 8)}...
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleSavePost(false, true)}
-            disabled={submitting}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>Save Draft</span>
-          </button>
-
-          <button
-            onClick={() => setScheduleMode(!scheduleMode)}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
-              scheduleMode
-                ? 'bg-blue-50/80 border-blue-300 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 shadow-sm'
-                : 'border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>{scheduleMode ? 'Schedule Active' : 'Schedule'}</span>
-          </button>
-
-          {scheduleMode ? (
-            <button
-              onClick={() => handleSavePost(false, false)}
-              disabled={submitting}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
-            >
-              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
-              <span>Schedule Post</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => handleSavePost(true, false)}
-              disabled={submitting}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
-            >
-              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              <span>Publish Now</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Main Composer Layout: 2 Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Editor & Settings */}
-        <div className="lg:col-span-7 space-y-4">
-          {/* Dual Destination Selector Card */}
-          <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                Publishing Destination
-              </label>
-              <span className="text-[11px] text-slate-400 font-mono">
-                {destinationType === 'member' ? 'Member Profile' : 'Company Page'}
-              </span>
-            </div>
-
-            {/* Segmented Destination Picker */}
-            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => handleDestinationSwitch('member')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-                  destinationType === 'member'
-                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                <User className="w-3.5 h-3.5" />
-                <span>Personal Profile</span>
-                {memberAccounts.length > 0 && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDestinationSwitch('organization')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-                  destinationType === 'organization'
-                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                <Building className="w-3.5 h-3.5" />
-                <span>Company Page</span>
-                {orgAccounts.length > 0 ? (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                ) : (
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                    Auth Required
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {/* Destination Specific Selector / Status */}
-            {destinationType === 'member' ? (
-              accountsLoading && memberAccounts.length === 0 ? (
-                <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 animate-pulse">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:border-slate-800 bg-slate-200 dark:bg-slate-800" />
-                    <div className="space-y-1.5">
-                      <div className="w-28 h-3 rounded bg-slate-200 dark:bg-slate-800" />
-                      <div className="w-40 h-2 rounded bg-slate-200 dark:bg-slate-800" />
-                    </div>
-                  </div>
-                </div>
-              ) : memberAccounts.length === 0 ? (
-                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 flex items-center justify-between">
-                  <span>No personal profile connected.</span>
-                  <a href="/accounts" className="text-blue-600 hover:underline font-semibold flex items-center gap-1">
-                    Connect Profile <Plus className="w-3 h-3" />
-                  </a>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold flex items-center justify-center text-xs shadow-sm">
-                      {memberAccounts[0].profile_image_url ? (
-                        <Image
-                          src={memberAccounts[0].profile_image_url}
-                          alt={memberAccounts[0].account_name}
-                          width={32}
-                          height={32}
-                          unoptimized
-                          className="w-8 h-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        memberAccounts[0].account_name[0]
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{memberAccounts[0].account_name}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">Author URN: urn:li:person:{memberAccounts[0].provider_account_id}</div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                    Active
-                  </span>
-                </div>
-              )
-            ) : orgAccounts.length === 0 ? (
-              <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 text-xs text-amber-800 dark:text-amber-300 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-0.5">
-                    <div className="font-semibold flex items-center gap-1.5">
-                      <AlertCircle className="w-3.5 h-3.5 text-amber-600" /> Company Page Authorization Required
-                    </div>
-                    <p className="text-[11px] text-amber-700/80 dark:text-amber-400 leading-relaxed">
-                      Company Page publishing requires the official LinkedIn <strong>Community Management API</strong> product.
-                    </p>
-                  </div>
-                  <a
-                    href="/accounts"
-                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] flex-shrink-0 shadow-sm"
-                  >
-                    Authorize Page
-                  </a>
-                </div>
-              </div>
-            ) : (
-              <div className="relative">
-                <select
-                  value={selectedAccount}
-                  onChange={(e) => setSelectedAccount(e.target.value)}
-                  className="w-full appearance-none text-xs rounded-xl border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-[#0f172a] pl-3.5 pr-8 py-2.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer shadow-sm"
-                >
-                  {orgAccounts.map((acc) => (
-                    <option key={acc.id} value={acc.id} className="bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 py-1.5">
-                      {acc.account_name} (URN: urn:li:organization:{acc.provider_account_id})
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3 pointer-events-none" />
-              </div>
-            )}
-          </div>
-
-          {/* Scheduling Details Card */}
-          {scheduleMode && (
-            <div className="p-4 rounded-2xl border border-blue-200/80 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-950/20 backdrop-blur-sm space-y-3.5 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-bold text-blue-950 dark:text-blue-100 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Scheduled Publication Window</span>
-                </div>
-                {/* Presets */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => applySchedulePreset(1)}
-                    className="px-2 py-0.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-white/60 dark:bg-slate-900/60 text-[10px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100/60 transition-colors"
-                  >
-                    In 1 hr
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applySchedulePreset(24)}
-                    className="px-2 py-0.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-white/60 dark:bg-slate-900/60 text-[10px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-100/60 transition-colors"
-                  >
-                    Tomorrow
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    Time
-                  </label>
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                Timezone: <span className="font-semibold text-slate-700 dark:text-slate-300">{timezone}</span> (Jobs are executed automatically by the background runner).
-              </div>
-            </div>
-          )}
-
-          {/* Post Content Box */}
-          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500/50 transition-all">
-            <textarea
-              value={content}
-              onChange={(e) => {
-                setContent(e.target.value);
-                setHasUserModified(true);
-              }}
-              placeholder="What do you want to talk about? Share an insight, story, or project update..."
-              rows={9}
-              maxLength={maxChars}
-              className="w-full p-4 text-sm bg-transparent resize-y border-none focus:outline-none text-slate-900 dark:text-slate-100 placeholder-slate-400 leading-relaxed"
-            />
-
-            {/* Media Preview Attachment in Editor */}
             {mediaAssets.length > 0 && (
-              <div className="px-4 pb-3">
-                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2.5 truncate">
-                    {postType === 'image' && <ImageIcon className="w-4 h-4 text-blue-500 flex-shrink-0" />}
-                    {postType === 'video' && <Video className="w-4 h-4 text-purple-500 flex-shrink-0" />}
-                    {postType === 'document' && <FileText className="w-4 h-4 text-emerald-500 flex-shrink-0" />}
-                    <div className="truncate min-w-0">
-                      <div className="truncate text-slate-900 dark:text-slate-100 font-semibold">
-                        {mediaAssets[0].file_name}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        {mediaAssets[0].file_size ? `${Math.round(mediaAssets[0].file_size / 1024)} KB • ` : ''}
-                        Attached to post
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={removeMedia}
-                    className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              <div
+                style={{
+                  margin: '10px 0',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  background: 'var(--surface-soft)',
+                  border: '1px solid var(--line)',
+                  padding: '12px',
+                  textAlign: 'center',
+                  fontSize: '11px',
+                  color: 'var(--muted)',
+                }}
+              >
+                📎 Media attachment ({mediaAssets[0].name || 'preview'})
               </div>
             )}
 
-            {/* Editor Bottom Bar */}
-            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <label className="cursor-pointer p-2 rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors" title="Attach Media">
-                  <ImageIcon className="w-4 h-4" />
-                  <input
-                    type="file"
-                    accept="image/*,video/*,application/pdf"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const params = new URLSearchParams();
-                    params.set('tab', 'rewrite');
-                    if (draftId) params.set('draftId', draftId);
-                    if (content) params.set('content', content);
-                    if (sourceTone) params.set('tone', sourceTone);
-                    router.push(`/ai-studio?${params.toString()}`);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 font-semibold text-xs transition-colors shadow-xs"
-                  title="Rewrite and refine with AI Studio"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Rewrite with AI</span>
-                </button>
-                {uploadingMedia && (
-                  <span className="text-[11px] text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" /> Uploading media...
-                  </span>
-                )}
-              </div>
-
-              {/* Character Counter Progress */}
-              <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-                <div className="w-16 h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden hidden sm:block">
-                  <div
-                    className={`h-full transition-all ${
-                      charPercentage > 90 ? 'bg-rose-500' : charPercentage > 75 ? 'bg-amber-500' : 'bg-blue-500'
-                    }`}
-                    style={{ width: `${charPercentage}%` }}
-                  />
-                </div>
-                <span className={charCount > 2800 ? 'text-amber-500 font-bold' : ''}>{charCount}</span> / {maxChars}
-              </div>
+            <div className="preview-reactions">
+              <span>👍 ❤️ 👏</span>
+              <span>42 reactions · 8 comments</span>
             </div>
+            <div className="preview-divider" />
+            <div className="preview-buttons">
+              <span>Like</span>
+              <span>Comment</span>
+              <span>Repost</span>
+              <span>Send</span>
+            </div>
+          </article>
+          <div className="preview-tip">
+            <Icon name="sparkles" size={15} />
+            <span>Posts with a clear first line invite people to keep reading.</span>
           </div>
-        </div>
+        </section>
+      </div>
 
-        {/* Right Column: Realistic Live LinkedIn Preview Card */}
-        <div className="lg:col-span-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-              <Eye className="w-3.5 h-3.5 text-blue-500" />
-              Live Feed Preview
-            </span>
-            <span className="text-[10px] text-slate-400">Matches LinkedIn Web App</span>
-          </div>
+      {/* Composer Bottom Actions */}
+      <div className="composer-bottom">
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => handleSavePost(false, true)}
+          disabled={submitting}
+        >
+          Save draft
+        </button>
 
-          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl shadow-md overflow-hidden text-slate-900 dark:text-slate-100 transition-all">
-            {/* LinkedIn Card Header */}
-            <div className="p-4 flex items-start gap-3">
-              {destinationType === 'organization' || selectedAccObj?.account_type === 'organization' ? (
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
-                  {selectedAccObj?.profile_image_url ? (
-                    <Image
-                      src={selectedAccObj.profile_image_url}
-                      alt={selectedAccObj.account_name || 'Organization'}
-                      width={44}
-                      height={44}
-                      unoptimized
-                      className="w-11 h-11 rounded-xl object-cover"
-                    />
-                  ) : (
-                    <Building className="w-5 h-5 text-white" />
-                  )}
-                </div>
-              ) : (
-                <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
-                  {selectedAccObj?.profile_image_url ? (
-                    <Image
-                      src={selectedAccObj.profile_image_url}
-                      alt={selectedAccObj.account_name || 'Profile'}
-                      width={44}
-                      height={44}
-                      unoptimized
-                      className="w-11 h-11 rounded-full object-cover"
-                    />
-                  ) : (
-                    selectedAccObj?.account_name?.[0] || 'T'
-                  )}
-                </div>
-              )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <ActionButton
+            kind="secondary"
+            onClick={() => handleSavePost(true, false)}
+            disabled={submitting || !content.trim()}
+          >
+            Publish now
+          </ActionButton>
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1">
-                  <div className="font-bold text-xs truncate">
-                    {selectedAccObj?.account_name || (destinationType === 'organization' ? 'Company Page' : 'Personal Member')}
-                  </div>
-                  {destinationType === 'organization' && (
-                    <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800 flex items-center gap-0.5">
-                      + Follow
-                    </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  {destinationType === 'organization' || selectedAccObj?.account_type === 'organization'
-                    ? '1,840 followers • Technology, Information and Internet'
-                    : 'Software Engineer & Tech Entrepreneur • 1st'}
-                </div>
-                <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                  <span>Just now</span>
-                  <span>•</span>
-                  <Globe className="w-2.5 h-2.5" />
-                </div>
-              </div>
-              <Linkedin className="w-4 h-4 text-blue-600 flex-shrink-0" />
-            </div>
-
-            {/* LinkedIn Card Body */}
-            <div className="px-4 pb-3 text-xs leading-relaxed whitespace-pre-wrap font-normal">
-              {content || <span className="text-slate-400 italic">Your post commentary will appear here in real-time...</span>}
-            </div>
-
-            {/* Media Attachment Preview */}
-            {mediaAssets.length > 0 && mediaAssets[0].url && (
-              <div className="border-t border-b border-slate-100 dark:border-slate-800/80 bg-slate-900 max-h-80 overflow-hidden flex items-center justify-center">
-                {postType === 'image' && (
-                  <Image
-                    src={mediaAssets[0].url}
-                    alt="Uploaded media preview"
-                    width={800}
-                    height={500}
-                    unoptimized
-                    className="max-h-80 w-auto object-contain"
-                  />
-                )}
-                {postType === 'video' && (
-                  <video
-                    src={mediaAssets[0].url}
-                    controls
-                    className="max-h-80 w-full"
-                  />
-                )}
-                {postType === 'document' && (
-                  <div className="p-8 text-center text-white space-y-2">
-                    <FileText className="w-12 h-12 mx-auto text-emerald-400 opacity-80" />
-                    <div className="font-semibold text-xs">{mediaAssets[0].file_name}</div>
-                    <div className="text-[10px] text-slate-400">PDF Document Carousel</div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* LinkedIn Reactions Summary Bar */}
-            <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
-              <div className="flex items-center gap-1">
-                <div className="flex -space-x-1">
-                  <div className="w-4 h-4 rounded-full bg-blue-500 text-white flex items-center justify-center text-[8px]">
-                    👍
-                  </div>
-                  <div className="w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px]">
-                    ❤️
-                  </div>
-                  <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[8px]">
-                    💡
-                  </div>
-                </div>
-                <span className="ml-1">42 reactions</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>8 comments</span>
-                <span>•</span>
-                <span>3 reposts</span>
-              </div>
-            </div>
-
-            {/* LinkedIn Card Action Buttons */}
-            <div className="px-2 py-1.5 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-4 gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 select-none">
-              <button
-                type="button"
-                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <ThumbsUp className="w-3.5 h-3.5" />
-                <span>Like</span>
-              </button>
-              <button
-                type="button"
-                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                <span>Comment</span>
-              </button>
-              <button
-                type="button"
-                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Repost</span>
-              </button>
-              <button
-                type="button"
-                className="flex items-center justify-center gap-1.5 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Send</span>
-              </button>
-            </div>
-          </div>
+          <ActionButton
+            kind="primary"
+            onClick={() => handleSavePost(false, false)}
+            disabled={submitting || !content.trim()}
+          >
+            {submitting ? 'Scheduling…' : 'Schedule post'} <Icon name="arrow" size={15} />
+          </ActionButton>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
 export default function ComposerPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-400">Loading composer...</div>}>
+    <Suspense fallback={<div className="panel" style={{ padding: '30px' }}>Loading composer…</div>}>
       <ComposerContent />
     </Suspense>
   );

@@ -1,26 +1,41 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Sidebar } from './sidebar';
 import { TopNav } from './top-nav';
+import { WorkspaceProvider } from './workspace-context';
 import { usePathname } from 'next/navigation';
+import { useTheme } from '@/components/theme-provider';
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+function AppShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/register');
+  const { theme } = useTheme();
+  const isAuthPage =
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/register') ||
+    pathname.startsWith('/auth');
 
   if (isAuthPage) {
-    return <main className="min-h-screen bg-background text-foreground">{children}</main>;
+    return <main className={`auth-screen ${theme === 'dark' ? 'is-dark' : ''}`}>{children}</main>;
   }
 
   return (
-    <div className="app-shell flex min-h-screen bg-background text-foreground">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+    <div className={`la-app ${theme === 'dark' ? 'is-dark' : ''}`}>
+      <Suspense fallback={<div className="la-sidebar" />}>
+        <Sidebar />
+      </Suspense>
+      <div className="la-main">
         <TopNav />
-        <main className="app-main flex-1 w-full mx-auto">{children}</main>
+        <main className="la-content">{children}</main>
       </div>
     </div>
   );
 }
 
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <WorkspaceProvider>
+      <AppShellInner>{children}</AppShellInner>
+    </WorkspaceProvider>
+  );
+}

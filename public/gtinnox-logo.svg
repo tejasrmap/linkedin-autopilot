@@ -1,14 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" width="100%" height="100%" role="img" aria-label="GT InnoX LLP">
-  <g fill="#1E3A8A">
-    <path d="M30 26h8v68h-8zM8 56h50v8H8z"/>
-    <text x="40" y="94" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="700" letter-spacing="-7">G</text>
-  </g>
-  <g>
-    <polygon points="16,27 23,34 16,41 9,34" fill="#2AA6CC"/>
-    <polygon points="39,27 46,34 39,41 32,34" fill="#8C4BC0"/>
-    <polygon points="16,77 23,84 16,91 9,84" fill="#8C4BC0"/>
-    <polygon points="39,77 46,84 39,91 32,84" fill="#2AA6CC"/>
-  </g>
-  <text x="118" y="63" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700" letter-spacing="-1.5" fill="#1E3A8A">GT InnoX</text>
-  <text x="121" y="88" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="600" letter-spacing="3" fill="#4B5563">LLP</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" width="100%" height="100%">
+  <path d="M20 52H45V27H59V52H84V66H59V91H45V66H20V52Z" fill="#0c2a75"/>
+  <polygon points="32,23 42,33 32,43 22,33" fill="#1ba4df"/>
+  <polygon points="72,23 82,33 72,43 62,33" fill="#9b4bc0"/>
+  <polygon points="32,75 42,85 32,95 22,85" fill="#9b4bc0"/>
+  <polygon points="72,75 82,85 72,95 62,85" fill="#1ba4df"/>
+  <path d="M174 38.5L158.5 50C154.5 44 147.5 40 138 40C123 40 111.5 51 111.5 66.5C111.5 82 123 93 138 93C151 93 159 86 161 74H137V60H179V83.5C170.5 99 155.5 107 137.5 107C113 107 94 89 94 66.5C94 44 113 26 138 26C153 26 165.5 31 174 38.5Z" fill="#0c2a75"/>
 </svg>
