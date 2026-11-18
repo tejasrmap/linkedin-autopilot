@@ -303,3 +303,214 @@ button, a, input, textarea, select {
     overflow-y: auto;
   }
 }
+
+
+/* Color-forward product polish */
+:root {
+  --background: #f3f6fb;
+  --foreground: #142238;
+  --card: #ffffff;
+  --border: #e0e8f2;
+  --muted-foreground: #667991;
+  --primary: #126fc4;
+  --ring: #76b8f5;
+}
+
+.dark {
+  --background: #0b1422;
+  --foreground: #edf4fb;
+  --card: #121f32;
+  --border: #253750;
+  --muted-foreground: #9aacc1;
+  --primary: #73b9f5;
+  --ring: #73b9f5;
+}
+
+.app-shell {
+  background:
+    radial-gradient(ellipse at 79% 3%, rgba(84, 123, 245, 0.09), transparent 28%),
+    radial-gradient(ellipse at 40% 70%, rgba(0, 167, 181, 0.035), transparent 38%),
+    var(--background);
+}
+
+.app-sidebar {
+  background:
+    radial-gradient(ellipse at 12% 0%, rgba(42, 117, 202, 0.2), transparent 34%),
+    linear-gradient(180deg, #101f35 0%, #0d192b 100%);
+  border-color: rgba(175, 198, 227, 0.12);
+  color: #d7e4f3;
+}
+
+.app-sidebar .app-brand {
+  border-color: rgba(175, 198, 227, 0.12);
+}
+
+.app-sidebar .app-brand-copy,
+.app-sidebar .app-brand-copy > div:first-child {
+  color: #f3f7fc;
+}
+
+.app-sidebar .app-section-label {
+  color: #7f94ae;
+}
+
+.app-sidebar nav a {
+  color: #b5c5d8;
+  min-height: 42px;
+}
+
+.app-sidebar nav a svg {
+  color: #8095ae;
+}
+
+.app-sidebar nav a:hover {
+  background: rgba(255, 255, 255, 0.065);
+  color: #ffffff;
+}
+
+.app-sidebar nav a:hover svg {
+  color: #a9d5ff;
+}
+
+.app-sidebar nav a.app-nav-active,
+.dark .app-sidebar nav a.app-nav-active {
+  color: #ffffff;
+  background: linear-gradient(105deg, rgba(20, 111, 196, 0.96), rgba(84, 92, 213, 0.9));
+  box-shadow: 0 8px 22px rgba(13, 90, 171, 0.24), inset 0 1px 0 rgba(255,255,255,.16);
+}
+
+.app-sidebar nav a.app-nav-active svg {
+  color: #ffffff;
+}
+
+.app-sidebar > div:last-child {
+  border-color: rgba(175, 198, 227, 0.12);
+  background: rgba(4, 11, 21, 0.24);
+}
+
+.app-sidebar > div:last-child > div {
+  border-color: rgba(175, 198, 227, 0.14);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.app-sidebar > div:last-child .font-semibold {
+  color: #edf4fb;
+}
+
+.app-topbar {
+  min-height: 68px;
+  border-color: var(--border);
+  box-shadow: 0 1px 0 rgba(16, 24, 40, 0.025);
+}
+
+.app-main {
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+
+.app-main h1 {
+  color: var(--foreground);
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+.app-main h1 svg {
+  filter: drop-shadow(0 3px 7px rgba(18, 111, 196, 0.16));
+}
+
+.app-main h2 {
+  color: var(--foreground);
+  font-weight: 700;
+}
+
+.app-main .rounded-2xl.border,
+.app-main .rounded-xl.border {
+  border-color: var(--border);
+  box-shadow: 0 5px 18px rgba(28, 54, 87, 0.045);
+}
+
+.dark .app-main .rounded-2xl.border,
+.dark .app-main .rounded-xl.border {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.13);
+}
+
+.app-main .rounded-2xl.border[class*="bg-white"],
+.app-main .rounded-xl.border[class*="bg-white"] {
+  background-color: var(--card);
+}
+
+.app-main .grid > .rounded-2xl.border:hover,
+.app-main .grid > .rounded-xl.border:hover {
+  transform: translateY(-3px);
+  border-color: rgba(18, 111, 196, 0.32);
+  box-shadow: 0 16px 34px rgba(28, 54, 87, 0.1);
+}
+
+.dark .app-main .grid > .rounded-2xl.border:hover,
+.dark .app-main .grid > .rounded-xl.border:hover {
+  border-color: rgba(115, 185, 245, 0.36);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.25);
+}
+
+.app-main button[class*="from-blue-600"],
+.app-main a[class*="from-blue-600"],
+.app-topbar a[class*="from-blue-600"],
+.auth-page button[class*="from-blue-600"],
+.auth-page a[class*="from-blue-600"] {
+  background-image: linear-gradient(118deg, #126fc4 0%, #365ed0 54%, #6754d8 100%);
+  box-shadow: 0 7px 18px rgba(54, 94, 208, 0.2);
+}
+
+.app-main button[class*="bg-blue-600"],
+.app-main a[class*="bg-blue-600"] {
+  background-color: #126fc4;
+}
+
+.app-main :is(.text-blue-600, .text-blue-500) {
+  color: #126fc4;
+}
+
+.dark .app-main :is(.text-blue-600, .text-blue-500) {
+  color: #73b9f5;
+}
+
+.app-main input:not([type="checkbox"]):not([type="radio"]),
+.app-main textarea,
+.app-main select {
+  min-height: 42px;
+}
+
+.app-main textarea {
+  min-height: 120px;
+}
+
+.app-main th {
+  background: color-mix(in srgb, var(--secondary) 72%, transparent);
+}
+
+.app-main tbody tr:hover td {
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.auth-page {
+  background:
+    radial-gradient(ellipse at 14% 17%, rgba(36, 121, 211, 0.31), transparent 32%),
+    radial-gradient(ellipse at 85% 80%, rgba(103, 84, 216, 0.2), transparent 31%),
+    radial-gradient(ellipse at 50% 48%, rgba(0, 167, 181, 0.08), transparent 55%),
+    #081323;
+}
+
+.auth-page button[class*="from-blue-600"],
+.auth-page a[class*="from-blue-600"] {
+  background-image: linear-gradient(118deg, #126fc4 0%, #365ed0 54%, #6754d8 100%);
+  box-shadow: 0 7px 18px rgba(54, 94, 208, 0.25);
+}
+
+@media (max-width: 1023px) {
+  .app-main { padding-top: 1.5rem; }
+}
+
+@media (max-width: 639px) {
+  .app-topbar { min-height: 60px; }
+  .app-main { padding-top: 1.1rem; }
+}
