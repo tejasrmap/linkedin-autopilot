@@ -9,6 +9,7 @@ import {
   TrendingUp,
   FileText,
   Linkedin,
+  Building,
   User,
   PlusCircle,
   Calendar,
