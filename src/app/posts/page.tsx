@@ -208,7 +208,7 @@ function PostsContent() {
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="chat-page chat-page-posts space-y-6 animate-in fade-in duration-200">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
