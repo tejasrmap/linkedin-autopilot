@@ -9,6 +9,7 @@ import {
   TrendingUp,
   FileText,
   Linkedin,
+  User,
   ArrowUpRight,
   PlusCircle,
   Calendar,
@@ -245,10 +246,10 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-emerald-500" />
-              <span>Recent Publishing Activity</span>
+              <span>Recent posts</span>
             </div>
             <Link href="/posts?tab=published" className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline">
-              View History
+              View all
             </Link>
           </div>
 
