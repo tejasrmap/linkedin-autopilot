@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import '../styles/magicpath-workspace.css';
+
 @layer base {
   :root {
     --background: #f8fafc;

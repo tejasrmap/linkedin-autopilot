@@ -1,126 +1,92 @@
+'use client';
+
 import React from 'react';
+import Image from 'next/image';
 
 interface GTInnoXLogoProps {
   className?: string;
   size?: number;
+  width?: number;
+  height?: number;
+  variant?: 'image' | 'vector';
   showWordmark?: boolean;
 }
 
-export function GTInnoXLogo({ className = 'w-9 h-9', size, showWordmark = false }: GTInnoXLogoProps) {
-  if (showWordmark) {
+/**
+ * Official GT InnoX "+G" Brand Logo Component
+ */
+export function GTInnoXLogo({
+  className = '',
+  size = 32,
+  width,
+  height,
+  variant = 'image',
+  showWordmark = false,
+}: GTInnoXLogoProps) {
+  const resolvedWidth = width || size || 32;
+  const resolvedHeight = height || (width ? Math.round(width * 0.6) : size ? Math.round(size * 0.6) : 20);
+
+  if (variant === 'vector') {
     return (
-      <div className={`flex items-center gap-2.5 ${className}`}>
-        <svg
-          viewBox="0 0 100 100"
-          className="w-9 h-9 flex-shrink-0"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <linearGradient id="gtGrad_wm" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#00F5FF" />
-              <stop offset="50%" stopColor="#6366F1" />
-              <stop offset="100%" stopColor="#EC4899" />
-            </linearGradient>
-            <linearGradient id="shieldGrad_wm" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#1E1B4B" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#0F172A" stopOpacity="0.9" />
-            </linearGradient>
-            <filter id="neonGlow_wm" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
-          <polygon
-            points="50,4 92,26 92,74 50,96 8,74 8,26"
-            fill="url(#shieldGrad_wm)"
-            stroke="url(#gtGrad_wm)"
-            strokeWidth="4"
-            filter="url(#neonGlow_wm)"
-          />
-          <polygon
-            points="50,9 87,28 87,72 50,91 13,72 13,28"
-            fill="none"
-            stroke="rgba(255,255,255,0.2)"
-            strokeWidth="1.5"
-            strokeDasharray="4,3"
-          />
-          <path
-            d="M 52 26 C 36 26 26 36 26 50 C 26 64 36 74 52 74 C 62 74 68 70 71 63 L 71 52 L 48 52 L 48 44 L 79 44 L 79 66 C 72 77 62 81 50 81 C 30 81 18 68 18 50 C 18 32 30 19 51 19 C 62 19 70 23 76 29 L 70 35 C 65 30 59 26 52 26 Z"
-            fill="url(#gtGrad_wm)"
-          />
-          <path
-            d="M 40 33 L 78 33 L 78 40 L 63 40 L 63 67 L 55 67 L 55 40 L 40 40 Z"
-            fill="#FFFFFF"
-            opacity="0.95"
-          />
-          <circle cx="78" cy="22" r="3.5" fill="#00F5FF" filter="url(#neonGlow_wm)" />
-        </svg>
-        <div className="flex flex-col leading-none">
-          <div className="flex items-baseline gap-1 font-black tracking-tight text-slate-900 dark:text-white">
-            <span className="bg-gradient-to-r from-[#00F5FF] via-[#6366F1] to-[#EC4899] bg-clip-text text-transparent">GT</span>
-            <span className="tracking-wider">INNOX</span>
-          </div>
-          <span className="text-[9px] font-semibold tracking-widest text-[#00F5FF] uppercase">LLP</span>
-        </div>
-      </div>
+      <svg
+        viewBox="0 0 200 120"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className={className}
+        style={{ width: resolvedWidth, height: resolvedHeight }}
+        aria-label="GT InnoX Logo"
+      >
+        {/* Navy Plus Symbol */}
+        <path
+          d="M20 52H45V27H59V52H84V66H59V91H45V66H20V52Z"
+          className="fill-[#0c2a75] dark:fill-[#5b8def]"
+        />
+        {/* Top-Left Cyan Diamond */}
+        <polygon
+          points="32,23 42,33 32,43 22,33"
+          fill="#1ba4df"
+        />
+        {/* Top-Right Purple Diamond */}
+        <polygon
+          points="72,23 82,33 72,43 62,33"
+          fill="#9b4bc0"
+        />
+        {/* Bottom-Left Purple Diamond */}
+        <polygon
+          points="32,75 42,85 32,95 22,85"
+          fill="#9b4bc0"
+        />
+        {/* Bottom-Right Cyan Diamond */}
+        <polygon
+          points="72,75 82,85 72,95 62,85"
+          fill="#1ba4df"
+        />
+        {/* Navy Capital G */}
+        <path
+          d="M174 38.5L158.5 50C154.5 44 147.5 40 138 40C123 40 111.5 51 111.5 66.5C111.5 82 123 93 138 93C151 93 159 86 161 74H137V60H179V83.5C170.5 99 155.5 107 137.5 107C113 107 94 89 94 66.5C94 44 113 26 138 26C153 26 165.5 31 174 38.5Z"
+          className="fill-[#0c2a75] dark:fill-[#5b8def]"
+        />
+      </svg>
     );
   }
 
   return (
-    <svg
-      viewBox="0 0 100 100"
-      className={className}
-      style={size ? { width: size, height: size } : undefined}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="GT InnoX Logo"
+    <div
+      className={`inline-flex items-center justify-center overflow-hidden ${className}`}
+      style={{ width: resolvedWidth, height: resolvedHeight }}
     >
-      <defs>
-        <linearGradient id="gtGrad_icon" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#00F5FF" />
-          <stop offset="50%" stopColor="#6366F1" />
-          <stop offset="100%" stopColor="#EC4899" />
-        </linearGradient>
-        <linearGradient id="shieldGrad_icon" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#1E1B4B" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="#0F172A" stopOpacity="0.9" />
-        </linearGradient>
-        <filter id="neonGlow_icon" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feComposite in="SourceGraphic" in2="blur" operator="over" />
-        </filter>
-      </defs>
-      {/* Hexagonal Glow Shield */}
-      <polygon
-        points="50,4 92,26 92,74 50,96 8,74 8,26"
-        fill="url(#shieldGrad_icon)"
-        stroke="url(#gtGrad_icon)"
-        strokeWidth="4"
-        filter="url(#neonGlow_icon)"
+      <Image
+        src="/brand-logo.png"
+        alt="GT InnoX"
+        width={resolvedWidth * 2}
+        height={resolvedHeight * 2}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+        }}
+        priority
       />
-      {/* Circuit dashed border */}
-      <polygon
-        points="50,9 87,28 87,72 50,91 13,72 13,28"
-        fill="none"
-        stroke="rgba(255,255,255,0.2)"
-        strokeWidth="1.5"
-        strokeDasharray="4,3"
-      />
-      {/* Stylized Geometric G */}
-      <path
-        d="M 52 26 C 36 26 26 36 26 50 C 26 64 36 74 52 74 C 62 74 68 70 71 63 L 71 52 L 48 52 L 48 44 L 79 44 L 79 66 C 72 77 62 81 50 81 C 30 81 18 68 18 50 C 18 32 30 19 51 19 C 62 19 70 23 76 29 L 70 35 C 65 30 59 26 52 26 Z"
-        fill="url(#gtGrad_icon)"
-      />
-      {/* Stylized Spark T */}
-      <path
-        d="M 40 33 L 78 33 L 78 40 L 63 40 L 63 67 L 55 67 L 55 40 L 40 40 Z"
-        fill="#FFFFFF"
-        opacity="0.95"
-      />
-      {/* Spark node */}
-      <circle cx="78" cy="22" r="3.5" fill="#00F5FF" filter="url(#neonGlow_icon)" />
-    </svg>
+    </div>
   );
 }
-

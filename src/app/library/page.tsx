@@ -1,37 +1,24 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import {
-  FolderOpen,
-  UploadCloud,
-  Trash2,
-  Image as ImageIcon,
-  Video,
-  FileText,
-  Search,
-  ArrowRight,
-  Loader2,
-  Copy,
-  Check,
-} from 'lucide-react';
+import { PageHeader, ActionButton } from '@/components/magicpath/common';
+import { Icon } from '@/components/magicpath/icons';
 import { MediaAsset } from '@/types';
 
 export default function LibraryPage() {
   const router = useRouter();
   const toast = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
-
   const [deleteAssetId, setDeleteAssetId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchMedia = useCallback(async () => {
     try {
@@ -81,176 +68,142 @@ export default function LibraryPage() {
     }
   };
 
-  const handleConfirmDelete = async () => {
+  const handleDelete = async () => {
     if (!deleteAssetId) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/media/${deleteAssetId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setMedia((prev) => prev.filter((m) => m.id !== deleteAssetId));
-        toast.success('Media asset removed');
-      } else {
-        const err = await res.json();
-        toast.error(err.error || 'Delete failed');
+      const res = await fetch(`/api/media/${deleteAssetId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to delete media asset');
       }
-    } catch (e: any) {
-      toast.error(e.message);
+      toast.success('Asset deleted successfully');
+      setDeleteAssetId(null);
+      await fetchMedia();
+    } catch (err: any) {
+      toast.error(err.message);
     } finally {
       setDeleting(false);
-      setDeleteAssetId(null);
     }
   };
 
-  const handleCopyUrl = (url: string, id: string) => {
-    navigator.clipboard.writeText(url);
-    setCopiedId(id);
-    toast.info('Asset URL copied to clipboard');
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
   const filteredMedia = media.filter((m) =>
-    m.file_name.toLowerCase().includes(search.toLowerCase())
+    (m.file_name || '').toLowerCase().includes(search.toLowerCase())
   );
 
+  const tones = ['blue', 'violet', 'mint', 'amber', 'rose'];
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <FolderOpen className="w-5 h-5 text-blue-500" />
-            Media &amp; Asset Library
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Store and organize high-resolution images, videos, carousel PDFs, and brand collateral.
-          </p>
-        </div>
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*,application/pdf"
+        onChange={handleUpload}
+        style={{ display: 'none' }}
+      />
 
-        {/* Upload Action */}
-        <label className="cursor-pointer flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] self-start">
-          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
-          <span>{uploading ? 'Uploading...' : 'Upload Asset'}</span>
+      <PageHeader
+        screen="library"
+        action={uploading ? 'Uploading…' : 'Upload media'}
+        onAction={() => fileInputRef.current?.click()}
+      />
+
+      <div className="library-tools">
+        <div className="search-field">
+          <Icon name="search" size={16} />
           <input
-            type="file"
-            accept="image/*,video/*,application/pdf"
-            className="hidden"
-            onChange={handleUpload}
-            disabled={uploading}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search your media"
           />
-        </label>
+        </div>
+        <button type="button" className="btn btn-secondary">
+          <Icon name="filter" size={15} /> All media <Icon name="chevron" size={14} />
+        </button>
+        <div className="spacer" />
+        <span className="muted-text">
+          {filteredMedia.length} {filteredMedia.length === 1 ? 'file' : 'files'}
+        </span>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative max-w-md">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search media files by name..."
-          className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
-        />
-      </div>
-
-      {/* Media Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-        {loading ? (
-          <div className="col-span-full py-16 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-            <span>Loading assets...</span>
-          </div>
-        ) : filteredMedia.length === 0 ? (
-          <div className="col-span-full p-12 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-[#0f172a]/50 text-xs text-slate-400 space-y-2">
-            <FolderOpen className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto" />
-            <div className="font-semibold text-slate-700 dark:text-slate-300">No media assets found</div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-              Upload images, PDFs, or videos to reuse across scheduled posts.
-            </p>
-          </div>
-        ) : (
-          filteredMedia.map((asset) => {
-            const isImg = asset.mime_type.startsWith('image/');
-            const isVid = asset.mime_type.startsWith('video/');
-            const isCopied = copiedId === asset.id;
+      {loading ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+          Loading media library…
+        </div>
+      ) : filteredMedia.length > 0 ? (
+        <div className="media-grid">
+          {filteredMedia.map((item, i) => {
+            const tone = tones[i % tones.length];
+            const formattedDate = new Date(item.created_at).toLocaleDateString([], {
+              month: 'short',
+              day: 'numeric',
+            }).toUpperCase();
 
             return (
               <div
-                key={asset.id}
-                className="group rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#0f172a]/95 backdrop-blur-xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                className="media-card"
+                key={item.id}
+                onClick={() => {
+                  router.push(`/composer?mediaId=${item.id}`);
+                }}
+                style={{ cursor: 'pointer' }}
               >
-                {/* Thumbnail */}
-                <div className="h-36 bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden relative">
-                  {isImg && asset.url ? (
-                    <Image
-                      src={asset.url}
-                      alt={asset.file_name}
-                      width={300}
-                      height={200}
-                      unoptimized
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  ) : isVid ? (
-                    <Video className="w-10 h-10 text-purple-400" />
-                  ) : (
-                    <FileText className="w-10 h-10 text-emerald-400" />
-                  )}
-
-                  {/* Hover Actions */}
-                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {asset.url && (
-                      <button
-                        onClick={() => handleCopyUrl(asset.url!, asset.id)}
-                        className="p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white transition-colors"
-                        title="Copy Asset URL"
-                      >
-                        {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setDeleteAssetId(asset.id)}
-                      className="p-1.5 rounded-lg bg-black/60 hover:bg-rose-600 text-white transition-colors"
-                      title="Delete Asset"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                <div className={`media-art art-${tone}`}>
+                  <span>{i % 3 === 0 ? '✳' : i % 3 === 1 ? '◌' : '▧'}</span>
+                  <i>{formattedDate}</i>
                 </div>
-
-                {/* Info & Use in Composer */}
-                <div className="p-3.5 text-xs space-y-2">
-                  <div className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={asset.file_name}>
-                    {asset.file_name}
+                <div className="media-meta">
+                  <div>
+                    <b>{item.file_name}</b>
+                    <small>
+                      {item.mime_type.split('/')[0]} · {(item.file_size / (1024 * 1024)).toFixed(1)} MB
+                    </small>
                   </div>
-                  <div className="text-[10px] text-slate-400 flex items-center justify-between">
-                    <span>{(asset.file_size / 1024 / 1024).toFixed(2)} MB</span>
-                    <span>{new Date(asset.created_at).toLocaleDateString()}</span>
-                  </div>
-
                   <button
-                    onClick={() => router.push(`/composer`)}
-                    className="w-full mt-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/80 text-[11px] font-semibold text-blue-600 dark:text-blue-400 transition-colors"
+                    type="button"
+                    className="plain-icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteAssetId(item.id);
+                    }}
+                    aria-label="Delete media"
+                    title="Delete media"
                   >
-                    <span>Use in Composer</span>
-                    <ArrowRight className="w-3 h-3" />
+                    <Icon name="close" size={15} />
                   </button>
                 </div>
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <span className="empty-icon">
+            <Icon name="folder" size={20} />
+          </span>
+          <h3>No media assets found</h3>
+          <p>
+            {search
+              ? 'Try a different search query.'
+              : 'Uploaded images and documents will appear here.'}
+          </p>
+          <ActionButton onClick={() => fileInputRef.current?.click()}>
+            <Icon name="upload" size={15} /> Upload media
+          </ActionButton>
+        </div>
+      )}
 
-      {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={!!deleteAssetId}
         onClose={() => setDeleteAssetId(null)}
-        onConfirm={handleConfirmDelete}
-        title="Delete Media Asset"
-        message="Are you sure you want to delete this media asset? This file will be permanently removed from storage."
-        confirmText="Delete Asset"
+        onConfirm={handleDelete}
+        title="Delete Media File"
+        message="Are you sure you want to permanently delete this media file?"
+        confirmText={deleting ? 'Deleting…' : 'Delete'}
         variant="danger"
-        loading={deleting}
       />
-    </div>
+    </>
   );
 }
