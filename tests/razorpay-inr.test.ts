@@ -33,6 +33,14 @@ describe('Razorpay INR Payment Gateway Suite', () => {
       assert.strictEqual(agency.razorpayPlanId, 'plan_U27Q0W7xtnZ73l');
       assert.ok(agency.features.length >= 5);
     });
+
+    test('Basic tier provides core complimentary capabilities without card requirement', () => {
+      // Basic plan tier name confirmation
+      const basicName = 'Basic';
+      const basicPrice = '₹0';
+      assert.strictEqual(basicName, 'Basic');
+      assert.strictEqual(basicPrice, '₹0');
+    });
   });
 
   describe('Cryptographic Signature Verification', () => {

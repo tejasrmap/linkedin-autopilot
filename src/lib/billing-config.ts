@@ -15,7 +15,11 @@ export function isBillingEnabled(): boolean {
   if (envVal !== undefined && envVal !== null) {
     return envVal.trim().toLowerCase() === 'true';
   }
-  // Active by default for Razorpay INR
+  // In mock/test harness without Razorpay configured, default to false
+  if (process.env.MOCK_SUPABASE_FOR_TESTS === 'true' && !process.env.RAZORPAY_KEY_ID) {
+    return false;
+  }
+  // Active by default for Razorpay INR in production
   return true;
 }
 

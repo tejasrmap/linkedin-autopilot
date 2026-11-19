@@ -179,7 +179,7 @@ export interface BrandSettings {
 export interface Subscription {
   id: string;
   workspace_id: string;
-  plan_id: 'free' | 'pro' | 'business' | 'agency';
+  plan_id: 'free' | 'basic' | 'pro' | 'business' | 'agency';
   provider_subscription_id: string | null;
   status: 'active' | 'past_due' | 'canceled' | 'trialing';
   current_period_end: string | null;

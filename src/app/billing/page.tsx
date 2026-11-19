@@ -50,7 +50,7 @@ export default function BillingPage() {
   }, [fetchSubscription]);
 
   const planTier = (subData?.plan?.tier || 'free').toLowerCase();
-  const planName = subData?.plan?.name || (planTier === 'agency' ? 'Agency Enterprise' : planTier === 'pro' ? 'Pro Growth' : 'Free Starter');
+  const planName = subData?.plan?.name || (planTier === 'agency' ? 'Agency Enterprise' : planTier === 'pro' ? 'Pro Growth' : 'Basic');
   const isPaid = Boolean(subData?.plan?.isPaid);
   const displayPrice = subData?.plan?.displayPrice || (planTier === 'agency' ? '₹500' : planTier === 'pro' ? '₹100' : '₹0');
   const renewsAt = subData?.plan?.renewsAt
@@ -270,7 +270,7 @@ export default function BillingPage() {
             </div>
           ) : (
             <div style={{ padding: '20px 0', color: 'var(--muted)', fontSize: '12px', lineHeight: 1.6 }}>
-              No credit card required on the Free Starter plan. Upgrade to Pro starting at just <b>₹100/mo</b> with <b>UPI Autopay</b> (Google Pay, PhonePe, Paytm) or Debit/Credit Cards in INR.
+              No credit card required on the Basic plan. Upgrade to Pro starting at just <b>₹100/mo</b> with <b>UPI Autopay</b> (Google Pay, PhonePe, Paytm) or Debit/Credit Cards in INR.
             </div>
           )}
 
@@ -304,7 +304,7 @@ export default function BillingPage() {
             <div>
               <b style={{ fontSize: '13px' }}>Current Plan: {planName}</b>
               <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                Status: {isPaid ? 'Active Paid (Autopay enabled)' : 'Free Tier'}
+                Status: {isPaid ? 'Active Paid (Autopay enabled)' : 'Basic Plan'}
               </span>
             </div>
             <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--brand)' }}>

@@ -88,23 +88,24 @@ export async function GET() {
     string,
     { maxPostsPerMonth: number; maxAccounts: number; aiCredits: number; videoSupport: boolean; name: string; priceInr: string }
   > = {
-    free: { maxPostsPerMonth: 15, maxAccounts: 1, aiCredits: 50, videoSupport: false, name: 'Free Starter', priceInr: '₹0' },
+    free: { maxPostsPerMonth: 15, maxAccounts: 1, aiCredits: 50, videoSupport: false, name: 'Basic', priceInr: '₹0' },
+    basic: { maxPostsPerMonth: 15, maxAccounts: 1, aiCredits: 50, videoSupport: false, name: 'Basic', priceInr: '₹0' },
     pro: { maxPostsPerMonth: 500, maxAccounts: 5, aiCredits: 2000, videoSupport: true, name: 'Pro Growth', priceInr: '₹100' },
     agency: { maxPostsPerMonth: 5000, maxAccounts: 50, aiCredits: 10000, videoSupport: true, name: 'Agency Enterprise', priceInr: '₹500' },
   };
 
-  const VALID_TIERS = ['free', 'pro', 'agency'] as const;
+  const VALID_TIERS = ['free', 'basic', 'pro', 'agency'] as const;
   type ValidTier = (typeof VALID_TIERS)[number];
 
   // STRICT TIER VALIDATION & IS_PAID DISCRIMINATION:
-  // - Validates candidate tier against explicit allow-list ('free', 'pro', 'agency').
+  // - Validates candidate tier against explicit allow-list ('free', 'basic', 'pro', 'agency').
   // - Rejects corrupted, unknown, or fabricated tiers (falls back strictly to 'free').
   // - isPaid is strictly true ONLY if subRecord is active/trialing AND the tier is 'pro' | 'agency'.
   const candidateTier = (subRecord?.tier || subRecord?.plan_id || '').toLowerCase();
   const isCandidateTierValid = (VALID_TIERS as readonly string[]).includes(candidateTier);
   const isActiveStatus = subRecord && (subRecord.status === 'active' || subRecord.status === 'trialing');
 
-  const isPaid = Boolean(isActiveStatus && isCandidateTierValid && candidateTier !== 'free');
+  const isPaid = Boolean(isActiveStatus && isCandidateTierValid && candidateTier !== 'free' && candidateTier !== 'basic');
   const planTier: ValidTier = isPaid ? (candidateTier as ValidTier) : 'free';
 
   const currentTierLimits = limits[planTier];
