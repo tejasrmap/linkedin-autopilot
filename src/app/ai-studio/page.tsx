@@ -884,15 +884,25 @@ function AIStudioContent() {
             )}
 
             <div className="ai-side-bottom">
-              <span className="mini-avatar">
-                {accounts[0]?.account_name
-                  ? accounts[0].account_name
-                      .split(' ')
-                      .map((n: string) => n[0])
-                      .join('')
-                      .substring(0, 2)
-                      .toUpperCase()
-                  : 'LI'}
+              <span className="mini-avatar profile-avatar small" style={{ width: '28px', height: '28px', minWidth: '28px', borderRadius: '50%', overflow: 'hidden', display: 'grid', placeItems: 'center' }}>
+                {accounts[0]?.profile_image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={accounts[0].profile_image_url}
+                    alt={accounts[0].account_name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                    referrerPolicy="no-referrer"
+                  />
+                ) : accounts[0]?.account_name ? (
+                  accounts[0].account_name
+                    .split(' ')
+                    .map((n: string) => n[0])
+                    .join('')
+                    .substring(0, 2)
+                    .toUpperCase()
+                ) : (
+                  'LI'
+                )}
               </span>
               <span>
                 <b>{accounts[0]?.account_name || 'No account connected'}</b>

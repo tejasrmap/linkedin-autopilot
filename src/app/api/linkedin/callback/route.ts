@@ -100,6 +100,15 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/accounts?error=database_error`);
     }
 
+    // Sync profile picture to profiles table for the connected user
+    if (userInfo.picture && userId) {
+      try {
+        await admin.from('profiles').update({ avatar_url: userInfo.picture }).eq('id', userId);
+      } catch (err) {
+        console.warn('Failed to sync avatar_url to profiles:', err);
+      }
+    }
+
     // 5. Try discovering organizations where member is an admin
     try {
       const orgs = await linkedInClient.getOrganizations(tokenData.access_token);

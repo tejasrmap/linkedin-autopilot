@@ -145,7 +145,19 @@ export default function TeamPage() {
               const tone = tones[i % tones.length];
               return (
                 <div className="member-row" key={m.id || m.email}>
-                  <div className={`profile-avatar tone-${tone}`}>{getInitials(m.name)}</div>
+                  <div className={`profile-avatar tone-${tone}`} style={{ overflow: 'hidden' }}>
+                    {m.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.avatarUrl}
+                        alt={m.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      getInitials(m.name)
+                    )}
+                  </div>
                   <div className="member-copy">
                     <b>
                       {m.name} {m.isCurrent && <small style={{ color: 'var(--brand)' }}>(You)</small>}

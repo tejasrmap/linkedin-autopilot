@@ -849,7 +849,19 @@ function ComposerContent() {
           <div className="preview-label">LINKEDIN PREVIEW</div>
           <article className="linkedin-preview">
             <div className="preview-profile">
-              <div className="profile-avatar">TG</div>
+              <div className="profile-avatar" style={{ overflow: 'hidden' }}>
+                {currentAcc?.profile_image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={currentAcc.profile_image_url}
+                    alt={accountDisplayName}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  accountDisplayName ? accountDisplayName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() : 'TG'
+                )}
+              </div>
               <div>
                 <b>{accountDisplayName}</b>
                 <small>Product builder · GT InnoX</small>

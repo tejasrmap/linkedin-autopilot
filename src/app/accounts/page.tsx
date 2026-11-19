@@ -149,8 +149,18 @@ function AccountsContent() {
             return (
               <section className="panel account-card" key={acc.id}>
                 <div className="account-top">
-                  <div className="profile-avatar large">
-                    {getInitials(acc.account_name)}
+                  <div className="profile-avatar large" style={{ overflow: 'hidden' }}>
+                    {acc.profile_image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={acc.profile_image_url}
+                        alt={acc.account_name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      getInitials(acc.account_name)
+                    )}
                   </div>
                   <div className="account-name">
                     <span className="connected-badge">

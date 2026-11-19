@@ -447,9 +447,19 @@ export function TopNav() {
               setShowWorkspaceMenu(false);
               setShowNotifications(false);
             }}
-            style={{ border: 0, cursor: 'pointer' }}
+            style={{ border: 0, cursor: 'pointer', overflow: 'hidden', padding: 0 }}
           >
-            {getInitials(userProfile?.full_name)}
+            {userProfile?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={userProfile.avatar_url}
+                alt={userProfile.full_name || 'Profile'}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              getInitials(userProfile?.full_name)
+            )}
           </button>
 
           {showUserMenu && (

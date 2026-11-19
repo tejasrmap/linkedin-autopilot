@@ -12,6 +12,33 @@ export async function GET(request: Request) {
   }
 
   const admin = createAdminClient();
+
+  // Fetch user profile with avatar
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('full_name, email, avatar_url')
+    .eq('id', auth.user.id)
+    .single();
+
+  let avatarUrl = profile?.avatar_url || null;
+
+  // If profile avatar_url is missing, check connected LinkedIn social account
+  if (!avatarUrl && auth.workspaceId) {
+    const { data: socialAcc } = await admin
+      .from('social_accounts')
+      .select('profile_image_url')
+      .eq('workspace_id', auth.workspaceId)
+      .not('profile_image_url', 'is', null)
+      .limit(1)
+      .single();
+
+    if (socialAcc?.profile_image_url) {
+      avatarUrl = socialAcc.profile_image_url;
+      // Auto-backfill profile
+      await admin.from('profiles').update({ avatar_url: avatarUrl }).eq('id', auth.user.id);
+    }
+  }
+
   const { data: workspaces } = await admin
     .from('workspace_members')
     .select('role, workspaces(id, name, slug)')
@@ -34,7 +61,11 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
-    user: auth.user,
+    user: {
+      ...auth.user,
+      full_name: profile?.full_name || auth.user.full_name,
+      avatar_url: avatarUrl,
+    },
     currentWorkspaceId: auth.workspaceId,
     role: auth.role,
     workspaces: formattedWorkspaces,

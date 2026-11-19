@@ -206,7 +206,19 @@ export function Sidebar() {
         )}
 
         <div className="sidebar-profile">
-          <div className="profile-avatar small">{getInitials(userProfile?.full_name)}</div>
+          <div className="profile-avatar small" style={{ overflow: 'hidden' }}>
+            {userProfile?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={userProfile.avatar_url}
+                alt={userProfile.full_name || 'Profile'}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              getInitials(userProfile?.full_name)
+            )}
+          </div>
           <div className="profile-user">
             <b>{userProfile?.full_name || userProfile?.email?.split('@')[0] || 'My Account'}</b>
             <small>{currentWs?.name || 'Workspace'}</small>
