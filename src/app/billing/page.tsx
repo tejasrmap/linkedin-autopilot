@@ -24,11 +24,16 @@ function loadRazorpayScript(): Promise<boolean> {
 
 export default function BillingPage() {
   const toast = useToast();
-  const { userProfile } = useWorkspace();
+  const { userProfile, currentWs } = useWorkspace();
   const [subData, setSubData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showManageModal, setShowManageModal] = useState(false);
   const [processingPlan, setProcessingPlan] = useState<'pro' | 'agency' | null>(null);
+
+  // Customer billing details for Razorpay customer profile & Autopay mandate
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
 
   const fetchSubscription = useCallback(async () => {
     try {
@@ -49,6 +54,15 @@ export default function BillingPage() {
     fetchSubscription();
   }, [fetchSubscription]);
 
+  useEffect(() => {
+    if (userProfile?.full_name && !customerName) {
+      setCustomerName(userProfile.full_name);
+    }
+    if (userProfile?.email && !customerEmail) {
+      setCustomerEmail(userProfile.email);
+    }
+  }, [userProfile, customerName, customerEmail]);
+
   const planTier = (subData?.plan?.tier || 'free').toLowerCase();
   const planName = subData?.plan?.name || (planTier === 'agency' ? 'Agency Enterprise' : planTier === 'pro' ? 'Pro Growth' : 'Basic');
   const isPaid = Boolean(subData?.plan?.isPaid);
@@ -67,11 +81,17 @@ export default function BillingPage() {
   const handleRazorpayCheckout = async (planId: 'pro' | 'agency') => {
     setProcessingPlan(planId);
     try {
-      // 1. Create order or Autopay subscription on backend
+      // 1. Create order or Autopay subscription on backend with full customer details
       const orderRes = await fetch('/api/billing/razorpay/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({
+          planId,
+          customerName: customerName.trim() || userProfile?.full_name || '',
+          customerEmail: customerEmail.trim() || userProfile?.email || '',
+          customerPhone: customerPhone.trim() || '',
+          workspaceName: currentWs?.name || '',
+        }),
       });
 
       const orderData = await orderRes.json();
@@ -107,11 +127,21 @@ export default function BillingPage() {
         name: 'GT InnoX Autopilot',
         description: `${orderData.planName} (${orderData.displayPrice}/mo) - UPI Autopay / Cards`,
         subscription_id: orderData.subscriptionId || undefined,
+        customer_id: orderData.customerId || undefined,
         order_id: orderData.subscriptionId ? undefined : (orderData.orderId?.startsWith('order_test_') ? undefined : orderData.orderId),
         image: '/brand-logo.png',
         prefill: {
-          name: userProfile?.full_name || '',
-          email: userProfile?.email || '',
+          name: orderData.customerName || customerName.trim() || userProfile?.full_name || '',
+          email: orderData.customerEmail || customerEmail.trim() || userProfile?.email || '',
+          contact: orderData.customerPhone || customerPhone.trim() || '',
+        },
+        notes: {
+          customer_name: orderData.customerName || customerName.trim() || userProfile?.full_name || '',
+          customer_email: orderData.customerEmail || customerEmail.trim() || userProfile?.email || '',
+          customer_phone: orderData.customerPhone || customerPhone.trim() || '',
+          workspace_name: currentWs?.name || '',
+          workspace_id: currentWs?.id || '',
+          plan_name: orderData.planName,
         },
         theme: {
           color: '#0a66c2',
@@ -310,6 +340,58 @@ export default function BillingPage() {
             <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--brand)' }}>
               {displayPrice} / mo
             </span>
+          </div>
+
+          {/* Customer & Billing Details for Razorpay Autopay */}
+          <div style={{ padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--surface)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <b style={{ fontSize: '12px' }}>Billing &amp; Subscriber Details</b>
+              <span style={{ fontSize: '10px', color: 'var(--muted)' }}>Captured securely with Razorpay</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Teja Ganugula"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: '34px',
+                    fontSize: '12px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--line)',
+                    background: 'var(--surface-soft)',
+                    color: 'var(--foreground)',
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginBottom: '4px' }}>
+                  Mobile Number (for Autopay &amp; UPI)
+                </label>
+                <input
+                  type="text"
+                  placeholder="+91XXXXXXXXXX"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: '34px',
+                    fontSize: '12px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--line)',
+                    background: 'var(--surface-soft)',
+                    color: 'var(--foreground)',
+                  }}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Plan selection grid */}

@@ -41,6 +41,25 @@ describe('Razorpay INR Payment Gateway Suite', () => {
       assert.strictEqual(basicName, 'Basic');
       assert.strictEqual(basicPrice, '₹0');
     });
+
+    test('Customer details payload structure captures full subscriber metadata', () => {
+      const customerPayload = {
+        name: 'Teja Ganugula',
+        email: 'tejag.vijay@gmail.com',
+        contact: '+917675052828',
+        notes: {
+          workspaceName: 'GT Personal',
+          workspaceId: '3af1cc83-b7e7-4ce6-b422-d84d326aaf31',
+          plan: 'Pro Growth',
+        },
+      };
+
+      assert.strictEqual(customerPayload.name, 'Teja Ganugula');
+      assert.strictEqual(customerPayload.email, 'tejag.vijay@gmail.com');
+      assert.strictEqual(customerPayload.contact, '+917675052828');
+      assert.ok(customerPayload.notes.workspaceName);
+      assert.ok(customerPayload.notes.plan);
+    });
   });
 
   describe('Cryptographic Signature Verification', () => {

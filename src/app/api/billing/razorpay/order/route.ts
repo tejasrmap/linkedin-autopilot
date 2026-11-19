@@ -6,9 +6,67 @@
 
 import { getAuthContext } from '@/lib/auth';
 import { getRazorpayClient, getRazorpayKeyId, isRazorpayConfigured, RAZORPAY_PLANS } from '@/lib/razorpay/client';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Ensures a Customer entity exists in Razorpay with full name, email, phone, and metadata.
+ * If customer already exists by email, updates missing name or contact details.
+ */
+async function getOrCreateRazorpayCustomer(
+  razorpay: any,
+  customerData: {
+    name: string;
+    email: string;
+    contact?: string;
+    notes?: Record<string, string>;
+  }
+) {
+  const { name, email, contact, notes } = customerData;
+  if (!email) return null;
+
+  try {
+    const customer = await razorpay.customers.create({
+      name: name || undefined,
+      email,
+      contact: contact || undefined,
+      notes: notes || undefined,
+    });
+    return customer;
+  } catch (err: any) {
+    // If customer already exists with this email in Razorpay merchant account
+    if (err.statusCode === 400 && err.error?.description?.includes('already exists')) {
+      try {
+        const list = await razorpay.customers.all({ count: 100 });
+        const existing = (list.items || []).find(
+          (c: any) => c.email?.toLowerCase() === email.toLowerCase()
+        );
+        if (existing) {
+          // If existing customer has missing name or contact, update it immediately
+          if ((!existing.name && name) || (!existing.contact && contact)) {
+            try {
+              const updated = await razorpay.customers.edit(existing.id, {
+                name: name || existing.name || undefined,
+                contact: contact || existing.contact || undefined,
+                notes: { ...(existing.notes || {}), ...(notes || {}) },
+              });
+              return updated;
+            } catch {
+              return existing;
+            }
+          }
+          return existing;
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
+    console.warn('[Razorpay Customer] Note creating customer:', err?.message || err);
+    return null;
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -28,28 +86,93 @@ export async function POST(request: Request) {
       );
     }
 
+    const admin = createAdminClient();
+
+    // 1. Resolve authoritative customer details from request, profile, and workspace
+    let customerName = (body.customerName || '').trim();
+    const customerEmail = (body.customerEmail || auth.user.email || '').trim();
+    let customerPhone = (body.customerPhone || body.phone || body.contact || '').trim();
+
+    const { data: profile } = await admin
+      .from('profiles')
+      .select('full_name')
+      .eq('id', auth.user.id)
+      .maybeSingle();
+
+    const { data: ws } = await admin
+      .from('workspaces')
+      .select('name')
+      .eq('id', auth.workspaceId)
+      .maybeSingle();
+
+    if (!customerName) {
+      customerName =
+        profile?.full_name ||
+        auth.user.full_name ||
+        ws?.name ||
+        customerEmail.split('@')[0];
+    }
+
+    const workspaceName = ws?.name || 'Workspace';
+
     const razorpay = getRazorpayClient();
     const receipt = `rcpt_${auth.workspaceId.slice(0, 8)}_${Date.now().toString().slice(-6)}`;
 
     // If Razorpay credentials are fully configured
     if (razorpay && isRazorpayConfigured()) {
-      // 1. Try creating an Autopay Recurring Subscription
+      // 2. Ensure customer entity exists with full name and contact on Razorpay
+      let customerId: string | undefined;
+      try {
+        const customer = await getOrCreateRazorpayCustomer(razorpay, {
+          name: customerName,
+          email: customerEmail,
+          contact: customerPhone || undefined,
+          notes: {
+            workspaceId: auth.workspaceId,
+            workspaceName,
+            userId: auth.user.id,
+            plan: plan.name,
+          },
+        });
+        if (customer) {
+          customerId = customer.id;
+          if (!customerPhone && customer.contact) {
+            customerPhone = customer.contact;
+          }
+        }
+      } catch (custErr) {
+        console.warn('[Razorpay Order] Customer resolution warning:', custErr);
+      }
+
+      const orderNotes = {
+        workspaceId: auth.workspaceId,
+        workspaceName,
+        userId: auth.user.id,
+        customerName,
+        userEmail: customerEmail,
+        customerPhone: customerPhone || '',
+        planId: plan.id,
+        planName: plan.name,
+      };
+
+      // 3. Try creating an Autopay Recurring Subscription linked to the customer
       if (plan.razorpayPlanId) {
         try {
-          const subscription = await razorpay.subscriptions.create({
+          const subscription: any = await (razorpay.subscriptions.create as any)({
             plan_id: plan.razorpayPlanId,
+            customer_id: customerId || undefined,
             total_count: 60, // 5 years monthly recurring
             customer_notify: 1,
-            notes: {
-              workspaceId: auth.workspaceId,
-              userId: auth.user.id,
-              planId: plan.id,
-              userEmail: auth.user.email,
-            },
+            notes: orderNotes,
           });
 
           return NextResponse.json({
             subscriptionId: subscription.id,
+            customerId,
+            customerName,
+            customerEmail,
+            customerPhone,
+            workspaceName,
             isSubscription: true,
             isAutopay: true,
             amount: plan.amount,
@@ -65,21 +188,22 @@ export async function POST(request: Request) {
         }
       }
 
-      // 2. Fallback to standard one-time order
-      const order = await razorpay.orders.create({
+      // 4. Fallback to standard one-time order linked to the customer
+      const order: any = await (razorpay.orders.create as any)({
         amount: plan.amount,
         currency: 'INR',
         receipt,
-        notes: {
-          workspaceId: auth.workspaceId,
-          userId: auth.user.id,
-          planId: plan.id,
-          userEmail: auth.user.email,
-        },
+        customer_id: customerId || undefined,
+        notes: orderNotes,
       });
 
       return NextResponse.json({
         orderId: order.id,
+        customerId,
+        customerName,
+        customerEmail,
+        customerPhone,
+        workspaceName,
         isSubscription: false,
         isAutopay: false,
         amount: order.amount,
@@ -96,6 +220,11 @@ export async function POST(request: Request) {
     const mockSubId = `sub_test_${receipt}`;
     return NextResponse.json({
       subscriptionId: mockSubId,
+      customerId: 'cust_mock_test_123',
+      customerName,
+      customerEmail,
+      customerPhone,
+      workspaceName,
       isSubscription: true,
       isAutopay: true,
       amount: plan.amount,

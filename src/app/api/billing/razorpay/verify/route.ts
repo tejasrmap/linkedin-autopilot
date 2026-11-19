@@ -7,6 +7,7 @@
 import { getAuthContext } from '@/lib/auth';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
+  getRazorpayClient,
   isRazorpayConfigured,
   verifyPaymentSignature,
   verifySubscriptionSignature,
@@ -83,7 +84,36 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Database Update: Activate Subscription in database
+    // 2. Fetch authentic payment details from Razorpay if available
+    const razorpay = getRazorpayClient();
+    let paymentDetails: any = null;
+    if (razorpay) {
+      try {
+        paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+        // If customer in Razorpay is missing name, update it now
+        if (paymentDetails?.customer_id) {
+          try {
+            const customer = await razorpay.customers.fetch(paymentDetails.customer_id);
+            if (!customer.name) {
+              const customerName =
+                auth.user.full_name ||
+                auth.user.email?.split('@')[0];
+              if (customerName) {
+                await (razorpay.customers.edit as any)(paymentDetails.customer_id, {
+                  name: customerName,
+                });
+              }
+            }
+          } catch {
+            // Non-critical customer update
+          }
+        }
+      } catch (pErr) {
+        console.warn('[Razorpay Verify] Note fetching payment details:', pErr);
+      }
+    }
+
+    // 3. Database Update: Activate Subscription in database
     const admin = createAdminClient();
     const now = new Date();
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -97,6 +127,9 @@ export async function POST(request: Request) {
           workspace_id: auth.workspaceId,
           plan_id: plan.id,
           provider_subscription_id: subscriptionProviderId,
+          razorpay_payment_id,
+          currency: 'INR',
+          amount: plan.amount,
           status: 'active',
           current_period_start: now.toISOString(),
           current_period_end: periodEnd.toISOString(),
@@ -115,7 +148,32 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Idempotently log payment event in event audit ledger
+    // 4. Record transaction in razorpay_payments table
+    try {
+      await admin.from('razorpay_payments').insert({
+        workspace_id: auth.workspaceId,
+        user_id: auth.user.id,
+        order_id: razorpay_order_id || subscriptionProviderId,
+        payment_id: razorpay_payment_id,
+        signature: razorpay_signature || null,
+        amount: paymentDetails?.amount || plan.amount,
+        currency: 'INR',
+        plan_id: plan.id,
+        status: 'captured',
+        method: paymentDetails?.method || (razorpay_subscription_id ? 'upi' : 'card'),
+        notes: {
+          customer_id: paymentDetails?.customer_id || null,
+          customer_email: paymentDetails?.email || auth.user.email,
+          customer_phone: paymentDetails?.contact || null,
+          subscription_id: razorpay_subscription_id || null,
+          plan_name: plan.name,
+        },
+      });
+    } catch (payErr) {
+      console.warn('[Razorpay Verify] Payment audit record note:', payErr);
+    }
+
+    // 5. Idempotently log payment event in event audit ledger
     try {
       await admin.from('stripe_events').insert({
         event_id: `rzp_${razorpay_payment_id}`,
@@ -128,6 +186,9 @@ export async function POST(request: Request) {
           subscription_id: razorpay_subscription_id || null,
           payment_id: razorpay_payment_id,
           is_autopay: Boolean(razorpay_subscription_id),
+          customer_id: paymentDetails?.customer_id || null,
+          customer_phone: paymentDetails?.contact || null,
+          method: paymentDetails?.method || null,
           plan_id: plan.id,
           plan_name: plan.name,
           amount_inr_paise: plan.amount,
