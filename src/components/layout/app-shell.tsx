@@ -16,7 +16,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     pathname.startsWith('/auth');
 
   if (isAuthPage) {
-    return <main className={`auth-screen ${theme === 'dark' ? 'is-dark' : ''}`}>{children}</main>;
+    return <>{children}</>;
   }
 
   return (

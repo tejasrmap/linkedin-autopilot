@@ -1,14 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Icon } from '@/components/magicpath/icons';
 import { GTInnoXLogo } from '@/components/brand/gtinnox-logo';
+import { useTheme } from '@/components/theme-provider';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { theme } = useTheme();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,19 +18,15 @@ export default function RegisterPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getSession().then(({ data }) => {
-      if (data?.session) {
-        router.push('/dashboard');
-      }
-    });
-  }, [router]);
-
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email || !password) {
       setErrorMsg('Please fill in all fields.');
+      return;
+    }
+
+    if (password.length < 8) {
+      setErrorMsg('Password must be at least 8 characters.');
       return;
     }
 
@@ -49,7 +47,7 @@ export default function RegisterPage() {
       });
 
       if (error) {
-        setErrorMsg(error.message || 'Registration failed.');
+        setErrorMsg(error.message || 'Failed to create account.');
         return;
       }
 
@@ -66,24 +64,16 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="auth-screen">
-      <div className="auth-brand">
-        <div
-          className="brand-mark"
-          style={{
-            background: '#ffffff',
-            border: '1px solid #e5e7eb',
-            padding: '3px',
-            borderRadius: '9px',
-          }}
-        >
-          <GTInnoXLogo width={25} height={16} />
+    <div className={`auth-screen ${theme === 'dark' ? 'is-dark' : ''}`}>
+      <Link href="/" className="auth-brand">
+        <div className="brand-mark">
+          <GTInnoXLogo width={24} height={16} />
         </div>
         <div>
           <b>autopilot</b>
           <small>BY GT INNOX</small>
         </div>
-      </div>
+      </Link>
 
       <section className="auth-card">
         <div className="auth-card-mark">
@@ -96,12 +86,13 @@ export default function RegisterPage() {
         {errorMsg && (
           <div
             style={{
-              padding: '8px 12px',
-              borderRadius: '7px',
+              padding: '10px 14px',
+              borderRadius: '8px',
               background: '#fef2f2',
               color: '#b91c1c',
-              fontSize: '11px',
+              fontSize: '12px',
               border: '1px solid #fecaca',
+              marginBottom: '16px',
             }}
           >
             {errorMsg}
@@ -111,54 +102,62 @@ export default function RegisterPage() {
         {successMsg && (
           <div
             style={{
-              padding: '8px 12px',
-              borderRadius: '7px',
+              padding: '10px 14px',
+              borderRadius: '8px',
               background: '#f0fdf4',
               color: '#15803d',
-              fontSize: '11px',
+              fontSize: '12px',
               border: '1px solid #bbf7d0',
+              marginBottom: '16px',
             }}
           >
             {successMsg}
           </div>
         )}
 
-        <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <label>
-            Your name
+        <form onSubmit={handleRegister}>
+          <div className="auth-field">
+            <label htmlFor="reg-name">Your name</label>
             <input
+              id="reg-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your full name"
               required
+              autoComplete="name"
             />
-          </label>
+          </div>
 
-          <label>
-            Work email
+          <div className="auth-field">
+            <label htmlFor="reg-email">Work email</label>
             <input
+              id="reg-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
               required
+              autoComplete="email"
             />
-          </label>
+          </div>
 
-          <label>
-            Password
+          <div className="auth-field">
+            <label htmlFor="reg-password">Password</label>
             <input
+              id="reg-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
               required
+              autoComplete="new-password"
             />
-          </label>
+          </div>
 
           <button type="submit" className="auth-submit" disabled={loading}>
-            {loading ? 'Creating account…' : 'Create account'} <Icon name="arrow" size={16} />
+            <span>{loading ? 'Creating workspace…' : 'Create account'}</span>
+            <Icon name="arrow" size={15} />
           </button>
         </form>
 
@@ -175,12 +174,13 @@ export default function RegisterPage() {
             window.location.href = '/api/linkedin/auth';
           }}
         >
-          <Icon name="linkedin" size={15} /> Continue with LinkedIn
+          <Icon name="linkedin" size={16} />
+          <span>Continue with LinkedIn</span>
         </button>
 
         <div className="auth-switch">
           Already have an account?{' '}
-          <Link href="/login" style={{ fontWeight: 600 }}>
+          <Link href="/login">
             Sign in
           </Link>
         </div>

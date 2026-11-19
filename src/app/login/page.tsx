@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Icon } from '@/components/magicpath/icons';
 import { GTInnoXLogo } from '@/components/brand/gtinnox-logo';
+import { useTheme } from '@/components/theme-provider';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { theme } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,24 +58,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="auth-screen">
-      <div className="auth-brand">
-        <div
-          className="brand-mark"
-          style={{
-            background: '#ffffff',
-            border: '1px solid #e5e7eb',
-            padding: '3px',
-            borderRadius: '9px',
-          }}
-        >
-          <GTInnoXLogo width={25} height={16} />
+    <div className={`auth-screen ${theme === 'dark' ? 'is-dark' : ''}`}>
+      <Link href="/" className="auth-brand">
+        <div className="brand-mark">
+          <GTInnoXLogo width={24} height={16} />
         </div>
         <div>
           <b>autopilot</b>
           <small>BY GT INNOX</small>
         </div>
-      </div>
+      </Link>
 
       <section className="auth-card">
         <div className="auth-card-mark">
@@ -86,43 +80,49 @@ export default function LoginPage() {
         {errorMsg && (
           <div
             style={{
-              padding: '8px 12px',
-              borderRadius: '7px',
+              padding: '10px 14px',
+              borderRadius: '8px',
               background: '#fef2f2',
               color: '#b91c1c',
-              fontSize: '11px',
+              fontSize: '12px',
               border: '1px solid #fecaca',
+              marginBottom: '16px',
             }}
           >
             {errorMsg}
           </div>
         )}
 
-        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <label>
-            Work email
+        <form onSubmit={handleLogin}>
+          <div className="auth-field">
+            <label htmlFor="login-email">Work email</label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
               required
+              autoComplete="email"
             />
-          </label>
+          </div>
 
-          <label>
-            Password
+          <div className="auth-field">
+            <label htmlFor="login-password">Password</label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
               required
+              autoComplete="current-password"
             />
-          </label>
+          </div>
 
           <button type="submit" className="auth-submit" disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign in'} <Icon name="arrow" size={16} />
+            <span>{loading ? 'Signing in…' : 'Sign in'}</span>
+            <Icon name="arrow" size={15} />
           </button>
         </form>
 
@@ -139,12 +139,13 @@ export default function LoginPage() {
             window.location.href = '/api/linkedin/auth';
           }}
         >
-          <Icon name="linkedin" size={15} /> Continue with LinkedIn
+          <Icon name="linkedin" size={16} />
+          <span>Continue with LinkedIn</span>
         </button>
 
         <div className="auth-switch">
           New to Autopilot?{' '}
-          <Link href="/register" style={{ fontWeight: 600 }}>
+          <Link href="/register">
             Create an account
           </Link>
         </div>
