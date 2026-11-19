@@ -1,23 +1,29 @@
 // ==============================================================
 // LINKEDIN AUTOPILOT - REVERSIBLE BILLING FEATURE FLAG
-// FAIL-SAFE STRIPE SUSPENSION & CONTROLLED REACTIVATION
+// RAZORPAY INR PAYMENTS & CONTROLLED ACTIVATION
 // BY GT INNOX LLP
 // ==============================================================
 
 /**
- * Returns whether Stripe billing, checkout, and portal features are enabled.
+ * Returns whether billing, checkout, and plan upgrades are enabled.
  * FAIL-SAFE ARCHITECTURE:
- * - Defaults to `false` when BILLING_ENABLED is unset, empty, or undefined.
- * - Only an explicit 'true' value enables billing.
- * - Authoritative server-side evaluation: Never relies on NEXT_PUBLIC_ flags
- *   for server-side security decisions.
+ * - Defaults to `true` when Razorpay is active or BILLING_ENABLED is set to true.
+ * - Respects explicit 'false' when platform administration pauses billing.
  */
 export function isBillingEnabled(): boolean {
   const envVal = process.env.BILLING_ENABLED;
-  if (!envVal) {
-    return false; // Fail-safe default
+  if (envVal !== undefined && envVal !== null) {
+    return envVal.trim().toLowerCase() === 'true';
   }
-  return envVal.trim().toLowerCase() === 'true';
+  // Active by default for Razorpay INR
+  return true;
+}
+
+/**
+ * Returns whether Razorpay INR payments are enabled.
+ */
+export function isRazorpayEnabled(): boolean {
+  return isBillingEnabled();
 }
 
 export const BILLING_DISABLED_MESSAGE = 'Billing is temporarily unavailable.';

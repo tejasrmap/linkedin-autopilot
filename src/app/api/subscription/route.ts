@@ -86,11 +86,11 @@ export async function GET() {
   // Tier configuration definitions
   const limits: Record<
     string,
-    { maxPostsPerMonth: number; maxAccounts: number; aiCredits: number; videoSupport: boolean; name: string }
+    { maxPostsPerMonth: number; maxAccounts: number; aiCredits: number; videoSupport: boolean; name: string; priceInr: string }
   > = {
-    free: { maxPostsPerMonth: 15, maxAccounts: 1, aiCredits: 50, videoSupport: false, name: 'Free Starter' },
-    pro: { maxPostsPerMonth: 500, maxAccounts: 5, aiCredits: 2000, videoSupport: true, name: 'Pro Growth' },
-    agency: { maxPostsPerMonth: 5000, maxAccounts: 50, aiCredits: 10000, videoSupport: true, name: 'Agency Enterprise' },
+    free: { maxPostsPerMonth: 15, maxAccounts: 1, aiCredits: 50, videoSupport: false, name: 'Free Starter', priceInr: '₹0' },
+    pro: { maxPostsPerMonth: 500, maxAccounts: 5, aiCredits: 2000, videoSupport: true, name: 'Pro Growth', priceInr: '₹1,999' },
+    agency: { maxPostsPerMonth: 5000, maxAccounts: 50, aiCredits: 10000, videoSupport: true, name: 'Agency Enterprise', priceInr: '₹7,999' },
   };
 
   const VALID_TIERS = ['free', 'pro', 'agency'] as const;
@@ -135,15 +135,18 @@ export async function GET() {
 
   return NextResponse.json({
     billingEnabled: billingActive,
+    currency: 'INR',
     billingNotice: billingActive
       ? null
-      : 'Stripe payments and plan changes are temporarily paused. Existing subscription capabilities remain active.',
+      : 'Razorpay billing features are temporarily paused. Existing subscription capabilities remain active.',
     plan: {
       id: authoritativeSubId,
       name: currentTierLimits.name,
       tier: planTier,
       status: resolvedStatus,
       isPaid,
+      currency: 'INR',
+      displayPrice: currentTierLimits.priceInr,
       currentPeriodStart: isPaid ? (subRecord?.current_period_start || null) : null,
       currentPeriodEnd: authoritativeRenewal,
       renewsAt: authoritativeRenewal,

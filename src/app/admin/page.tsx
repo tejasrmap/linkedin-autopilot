@@ -58,7 +58,7 @@ export default function AdminDashboardPage() {
     { name: 'LinkedIn OAuth & REST API', raw: metrics?.services?.linkedinOAuth || metrics?.services?.linkedin },
     { name: 'AI Generation (Gemini 1.5 Pro)', raw: metrics?.services?.ai },
     { name: 'Queue Engine (Redis / BullMQ)', raw: metrics?.services?.redis },
-    { name: 'Billing Engine (Stripe)', raw: metrics?.services?.billing },
+    { name: 'Billing Engine (Razorpay INR)', raw: metrics?.services?.billing },
   ];
 
   const recentEvents = Array.isArray(metrics?.recentPublishActivity)

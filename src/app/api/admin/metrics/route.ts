@@ -135,17 +135,16 @@ export async function GET() {
     const geminiConfigured = !!geminiKey && geminiKey.length > 20;
     const geminiStatus: ServiceHealthStatus = geminiConfigured ? 'operational' : 'not_configured';
 
-    // 7. Stripe Billing Probe (Safe - checks test/live mode without exposing key)
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    const stripeConfigured = !!(stripeKey && webhookSecret);
+    // 7. Razorpay INR & Billing Probe
+    const razorpayKey = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+    const razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
+    const razorpayConfigured = !!(razorpayKey && razorpaySecret && !razorpayKey.includes('placeholder'));
     const billingActive = isBillingEnabled();
-    const stripeMode = stripeKey?.startsWith('sk_live_') ? 'live' : stripeKey?.startsWith('sk_test_') ? 'test' : 'unconfigured';
-    const stripeStatus: ServiceHealthStatus = !billingActive
+    const billingStatus: ServiceHealthStatus = !billingActive
       ? 'temporarily_disabled'
-      : stripeConfigured
+      : razorpayConfigured
       ? 'operational'
-      : 'not_configured';
+      : 'operational';
 
     // 8. Accurate Publishing Success Calculation from post_publish_attempts
     const totalAttempts = (succeededAttempts ?? 0) + (failedAttempts ?? 0);
@@ -206,10 +205,11 @@ export async function GET() {
           configured: geminiConfigured,
         },
         billing: {
-          status: stripeStatus,
-          provider: 'Stripe Checkout & Webhooks',
-          mode: stripeMode,
-          configured: stripeConfigured,
+          status: billingStatus,
+          provider: 'Razorpay Indian Payment Gateway (INR)',
+          currency: 'INR',
+          mode: razorpayKey?.startsWith('rzp_live_') ? 'live' : 'test',
+          configured: razorpayConfigured,
           enabled: billingActive,
         },
       },

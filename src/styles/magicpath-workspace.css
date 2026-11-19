@@ -401,6 +401,22 @@
 .usage-track { height: 5px; background: var(--sidebar); border-radius: 9px; overflow: hidden; }.usage-track i { display: block; height: 100%; background: #7f9eba; border-radius: 9px; }
 .payment-method { display: flex; align-items: center; gap: 9px; padding: 13px 0; margin-top: 10px; border-bottom: 1px solid var(--line); }.payment-icon { width: 37px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; font-size: 7px; color: #486b90; font-weight: 800; font-style: italic; }.payment-method > div { display: flex; flex-direction: column; gap: 4px; flex: 1; }.payment-method b { font-size: 9px; font-weight: 550; }.payment-method small { color: var(--muted); font-size: 8px; }.billing-link { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: transparent; color: var(--muted); padding: 12px 0 0; font-size: 9px !important; }
 
+/* Razorpay Plan Cards & Payment UI (INR) */
+.razorpay-plans-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.razorpay-plan-card { border: 1px solid var(--line); border-radius: 12px; padding: 20px; background: var(--surface); display: flex; flex-direction: column; justify-content: space-between; position: relative; transition: border-color .15s, box-shadow .15s; }
+.razorpay-plan-card:hover { border-color: var(--brand); box-shadow: 0 4px 14px rgba(0,0,0,0.06); }
+.razorpay-plan-card.is-active { border-color: #0a66c2; background: color-mix(in srgb, #0a66c2 4%, var(--surface)); }
+.razorpay-badge { position: absolute; top: 12px; right: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: #eff6fc; color: #0a66c2; letter-spacing: 0.05em; }
+.razorpay-price { font-size: 24px; font-weight: 750; color: var(--ink); margin: 8px 0 14px; display: flex; align-items: baseline; gap: 4px; }
+.razorpay-price span { font-size: 12px; font-weight: 500; color: var(--muted); }
+.razorpay-features { list-style: none; padding: 0; margin: 0 0 20px; display: flex; flex-direction: column; gap: 8px; }
+.razorpay-features li { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--ink); line-height: 1.4; }
+.razorpay-features li svg { color: #16a34a; flex-shrink: 0; margin-top: 2px; }
+.razorpay-methods-banner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 14px; background: var(--surface-soft); border-radius: 8px; border: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+.razorpay-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.razorpay-chip { padding: 3px 7px; border-radius: 5px; background: var(--surface); border: 1px solid var(--line); font-size: 10px; font-weight: 600; color: var(--ink); }
+@media (max-width: 650px) { .razorpay-plans-grid { grid-template-columns: 1fr; } }
+
 .toast-message { position: fixed; z-index: 90; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow); font-size: 11px; font-weight: 520; animation: toast-in .2s ease-out; }
 .toast-check { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: white; background: #4b9c73; }
 .toast-error { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: white; background: #e05252; }

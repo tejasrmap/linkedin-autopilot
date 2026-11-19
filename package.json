@@ -26,6 +26,7 @@
     "test:ai-routes": "tsx --test tests/ai-studio-routes.test.ts",
     "test:continuity": "tsx --test tests/ai-studio-workflow-continuity.test.ts",
     "test:gemini-live": "tsx --test tests/gemini-live-integration.test.ts",
+    "test:razorpay": "tsx --test tests/razorpay-inr.test.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {
@@ -39,6 +40,7 @@
     "ioredis": "^5.4.2",
     "lucide-react": "^0.475.0",
     "next": "14.2.23",
+    "razorpay": "^2.9.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "stripe": "^23.1.0",
