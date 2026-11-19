@@ -1,6 +1,6 @@
 // ==============================================================
 // LINKEDIN AUTOPILOT - RAZORPAY INR PAYMENT GATEWAY CLIENT
-// AUTHENTIC INR PAYMENTS, SECURE WEBHOOK & SIGNATURE VERIFICATION
+// AUTHENTIC INR PAYMENTS, AUTOPAY E-MANDATES & WEBHOOK SIGNATURES
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -10,10 +10,11 @@ import crypto from 'crypto';
 export interface RazorpayPlan {
   id: 'pro' | 'agency';
   name: string;
-  amount: number; // in paise (e.g. 199900 = ₹1,999 INR)
+  amount: number; // in paise (e.g. 10000 = ₹100 INR)
   currency: 'INR';
   interval: 'monthly' | 'yearly';
   displayPrice: string;
+  razorpayPlanId?: string;
   badge?: string;
   features: string[];
 }
@@ -22,10 +23,11 @@ export const RAZORPAY_PLANS: Record<'pro' | 'agency', RazorpayPlan> = {
   pro: {
     id: 'pro',
     name: 'Pro Growth',
-    amount: 199900, // ₹1,999 INR
+    amount: 10000, // ₹100 INR
     currency: 'INR',
     interval: 'monthly',
-    displayPrice: '₹1,999',
+    displayPrice: '₹100',
+    razorpayPlanId: 'plan_U27PobHzu6ZDVf',
     badge: 'Most Popular',
     features: [
       '500 scheduled posts / month',
@@ -34,15 +36,17 @@ export const RAZORPAY_PLANS: Record<'pro' | 'agency', RazorpayPlan> = {
       'PDF carousel & document publishing support',
       'Priority scheduling queue with automated retry',
       'Advanced audience engagement analytics',
+      'UPI Autopay & Card recurring debit support',
     ],
   },
   agency: {
     id: 'agency',
     name: 'Agency Enterprise',
-    amount: 799900, // ₹7,999 INR
+    amount: 50000, // ₹500 INR
     currency: 'INR',
     interval: 'monthly',
-    displayPrice: '₹7,999',
+    displayPrice: '₹500',
+    razorpayPlanId: 'plan_U27Q0W7xtnZ73l',
     badge: 'Scale',
     features: [
       '5,000 scheduled posts / month',
@@ -51,6 +55,7 @@ export const RAZORPAY_PLANS: Record<'pro' | 'agency', RazorpayPlan> = {
       'Multi-user team workspace with approval roles',
       'Dedicated daemon worker bandwidth & SLAs',
       'Priority 24/7 dedicated engineering support',
+      'UPI Autopay & Card recurring debit support',
     ],
   },
 };
@@ -98,7 +103,7 @@ export function getRazorpayClient(): Razorpay | null {
 }
 
 /**
- * Verifies Razorpay HMAC SHA256 payment signature.
+ * Verifies Razorpay HMAC SHA256 payment signature for standard one-time orders.
  * Formula: HMAC_SHA256(order_id + "|" + payment_id, secret) == signature
  */
 export function verifyPaymentSignature(params: {
@@ -121,7 +126,36 @@ export function verifyPaymentSignature(params: {
       Buffer.from(params.signature, 'utf-8')
     );
   } catch (err) {
-    console.error('[Razorpay] Signature verification failed with error:', err);
+    console.error('[Razorpay] Order signature verification failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Verifies Razorpay HMAC SHA256 signature for Subscriptions (Autopay / e-mandate).
+ * Formula: HMAC_SHA256(payment_id + "|" + subscription_id, secret) == signature
+ */
+export function verifySubscriptionSignature(params: {
+  paymentId: string;
+  subscriptionId: string;
+  signature: string;
+}): boolean {
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret) return false;
+
+  try {
+    const text = `${params.paymentId}|${params.subscriptionId}`;
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(text)
+      .digest('hex');
+
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature, 'utf-8'),
+      Buffer.from(params.signature, 'utf-8')
+    );
+  } catch (err) {
+    console.error('[Razorpay] Subscription Autopay signature verification failed:', err);
     return false;
   }
 }

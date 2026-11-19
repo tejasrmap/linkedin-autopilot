@@ -6,7 +6,7 @@ import { Icon } from '@/components/magicpath/icons';
 import { useToast } from '@/components/ui/toast';
 import { Modal } from '@/components/ui/modal';
 import { useWorkspace } from '@/components/layout/workspace-context';
-import { RAZORPAY_PLANS, RazorpayPlan } from '@/lib/razorpay/client';
+import { RAZORPAY_PLANS } from '@/lib/razorpay/client';
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -52,7 +52,7 @@ export default function BillingPage() {
   const planTier = (subData?.plan?.tier || 'free').toLowerCase();
   const planName = subData?.plan?.name || (planTier === 'agency' ? 'Agency Enterprise' : planTier === 'pro' ? 'Pro Growth' : 'Free Starter');
   const isPaid = Boolean(subData?.plan?.isPaid);
-  const displayPrice = subData?.plan?.displayPrice || (planTier === 'agency' ? '₹7,999' : planTier === 'pro' ? '₹1,999' : '₹0');
+  const displayPrice = subData?.plan?.displayPrice || (planTier === 'agency' ? '₹500' : planTier === 'pro' ? '₹100' : '₹0');
   const renewsAt = subData?.plan?.renewsAt
     ? new Date(subData.plan.renewsAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
     : null;
@@ -67,7 +67,7 @@ export default function BillingPage() {
   const handleRazorpayCheckout = async (planId: 'pro' | 'agency') => {
     setProcessingPlan(planId);
     try {
-      // 1. Create order on backend
+      // 1. Create order or Autopay subscription on backend
       const orderRes = await fetch('/api/billing/razorpay/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,25 +87,27 @@ export default function BillingPage() {
           `Razorpay checkout script could not be loaded from CDN. Would you like to complete payment verification directly for ${orderData.planName} (${orderData.displayPrice})?`
         );
         if (confirmTest) {
-          await verifyPayment(
-            orderData.orderId,
-            `pay_${Date.now().toString().slice(-8)}`,
-            'sandbox_verified_signature',
-            planId
-          );
+          await verifyPayment({
+            orderId: orderData.orderId,
+            subscriptionId: orderData.subscriptionId,
+            paymentId: `pay_${Date.now().toString().slice(-8)}`,
+            signature: 'sandbox_verified_signature',
+            planId,
+          });
         }
         setProcessingPlan(null);
         return;
       }
 
-      // 3. Open Razorpay Checkout Modal
+      // 3. Open Razorpay Checkout Modal (Autopay e-mandate supported!)
       const options = {
         key: orderData.keyId,
         amount: orderData.amount,
         currency: orderData.currency || 'INR',
         name: 'GT InnoX Autopilot',
-        description: `${orderData.planName} Subscription (${orderData.displayPrice}/mo)`,
-        order_id: orderData.orderId.startsWith('order_test_') ? undefined : orderData.orderId,
+        description: `${orderData.planName} (${orderData.displayPrice}/mo) - UPI Autopay / Cards`,
+        subscription_id: orderData.subscriptionId || undefined,
+        order_id: orderData.subscriptionId ? undefined : (orderData.orderId?.startsWith('order_test_') ? undefined : orderData.orderId),
         image: '/brand-logo.png',
         prefill: {
           name: userProfile?.full_name || '',
@@ -120,12 +122,13 @@ export default function BillingPage() {
           },
         },
         handler: async function (response: any) {
-          await verifyPayment(
-            response.razorpay_order_id || orderData.orderId,
-            response.razorpay_payment_id || `pay_${Date.now()}`,
-            response.razorpay_signature || 'verified_sig',
-            planId
-          );
+          await verifyPayment({
+            orderId: response.razorpay_order_id || orderData.orderId,
+            subscriptionId: response.razorpay_subscription_id || orderData.subscriptionId,
+            paymentId: response.razorpay_payment_id || `pay_${Date.now()}`,
+            signature: response.razorpay_signature || 'verified_sig',
+            planId,
+          });
         },
       };
 
@@ -141,21 +144,23 @@ export default function BillingPage() {
     }
   };
 
-  const verifyPayment = async (
-    orderId: string,
-    paymentId: string,
-    signature: string,
-    planId: 'pro' | 'agency'
-  ) => {
+  const verifyPayment = async (params: {
+    orderId?: string;
+    subscriptionId?: string;
+    paymentId: string;
+    signature: string;
+    planId: 'pro' | 'agency';
+  }) => {
     try {
       const verifyRes = await fetch('/api/billing/razorpay/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          razorpay_order_id: orderId,
-          razorpay_payment_id: paymentId,
-          razorpay_signature: signature,
-          planId,
+          razorpay_order_id: params.orderId,
+          razorpay_subscription_id: params.subscriptionId,
+          razorpay_payment_id: params.paymentId,
+          razorpay_signature: params.signature,
+          planId: params.planId,
         }),
       });
 
@@ -185,7 +190,7 @@ export default function BillingPage() {
           <h2>{planName}</h2>
           <p>
             {isPaid
-              ? `Active paid subscription in INR.${renewsAt ? ` Renews on ${renewsAt}.` : ''}`
+              ? `Active subscription in INR.${renewsAt ? ` Next billing date: ${renewsAt}.` : ''}`
               : 'Complimentary workspace plan with core scheduling, analytics, and AI writing.'}
           </p>
         </div>
@@ -239,7 +244,7 @@ export default function BillingPage() {
           <div className="panel-heading">
             <div>
               <h3>Payment method</h3>
-              <p>Razorpay Indian Payment Gateway (INR)</p>
+              <p>Razorpay Autopay &amp; Indian Gateway (INR)</p>
             </div>
           </div>
 
@@ -247,11 +252,11 @@ export default function BillingPage() {
             <div className="payment-method">
               <span className="payment-icon" style={{ fontStyle: 'normal', fontWeight: 700 }}>RZP</span>
               <div>
-                <b>Razorpay Active Subscription</b>
-                <small>Paid in Indian Rupees (INR) via UPI / Cards</small>
+                <b>Razorpay Active Subscription (Autopay)</b>
+                <small>Monthly recurring payment via UPI Autopay / Card Mandate</small>
                 {subData?.plan?.id && (
                   <small style={{ fontFamily: 'monospace', fontSize: '9px', opacity: 0.8 }}>
-                    ID: {subData.plan.id}
+                    Sub ID: {subData.plan.id}
                   </small>
                 )}
               </div>
@@ -265,18 +270,20 @@ export default function BillingPage() {
             </div>
           ) : (
             <div style={{ padding: '20px 0', color: 'var(--muted)', fontSize: '12px', lineHeight: 1.6 }}>
-              No credit card required on the Free Starter plan. Upgrade to Pro using Razorpay (UPI, Google Pay, PhonePe, Cards, NetBanking) in Indian Rupees (INR).
+              No credit card required on the Free Starter plan. Upgrade to Pro starting at just <b>₹100/mo</b> with <b>UPI Autopay</b> (Google Pay, PhonePe, Paytm) or Debit/Credit Cards in INR.
             </div>
           )}
 
           <div className="razorpay-methods-banner" style={{ marginTop: '16px' }}>
-            <span>Supported Indian payment methods:</span>
+            <span>Supported Autopay &amp; payment methods:</span>
             <div className="razorpay-chips">
-              <span className="razorpay-chip">UPI / QR</span>
+              <span className="razorpay-chip" style={{ background: '#f0fdf4', borderColor: '#bbf7d0', color: '#16a34a' }}>
+                UPI Autopay
+              </span>
               <span className="razorpay-chip">Google Pay</span>
               <span className="razorpay-chip">PhonePe</span>
               <span className="razorpay-chip">Paytm</span>
-              <span className="razorpay-chip">Debit &amp; Credit Cards</span>
+              <span className="razorpay-chip">Credit/Debit Cards</span>
               <span className="razorpay-chip">NetBanking</span>
             </div>
           </div>
@@ -288,32 +295,32 @@ export default function BillingPage() {
         isOpen={showManageModal}
         onClose={() => setShowManageModal(false)}
         title="Upgrade Workspace Plan"
-        description="Choose a plan to power your LinkedIn presence. Payments are processed securely via Razorpay in INR (₹)."
+        description="Choose a plan to power your LinkedIn presence. Supports automatic monthly renewal via UPI Autopay & Card Mandates."
         maxWidth="lg"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Current plan notice */}
           <div style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--surface-soft)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <b style={{ fontSize: '13px' }}>Current: {planName}</b>
+              <b style={{ fontSize: '13px' }}>Current Plan: {planName}</b>
               <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                Status: {isPaid ? 'Active Paid (INR)' : 'Free Tier'}
+                Status: {isPaid ? 'Active Paid (Autopay enabled)' : 'Free Tier'}
               </span>
             </div>
-            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--brand)' }}>
+            <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--brand)' }}>
               {displayPrice} / mo
             </span>
           </div>
 
           {/* Plan selection grid */}
           <div className="razorpay-plans-grid">
-            {/* Pro Growth Plan */}
+            {/* Pro Growth Plan - ₹100/mo */}
             <div className={`razorpay-plan-card ${planTier === 'pro' ? 'is-active' : ''}`}>
               <div>
                 <span className="razorpay-badge">Most Popular</span>
                 <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Pro Growth</h4>
                 <div className="razorpay-price">
-                  ₹1,999 <span>/ month (INR)</span>
+                  ₹100 <span>/ month (INR)</span>
                 </div>
                 <ul className="razorpay-features">
                   {RAZORPAY_PLANS.pro.features.map((feat, i) => (
@@ -335,18 +342,18 @@ export default function BillingPage() {
                 {planTier === 'pro'
                   ? 'Current Plan'
                   : processingPlan === 'pro'
-                  ? 'Opening Razorpay…'
-                  : 'Pay ₹1,999 with Razorpay'}
+                  ? 'Opening Autopay…'
+                  : 'Pay ₹100 with Razorpay Autopay'}
               </button>
             </div>
 
-            {/* Agency Enterprise Plan */}
+            {/* Agency Enterprise Plan - ₹500/mo */}
             <div className={`razorpay-plan-card ${planTier === 'agency' ? 'is-active' : ''}`}>
               <div>
                 <span className="razorpay-badge" style={{ background: '#fdf2f8', color: '#db2777' }}>Enterprise</span>
                 <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Agency Enterprise</h4>
                 <div className="razorpay-price">
-                  ₹7,999 <span>/ month (INR)</span>
+                  ₹500 <span>/ month (INR)</span>
                 </div>
                 <ul className="razorpay-features">
                   {RAZORPAY_PLANS.agency.features.map((feat, i) => (
@@ -368,18 +375,20 @@ export default function BillingPage() {
                 {planTier === 'agency'
                   ? 'Current Plan'
                   : processingPlan === 'agency'
-                  ? 'Opening Razorpay…'
-                  : 'Pay ₹7,999 with Razorpay'}
+                  ? 'Opening Autopay…'
+                  : 'Pay ₹500 with Razorpay Autopay'}
               </button>
             </div>
           </div>
 
           {/* Secure Payment Footer */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--line)', paddingTop: '14px', fontSize: '11px', color: 'var(--muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--line)', paddingTop: '14px', fontSize: '11px', color: 'var(--muted)', flexWrap: 'wrap', gap: '8px' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <Icon name="shield" size={14} /> 256-bit encrypted Razorpay payment gateway
+              <Icon name="shield" size={14} /> 256-bit encrypted Razorpay Autopay
             </span>
-            <span>UPI, Cards, NetBanking in INR</span>
+            <span style={{ color: '#16a34a', fontWeight: 600 }}>
+              UPI Autopay (GPay, PhonePe, Paytm) &amp; Cards
+            </span>
           </div>
         </div>
       </Modal>

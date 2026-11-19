@@ -1,6 +1,6 @@
 // ==============================================================
-// LINKEDIN AUTOPILOT - RAZORPAY INR ORDER CREATION API
-// CREATES AUTHENTIC INR ORDERS VIA RAZORPAY
+// LINKEDIN AUTOPILOT - RAZORPAY INR ORDER & AUTOPAY API
+// CREATES AUTHENTIC INR SUBSCRIPTIONS (AUTOPAY) & ORDERS VIA RAZORPAY
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -31,8 +31,41 @@ export async function POST(request: Request) {
     const razorpay = getRazorpayClient();
     const receipt = `rcpt_${auth.workspaceId.slice(0, 8)}_${Date.now().toString().slice(-6)}`;
 
-    // If Razorpay credentials are fully configured, create authentic order with Razorpay
+    // If Razorpay credentials are fully configured
     if (razorpay && isRazorpayConfigured()) {
+      // 1. Try creating an Autopay Recurring Subscription
+      if (plan.razorpayPlanId) {
+        try {
+          const subscription = await razorpay.subscriptions.create({
+            plan_id: plan.razorpayPlanId,
+            total_count: 60, // 5 years monthly recurring
+            customer_notify: 1,
+            notes: {
+              workspaceId: auth.workspaceId,
+              userId: auth.user.id,
+              planId: plan.id,
+              userEmail: auth.user.email,
+            },
+          });
+
+          return NextResponse.json({
+            subscriptionId: subscription.id,
+            isSubscription: true,
+            isAutopay: true,
+            amount: plan.amount,
+            currency: 'INR',
+            planId: plan.id,
+            planName: plan.name,
+            displayPrice: plan.displayPrice,
+            keyId: getRazorpayKeyId(),
+            isSandbox: false,
+          });
+        } catch (subErr: any) {
+          console.warn('[Razorpay Autopay] Subscriptions creation note, falling back to order:', subErr?.message || subErr);
+        }
+      }
+
+      // 2. Fallback to standard one-time order
       const order = await razorpay.orders.create({
         amount: plan.amount,
         currency: 'INR',
@@ -47,6 +80,8 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         orderId: order.id,
+        isSubscription: false,
+        isAutopay: false,
         amount: order.amount,
         currency: order.currency,
         planId: plan.id,
@@ -58,11 +93,11 @@ export async function POST(request: Request) {
     }
 
     // Safe Test / Sandbox Mode Fallback:
-    // If Razorpay API keys are not yet set in environment, generate test order reference
-    // so development & staging checkouts can be verified without hard failure.
-    const mockOrderId = `order_test_${receipt}`;
+    const mockSubId = `sub_test_${receipt}`;
     return NextResponse.json({
-      orderId: mockOrderId,
+      subscriptionId: mockSubId,
+      isSubscription: true,
+      isAutopay: true,
       amount: plan.amount,
       currency: 'INR',
       planId: plan.id,
@@ -70,10 +105,10 @@ export async function POST(request: Request) {
       displayPrice: plan.displayPrice,
       keyId: getRazorpayKeyId(),
       isSandbox: true,
-      message: 'Razorpay test mode order created. Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET for live payments.',
+      message: 'Razorpay test mode subscription created. Configure live keys for production payments.',
     });
   } catch (err: any) {
-    console.error('[Razorpay Order] Error creating order:', err);
+    console.error('[Razorpay Order] Error creating order/subscription:', err);
     return NextResponse.json(
       { error: err.message || 'Failed to initialize Razorpay payment order.' },
       { status: 500 }

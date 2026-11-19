@@ -89,8 +89,8 @@ export async function GET() {
     { maxPostsPerMonth: number; maxAccounts: number; aiCredits: number; videoSupport: boolean; name: string; priceInr: string }
   > = {
     free: { maxPostsPerMonth: 15, maxAccounts: 1, aiCredits: 50, videoSupport: false, name: 'Free Starter', priceInr: '₹0' },
-    pro: { maxPostsPerMonth: 500, maxAccounts: 5, aiCredits: 2000, videoSupport: true, name: 'Pro Growth', priceInr: '₹1,999' },
-    agency: { maxPostsPerMonth: 5000, maxAccounts: 50, aiCredits: 10000, videoSupport: true, name: 'Agency Enterprise', priceInr: '₹7,999' },
+    pro: { maxPostsPerMonth: 500, maxAccounts: 5, aiCredits: 2000, videoSupport: true, name: 'Pro Growth', priceInr: '₹100' },
+    agency: { maxPostsPerMonth: 5000, maxAccounts: 50, aiCredits: 10000, videoSupport: true, name: 'Agency Enterprise', priceInr: '₹500' },
   };
 
   const VALID_TIERS = ['free', 'pro', 'agency'] as const;
