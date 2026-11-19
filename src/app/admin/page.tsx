@@ -1,9 +1,27 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { PageHeader, ActionButton } from '@/components/magicpath/common';
+import { PageHeader } from '@/components/magicpath/common';
 import { Icon } from '@/components/magicpath/icons';
 import { useToast } from '@/components/ui/toast';
+
+function formatStatus(val: any): string {
+  if (!val) return 'Operational';
+  if (typeof val === 'string') {
+    return val.charAt(0).toUpperCase() + val.slice(1);
+  }
+  if (typeof val === 'object' && val.status) {
+    return String(val.status).charAt(0).toUpperCase() + String(val.status).slice(1);
+  }
+  return 'Operational';
+}
+
+function getIndicatorTone(val: any): string {
+  const status = typeof val === 'object' && val?.status ? String(val.status).toLowerCase() : String(val || '').toLowerCase();
+  if (status === 'operational' || status === 'healthy' || status === 'good') return 'good';
+  if (status === 'degraded' || status === 'warning') return 'warning';
+  return 'bad';
+}
 
 export default function AdminDashboardPage() {
   const toast = useToast();
@@ -29,10 +47,27 @@ export default function AdminDashboardPage() {
     loadAdminData();
   }, [loadAdminData]);
 
-  const queueCount = metrics?.queue?.waiting ?? 0;
-  const activeWorkspaces = metrics?.workspaces?.total ?? 0;
-  const aiToday = metrics?.ai?.today ?? metrics?.aiGenerationsToday ?? 0;
-  const recentEvents = metrics?.recentEvents || metrics?.auditLogs || [];
+  const queueCount = Number(metrics?.metrics?.scheduledPosts ?? metrics?.queue?.waiting ?? 0);
+  const activeWorkspaces = Number(metrics?.metrics?.activeWorkspaces ?? metrics?.workspaces?.total ?? 0);
+  const publishedCount = Number(metrics?.metrics?.publishedPosts ?? 0);
+  const successRate = Number(metrics?.metrics?.successRatePercent ?? 100);
+
+  const servicesList = [
+    { name: 'Database (Supabase PostgreSQL)', raw: metrics?.services?.database },
+    { name: 'Publishing Worker Daemon', raw: metrics?.services?.worker },
+    { name: 'LinkedIn OAuth & REST API', raw: metrics?.services?.linkedinOAuth || metrics?.services?.linkedin },
+    { name: 'AI Generation (Gemini 1.5 Pro)', raw: metrics?.services?.ai },
+    { name: 'Queue Engine (Redis / BullMQ)', raw: metrics?.services?.redis },
+    { name: 'Billing Engine (Stripe)', raw: metrics?.services?.billing },
+  ];
+
+  const recentEvents = Array.isArray(metrics?.recentPublishActivity)
+    ? metrics.recentPublishActivity
+    : Array.isArray(metrics?.recentEvents)
+    ? metrics.recentEvents
+    : Array.isArray(metrics?.auditLogs)
+    ? metrics.auditLogs
+    : [];
 
   return (
     <>
@@ -41,16 +76,16 @@ export default function AdminDashboardPage() {
       {/* Admin Stats Grid */}
       <div className="admin-stats">
         {[
-          ['System status', 'All systems operational', 'good'],
-          ['Publishing queue', `${queueCount} posts queued`, 'blue'],
-          ['AI requests today', `${aiToday} requests`, 'violet'],
-          ['Active workspaces', `${activeWorkspaces} workspaces`, 'mint'],
+          ['System status', formatStatus(metrics?.systemHealth || 'Operational'), getIndicatorTone(metrics?.systemHealth || 'operational')],
+          ['Scheduled queue', `${queueCount} posts scheduled`, 'blue'],
+          ['Published posts', `${publishedCount} posts (${successRate}% success)`, 'mint'],
+          ['Active workspaces', `${activeWorkspaces} active workspaces`, 'violet'],
         ].map(([label, value, tone]) => (
           <div className="panel admin-stat" key={label}>
             <small>{label}</small>
             <b>{value}</b>
             <span className={`admin-indicator ${tone}`}>
-              <i /> {label === 'System status' ? 'Healthy' : 'Active'}
+              <i /> {label === 'System status' ? formatStatus(metrics?.systemHealth || 'Operational') : 'Active'}
             </span>
           </div>
         ))}
@@ -77,18 +112,13 @@ export default function AdminDashboardPage() {
             </button>
           </div>
 
-          {[
-            ['Publishing worker', metrics?.services?.worker || 'Operational', 'good'],
-            ['LinkedIn OAuth API', metrics?.services?.linkedin || 'Operational', 'good'],
-            ['AI Content Generation', metrics?.services?.ai || 'Operational', 'good'],
-            ['Supabase Storage', metrics?.services?.storage || 'Operational', 'good'],
-          ].map(([name, status, state]) => (
-            <div className="service-row" key={name}>
+          {servicesList.map((svc) => (
+            <div className="service-row" key={svc.name}>
               <span>
-                <i className={`service-dot ${state}`} />
-                {name}
+                <i className={`service-dot ${getIndicatorTone(svc.raw)}`} />
+                {svc.name}
               </span>
-              <b>{status}</b>
+              <b>{formatStatus(svc.raw)}</b>
             </div>
           ))}
         </section>
@@ -102,18 +132,30 @@ export default function AdminDashboardPage() {
           </div>
 
           {recentEvents.length > 0 ? (
-            recentEvents.slice(0, 5).map((ev: any, idx: number) => (
-              <div className="admin-event" key={ev.id || idx}>
-                <span className="event-dot" />
-                <span>
-                  <b>{ev.action || ev.event || 'System action executed'}</b>
-                  <small>{ev.created_at ? new Date(ev.created_at).toLocaleTimeString() : 'Recently'}</small>
-                </span>
-              </div>
-            ))
+            recentEvents.slice(0, 6).map((ev: any, idx: number) => {
+              const title = typeof ev === 'string'
+                ? ev
+                : ev?.status
+                ? `Publish attempt: ${ev.status}`
+                : ev?.action || ev?.event || 'Publish event';
+              const timeStr = ev?.created_at
+                ? new Date(ev.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'Recently';
+              const errorMsg = ev?.error_message ? ` · ${ev.error_message}` : '';
+
+              return (
+                <div className="admin-event" key={ev?.id || idx}>
+                  <span className="event-dot" />
+                  <span>
+                    <b>{String(title)}</b>
+                    <small>{String(timeStr)}{errorMsg}</small>
+                  </span>
+                </div>
+              );
+            })
           ) : (
             <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
-              No audit log entries recorded in the current period.
+              {loading ? 'Loading system telemetry…' : 'No audit log entries recorded in the current period.'}
             </div>
           )}
         </section>
