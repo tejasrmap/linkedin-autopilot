@@ -16,8 +16,8 @@
     --primary-foreground: #ffffff;
     --secondary: #f7f7f8;
     --secondary-foreground: #252525;
-    --muted: #f7f7f8;
-    --muted-foreground: #74777d;
+    --muted: #64748b;
+    --muted-foreground: #64748b;
     --accent: #eff6fc;
     --accent-foreground: #0a66c2;
     --border: #e8e8e9;
@@ -39,8 +39,8 @@
     --primary-foreground: #171717;
     --secondary: #2b2b2b;
     --secondary-foreground: #ececec;
-    --muted: #2b2b2b;
-    --muted-foreground: #a1a1a1;
+    --muted: #94a3b8;
+    --muted-foreground: #94a3b8;
     --accent: #222f3b;
     --accent-foreground: #8abff2;
     --border: #383838;

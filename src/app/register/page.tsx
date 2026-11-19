@@ -67,9 +67,9 @@ export default function RegisterPage() {
     <div className={`auth-screen ${theme === 'dark' ? 'is-dark' : ''}`}>
       <Link href="/" className="auth-brand">
         <div className="brand-mark">
-          <GTInnoXLogo width={24} height={16} />
+          <GTInnoXLogo width={25} height={16} />
         </div>
-        <div>
+        <div className="brand-text">
           <b>autopilot</b>
           <small>BY GT INNOX</small>
         </div>
