@@ -1,6 +1,15 @@
+// ==============================================================
+// LINKEDIN AUTOPILOT - OAUTH CONNECT INITIATION
+// GENERATES AUTHENTIC LINKEDIN OAUTH URL WITH SESSION-BOUND CSRF DEFENSE
+// BY GT INNOX LLP
+// ==============================================================
+
 import { getAuthContext } from '@/lib/auth';
 import { linkedInClient } from '@/lib/linkedin/client';
+import { createOAuthState, getAuthoritativeRedirectUri } from '@/lib/linkedin/oauth-state';
 import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -12,18 +21,30 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Construct secure state containing workspaceId, userId, and nonce
-  const statePayload = {
+  // Generate cryptographically secure, session-bound OAuth state
+  const { stateParam, cookieName, cookieValue, maxAge } = createOAuthState({
     workspaceId: auth.workspaceId,
     userId: auth.user.id,
-    nonce: Math.random().toString(36).substring(2),
-    timestamp: Date.now(),
-  };
+  });
 
-  const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
-  const dynamicRedirectUri = `${origin}/api/linkedin/callback`;
-  const authUrl = linkedInClient.getAuthorizationUrl(state, orgAccess, dynamicRedirectUri);
+  const redirectUri = getAuthoritativeRedirectUri(origin);
+  const authUrl = linkedInClient.getAuthorizationUrl(stateParam, orgAccess, redirectUri);
 
-  return NextResponse.json({ url: authUrl, redirectUri: dynamicRedirectUri });
+  const response = NextResponse.json({
+    url: authUrl,
+    redirectUri,
+  });
+
+  // Bind state to initiating browser session via HTTP-only secure cookie
+  response.cookies.set({
+    name: cookieName,
+    value: cookieValue,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge,
+    path: '/api/linkedin/callback',
+  });
+
+  return response;
 }
-

@@ -86,6 +86,22 @@ export function getRazorpayKeyId(): string {
 }
 
 /**
+ * Returns whether Razorpay webhook signing secret is configured.
+ */
+export function isRazorpayWebhookConfigured(): boolean {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  return Boolean(secret && !secret.includes('placeholder'));
+}
+
+/**
+ * Returns whether Razorpay keys belong to the test/sandbox environment.
+ */
+export function isTestModeRazorpay(): boolean {
+  const keyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '';
+  return keyId.startsWith('rzp_test_');
+}
+
+/**
  * Initializes and returns the official Razorpay SDK instance.
  */
 export function getRazorpayClient(): Razorpay | null {
@@ -112,7 +128,9 @@ export function verifyPaymentSignature(params: {
   signature: string;
 }): boolean {
   const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) return false;
+  if (!secret || !params.orderId || !params.paymentId || !params.signature) {
+    return false;
+  }
 
   try {
     const text = `${params.orderId}|${params.paymentId}`;
@@ -121,10 +139,14 @@ export function verifyPaymentSignature(params: {
       .update(text)
       .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'utf-8'),
-      Buffer.from(params.signature, 'utf-8')
-    );
+    const expBuf = Buffer.from(expectedSignature, 'utf-8');
+    const sigBuf = Buffer.from(params.signature, 'utf-8');
+
+    if (expBuf.length !== sigBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expBuf, sigBuf);
   } catch (err) {
     console.error('[Razorpay] Order signature verification failed:', err);
     return false;
@@ -141,7 +163,9 @@ export function verifySubscriptionSignature(params: {
   signature: string;
 }): boolean {
   const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) return false;
+  if (!secret || !params.paymentId || !params.subscriptionId || !params.signature) {
+    return false;
+  }
 
   try {
     const text = `${params.paymentId}|${params.subscriptionId}`;
@@ -150,10 +174,14 @@ export function verifySubscriptionSignature(params: {
       .update(text)
       .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'utf-8'),
-      Buffer.from(params.signature, 'utf-8')
-    );
+    const expBuf = Buffer.from(expectedSignature, 'utf-8');
+    const sigBuf = Buffer.from(params.signature, 'utf-8');
+
+    if (expBuf.length !== sigBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expBuf, sigBuf);
   } catch (err) {
     console.error('[Razorpay] Subscription Autopay signature verification failed:', err);
     return false;
@@ -162,10 +190,13 @@ export function verifySubscriptionSignature(params: {
 
 /**
  * Verifies Razorpay Webhook HMAC SHA256 signature from X-Razorpay-Signature header.
+ * REQUIREMENT: Strictly requires RAZORPAY_WEBHOOK_SECRET and never falls back to API key secret.
  */
 export function verifyWebhookSignature(rawBody: string, signature: string): boolean {
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) return false;
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret || !rawBody || !signature) {
+    return false;
+  }
 
   try {
     const expectedSignature = crypto
@@ -173,10 +204,14 @@ export function verifyWebhookSignature(rawBody: string, signature: string): bool
       .update(rawBody)
       .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'utf-8'),
-      Buffer.from(signature, 'utf-8')
-    );
+    const expBuf = Buffer.from(expectedSignature, 'utf-8');
+    const sigBuf = Buffer.from(signature, 'utf-8');
+
+    if (expBuf.length !== sigBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expBuf, sigBuf);
   } catch (err) {
     console.error('[Razorpay] Webhook signature verification failed:', err);
     return false;

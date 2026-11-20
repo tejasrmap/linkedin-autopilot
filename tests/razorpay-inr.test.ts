@@ -1,6 +1,7 @@
 // ==============================================================
-// LINKEDIN AUTOPILOT - RAZORPAY INR PAYMENTS TEST SUITE
-// TESTS PLAN PRICING IN INR, CRYPTOGRAPHIC SIGNATURES & VERIFICATION
+// LINKEDIN AUTOPILOT - RAZORPAY INR PAYMENTS & SECURITY TEST SUITE (PR #38)
+// TESTS PLAN PRICING, CRYPTOGRAPHIC SIGNATURES, FAIL-CLOSED DEFENSE,
+// CHECKOUT OWNERSHIP, WEBHOOK IDEMPOTENCY & AUDIT LOGGING
 // BY GT INNOX LLP
 // ==============================================================
 
@@ -12,9 +13,15 @@ import {
   verifyPaymentSignature,
   verifySubscriptionSignature,
   verifyWebhookSignature,
+  isRazorpayConfigured,
+  isRazorpayWebhookConfigured,
 } from '../src/lib/razorpay/client';
+import { POST as verifyRouteHandler } from '../src/app/api/billing/razorpay/verify/route';
+import { POST as webhookRouteHandler } from '../src/app/api/billing/razorpay/webhook/route';
+import { POST as orderRouteHandler } from '../src/app/api/billing/razorpay/order/route';
+import { createAdminClient } from '../src/lib/supabase/admin';
 
-describe('Razorpay INR Payment Gateway Suite', () => {
+describe('PR #38 — Razorpay INR Payment Security Gateway Suite', () => {
   describe('Plan Pricing & Currency Compliance', () => {
     test('Pro Growth plan is denominated in INR with exact paise conversion (₹100/mo)', () => {
       const pro = RAZORPAY_PLANS.pro;
@@ -35,7 +42,6 @@ describe('Razorpay INR Payment Gateway Suite', () => {
     });
 
     test('Basic tier provides core complimentary capabilities without card requirement', () => {
-      // Basic plan tier name confirmation
       const basicName = 'Basic';
       const basicPrice = '₹0';
       assert.strictEqual(basicName, 'Basic');
@@ -65,13 +71,16 @@ describe('Razorpay INR Payment Gateway Suite', () => {
   describe('Cryptographic Signature Verification', () => {
     const testSecret = 'rzp_test_secret_key_12345';
     const originalSecret = process.env.RAZORPAY_KEY_SECRET;
+    const originalWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
     test.before(() => {
       process.env.RAZORPAY_KEY_SECRET = testSecret;
+      process.env.RAZORPAY_WEBHOOK_SECRET = testSecret;
     });
 
     test.after(() => {
       process.env.RAZORPAY_KEY_SECRET = originalSecret;
+      process.env.RAZORPAY_WEBHOOK_SECRET = originalWebhookSecret;
     });
 
     test('Authentic order payment signature validates successfully', () => {
@@ -94,7 +103,6 @@ describe('Razorpay INR Payment Gateway Suite', () => {
     test('Authentic recurring subscription Autopay signature validates successfully', () => {
       const paymentId = 'pay_test_123456789';
       const subscriptionId = 'sub_test_987654321';
-      // Razorpay subscription signature standard: payment_id + '|' + subscription_id
       const validSig = crypto
         .createHmac('sha256', testSecret)
         .update(`${paymentId}|${subscriptionId}`)
@@ -160,12 +168,12 @@ describe('Razorpay INR Payment Gateway Suite', () => {
       assert.strictEqual(isValid, false);
     });
 
-    test('Authentic webhook signature validates successfully', () => {
+    test('Authentic webhook signature validates successfully with dedicated secret', () => {
       const rawPayload = JSON.stringify({
         event: 'payment.captured',
         payload: {
           payment: {
-            entity: { id: 'pay_test_001', amount: 199900, currency: 'INR' },
+            entity: { id: 'pay_test_001', amount: 10000, currency: 'INR' },
           },
         },
       });
@@ -189,6 +197,369 @@ describe('Razorpay INR Payment Gateway Suite', () => {
       const tamperedPayload = '{"event":"payment.captured","malicious":true}';
       const isValid = verifyWebhookSignature(tamperedPayload, validSig);
       assert.strictEqual(isValid, false);
+    });
+
+    test('Missing webhook secret strictly fails validation (never falls back to key secret)', () => {
+      delete process.env.RAZORPAY_WEBHOOK_SECRET;
+      const rawPayload = '{"event":"payment.captured"}';
+      const sig = crypto.createHmac('sha256', testSecret).update(rawPayload).digest('hex');
+
+      assert.strictEqual(verifyWebhookSignature(rawPayload, sig), false);
+      process.env.RAZORPAY_WEBHOOK_SECRET = testSecret;
+    });
+  });
+
+  describe('Task B: Razorpay Verification Fail-Closed & Checkout Ownership Defenses', () => {
+    const testSecret = 'rzp_test_secret_key_12345';
+    const testWsId = '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
+
+    test.before(() => {
+      process.env.MOCK_SUPABASE_FOR_TESTS = 'true';
+      process.env.ALLOW_DEV_AUTH = 'true';
+      process.env.RAZORPAY_KEY_ID = 'rzp_test_mock_id';
+      process.env.RAZORPAY_KEY_SECRET = testSecret;
+      process.env.RAZORPAY_WEBHOOK_SECRET = testSecret;
+    });
+
+    test('Verification route strictly rejects missing payment identifiers with HTTP 400', async () => {
+      const req = new Request('http://localhost:3000/api/billing/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      const res = await verifyRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'MISSING_PAYMENT_IDENTIFIERS');
+    });
+
+    test('Verification route strictly rejects missing signature with HTTP 400', async () => {
+      const req = new Request('http://localhost:3000/api/billing/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: 'order_123',
+          razorpay_payment_id: 'pay_123',
+          planId: 'pro',
+        }),
+      });
+
+      const res = await verifyRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'MISSING_SIGNATURE');
+    });
+
+    test('Verification route strictly rejects invalid/tampered signature with HTTP 400', async () => {
+      const req = new Request('http://localhost:3000/api/billing/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: 'order_123',
+          razorpay_payment_id: 'pay_123',
+          razorpay_signature: 'invalid_forged_signature_hex_1234567890abcdef',
+          planId: 'pro',
+        }),
+      });
+
+      const res = await verifyRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'INVALID_SIGNATURE');
+    });
+
+    test('Verification route strictly fails closed with HTTP 503 when credentials are missing', async () => {
+      delete process.env.RAZORPAY_KEY_ID;
+      delete process.env.RAZORPAY_KEY_SECRET;
+      delete process.env.ALLOW_DEV_MOCK_GATEWAY;
+
+      const req = new Request('http://localhost:3000/api/billing/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: 'order_123',
+          razorpay_payment_id: 'pay_123',
+          razorpay_signature: 'sig',
+          planId: 'pro',
+        }),
+      });
+
+      const res = await verifyRouteHandler(req);
+      assert.strictEqual(res.status, 503);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'GATEWAY_UNAVAILABLE');
+
+      // Restore credentials
+      process.env.RAZORPAY_KEY_ID = 'rzp_test_mock_id';
+      process.env.RAZORPAY_KEY_SECRET = testSecret;
+    });
+
+    test('Checkout session ownership strictly prevents cross-workspace payment theft (HTTP 403)', async () => {
+      const foreignWsId = '0226ce10-d45b-4d7f-9a50-36557880ca04';
+      const orderId = 'order_cross_workspace_theft_attempt';
+      const paymentId = 'pay_foreign_user_payment';
+
+      // Insert checkout record owned by foreign workspace
+      const admin = createAdminClient();
+      await admin.from('razorpay_payments').insert({
+        workspace_id: foreignWsId,
+        order_id: orderId,
+        amount: 10000,
+        currency: 'INR',
+        plan_id: 'pro',
+        status: 'created',
+      });
+
+      const sig = crypto
+        .createHmac('sha256', testSecret)
+        .update(`${orderId}|${paymentId}`)
+        .digest('hex');
+
+      // Attempt verification from authenticated session (which is testWsId)
+      const req = new Request('http://localhost:3000/api/billing/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: orderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: sig,
+          planId: 'pro',
+        }),
+      });
+
+      const res = await verifyRouteHandler(req);
+      assert.strictEqual(res.status, 403);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'WORKSPACE_MISMATCH');
+    });
+
+    test('Checkout session ownership strictly rejects plan downgrade/upgrade mismatch (HTTP 400)', async () => {
+      const orderId = 'order_plan_mismatch_attempt';
+      const paymentId = 'pay_cheating_plan_payment';
+
+      // Record was created for 'pro' (₹100)
+      const admin = createAdminClient();
+      await admin.from('razorpay_payments').insert({
+        workspace_id: testWsId,
+        order_id: orderId,
+        amount: 10000,
+        currency: 'INR',
+        plan_id: 'pro',
+        status: 'created',
+      });
+
+      const sig = crypto
+        .createHmac('sha256', testSecret)
+        .update(`${orderId}|${paymentId}`)
+        .digest('hex');
+
+      // Client attempts to verify as 'agency' (₹500 plan)
+      const req = new Request('http://localhost:3000/api/billing/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: orderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: sig,
+          planId: 'agency',
+        }),
+      });
+
+      const res = await verifyRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'PLAN_MISMATCH');
+    });
+
+    test('Payment ID redemption check strictly rejects already-redeemed payment across workspaces', async () => {
+      const foreignWsId = '0226ce10-d45b-4d7f-9a50-36557880ca04';
+      const existingPaymentId = 'pay_already_redeemed_elsewhere';
+
+      const admin = createAdminClient();
+      await admin.from('razorpay_payments').insert({
+        workspace_id: foreignWsId,
+        order_id: 'order_legit_previous',
+        payment_id: existingPaymentId,
+        amount: 10000,
+        currency: 'INR',
+        plan_id: 'pro',
+        status: 'captured',
+      });
+
+      const newOrderId = 'order_reuse_probe';
+      const sig = crypto
+        .createHmac('sha256', testSecret)
+        .update(`${newOrderId}|${existingPaymentId}`)
+        .digest('hex');
+
+      const req = new Request('http://localhost:3000/api/billing/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: newOrderId,
+          razorpay_payment_id: existingPaymentId,
+          razorpay_signature: sig,
+          planId: 'pro',
+        }),
+      });
+
+      const res = await verifyRouteHandler(req);
+      assert.strictEqual(res.status, 409);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'PAYMENT_ALREADY_REDEEMED');
+    });
+  });
+
+  describe('Task C: Razorpay Webhook Security & Idempotency', () => {
+    const testSecret = 'rzp_test_secret_key_12345';
+    const testWsId = '3af1cc83-b7e7-4ce6-b422-d84d326aaf31';
+
+    test.before(() => {
+      process.env.RAZORPAY_WEBHOOK_SECRET = testSecret;
+    });
+
+    test('Webhook rejects missing signature header with HTTP 400', async () => {
+      const req = new Request('http://localhost:3000/api/billing/razorpay/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'payment.captured' }),
+      });
+
+      const res = await webhookRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'MISSING_SIGNATURE_HEADER');
+    });
+
+    test('Webhook rejects invalid signature with HTTP 400', async () => {
+      const raw = JSON.stringify({ event: 'payment.captured', id: 'evt_test_1' });
+      const req = new Request('http://localhost:3000/api/billing/razorpay/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': 'tampered_bad_sig',
+        },
+        body: raw,
+      });
+
+      const res = await webhookRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'INVALID_WEBHOOK_SIGNATURE');
+    });
+
+    test('Webhook rejects missing event ID without synthesizing random timestamps', async () => {
+      const raw = JSON.stringify({ event: 'payment.captured' });
+      const sig = crypto.createHmac('sha256', testSecret).update(raw).digest('hex');
+
+      const req = new Request('http://localhost:3000/api/billing/razorpay/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: raw,
+      });
+
+      const res = await webhookRouteHandler(req);
+      assert.strictEqual(res.status, 400);
+      const data = await res.json();
+      assert.strictEqual(data.code, 'MISSING_EVENT_ID');
+    });
+
+    test('Webhook atomic claiming deduplicates replayed events (HTTP 200 already_processed)', async () => {
+      const eventId = 'evt_razorpay_replayed_test_1';
+      const raw = JSON.stringify({
+        id: eventId,
+        event: 'subscription.charged',
+        payload: {
+          subscription: {
+            entity: {
+              id: 'sub_test_dedup_1',
+              notes: { workspaceId: testWsId, planId: 'pro' },
+            },
+          },
+        },
+      });
+
+      const sig = crypto.createHmac('sha256', testSecret).update(raw).digest('hex');
+
+      // First call processes
+      const req1 = new Request('http://localhost:3000/api/billing/razorpay/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: raw,
+      });
+      const res1 = await webhookRouteHandler(req1);
+      assert.strictEqual(res1.status, 200);
+
+      // Second replayed call must return deduplicated
+      const req2 = new Request('http://localhost:3000/api/billing/razorpay/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: raw,
+      });
+      const res2 = await webhookRouteHandler(req2);
+      assert.strictEqual(res2.status, 200);
+      const data2 = await res2.json();
+      assert.strictEqual(data2.deduplicated, true);
+    });
+
+    test('Out-of-order stale webhook does not overwrite newer subscription timestamp', async () => {
+      const eventId = 'evt_razorpay_stale_event_test';
+      const admin = createAdminClient();
+
+      // Seed subscription with newer timestamp (e.g. 2000000)
+      await admin.from('subscriptions').upsert(
+        {
+          workspace_id: testWsId,
+          plan_id: 'pro',
+          status: 'active',
+          last_event_created: 2000000,
+        },
+        { onConflict: 'workspace_id' }
+      );
+
+      // Incoming webhook has older timestamp (e.g. 1000000)
+      const raw = JSON.stringify({
+        id: eventId,
+        event: 'subscription.cancelled',
+        created_at: 1000000,
+        payload: {
+          subscription: {
+            entity: {
+              id: 'sub_test_stale_1',
+              notes: { workspaceId: testWsId },
+            },
+          },
+        },
+      });
+
+      const sig = crypto.createHmac('sha256', testSecret).update(raw).digest('hex');
+      const req = new Request('http://localhost:3000/api/billing/razorpay/webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-razorpay-signature': sig,
+        },
+        body: raw,
+      });
+
+      const res = await webhookRouteHandler(req);
+      assert.strictEqual(res.status, 200);
+      const data = await res.json();
+      assert.strictEqual(data.action, 'ignored_stale_event');
+
+      // Verify subscription status was NOT cancelled by stale event
+      const { data: sub } = await admin.from('subscriptions').select('status').eq('workspace_id', testWsId).single();
+      assert.strictEqual(sub?.status, 'active');
     });
   });
 });

@@ -102,19 +102,7 @@ export default function BillingPage() {
       // 2. Load Razorpay Checkout SDK
       const scriptLoaded = await loadRazorpayScript();
       if (!scriptLoaded) {
-        // Fallback for CDN connectivity block or sandbox preview
-        const confirmTest = window.confirm(
-          `Razorpay checkout script could not be loaded from CDN. Would you like to complete payment verification directly for ${orderData.planName} (${orderData.displayPrice})?`
-        );
-        if (confirmTest) {
-          await verifyPayment({
-            orderId: orderData.orderId,
-            subscriptionId: orderData.subscriptionId,
-            paymentId: `pay_${Date.now().toString().slice(-8)}`,
-            signature: 'sandbox_verified_signature',
-            planId,
-          });
-        }
+        toast.error('Razorpay secure checkout script could not be loaded from CDN. Please check your connection and retry.');
         setProcessingPlan(null);
         return;
       }

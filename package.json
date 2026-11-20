@@ -27,6 +27,7 @@
     "test:continuity": "tsx --test tests/ai-studio-workflow-continuity.test.ts",
     "test:gemini-live": "tsx --test tests/gemini-live-integration.test.ts",
     "test:razorpay": "tsx --test tests/razorpay-inr.test.ts",
+    "test:oauth": "tsx --test tests/oauth-security.test.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {

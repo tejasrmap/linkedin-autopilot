@@ -166,6 +166,26 @@ export async function POST(request: Request) {
             notes: orderNotes,
           });
 
+          // Persist authoritative server-side checkout association in database
+          await admin.from('razorpay_payments').insert({
+            workspace_id: auth.workspaceId,
+            user_id: auth.user.id,
+            order_id: subscription.id,
+            amount: plan.amount,
+            currency: 'INR',
+            plan_id: plan.id,
+            status: 'created',
+            method: 'autopay',
+            notes: {
+              ...orderNotes,
+              checkout_type: 'subscription',
+              subscription_id: subscription.id,
+              expected_amount: plan.amount,
+              currency: 'INR',
+              created_at: new Date().toISOString(),
+            },
+          });
+
           return NextResponse.json({
             subscriptionId: subscription.id,
             customerId,
@@ -197,6 +217,26 @@ export async function POST(request: Request) {
         notes: orderNotes,
       });
 
+      // Persist authoritative server-side checkout association in database
+      await admin.from('razorpay_payments').insert({
+        workspace_id: auth.workspaceId,
+        user_id: auth.user.id,
+        order_id: order.id,
+        amount: plan.amount,
+        currency: 'INR',
+        plan_id: plan.id,
+        status: 'created',
+        method: 'standard',
+        notes: {
+          ...orderNotes,
+          checkout_type: 'order',
+          order_id: order.id,
+          expected_amount: plan.amount,
+          currency: 'INR',
+          created_at: new Date().toISOString(),
+        },
+      });
+
       return NextResponse.json({
         orderId: order.id,
         customerId,
@@ -216,7 +256,18 @@ export async function POST(request: Request) {
       });
     }
 
-    // Safe Test / Sandbox Mode Fallback:
+    // 5. Fail closed if Razorpay credentials are missing
+    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_DEV_MOCK_GATEWAY !== 'true') {
+      return NextResponse.json(
+        {
+          error: 'Razorpay payment gateway credentials are not configured on this server.',
+          code: 'GATEWAY_UNCONFIGURED',
+        },
+        { status: 503 }
+      );
+    }
+
+    // Explicit dev-only mock fallback (strictly when ALLOW_DEV_MOCK_GATEWAY === 'true')
     const mockSubId = `sub_test_${receipt}`;
     return NextResponse.json({
       subscriptionId: mockSubId,
@@ -234,7 +285,7 @@ export async function POST(request: Request) {
       displayPrice: plan.displayPrice,
       keyId: getRazorpayKeyId(),
       isSandbox: true,
-      message: 'Razorpay test mode subscription created. Configure live keys for production payments.',
+      message: 'Razorpay dev test mode mock order created. Set ALLOW_DEV_MOCK_GATEWAY=false for strict mode.',
     });
   } catch (err: any) {
     console.error('[Razorpay Order] Error creating order/subscription:', err);
