@@ -15,6 +15,8 @@ function ComposerContent() {
   const initialDraftId = searchParams.get('draftId') || null;
   const initialTone = searchParams.get('tone') || null;
   const isFromAi = searchParams.get('fromAi') === 'true';
+  const initialDate = searchParams.get('date') || '';
+  const initialTime = searchParams.get('time') || '';
   const toast = useToast();
 
   const [content, setContent] = useState(initialContent);
@@ -58,9 +60,14 @@ function ComposerContent() {
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [mediaAssets, setMediaAssets] = useState<any[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const [scheduleMode, setScheduleMode] = useState(false);
-  const [scheduledDate, setScheduledDate] = useState('');
-  const [scheduledTime, setScheduledTime] = useState('');
+  const [scheduleMode, setScheduleMode] = useState(true);
+  const [scheduledDate, setScheduledDate] = useState(() => {
+    if (initialDate) return initialDate;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  });
+  const [scheduledTime, setScheduledTime] = useState(() => initialTime || '10:00');
   const [timezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const [submitting, setSubmitting] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -111,6 +118,13 @@ function ComposerContent() {
               if (data.post.post_type) setPostType(data.post.post_type);
               if (data.post.social_account_id) setSelectedAccount(data.post.social_account_id);
               if (data.post.media_assets) setMediaAssets(data.post.media_assets);
+              if (data.post.scheduled_at) {
+                const sched = new Date(data.post.scheduled_at);
+                setScheduledDate(sched.toISOString().split('T')[0]);
+                const hours = String(sched.getHours()).padStart(2, '0');
+                const minutes = String(sched.getMinutes()).padStart(2, '0');
+                setScheduledTime(`${hours}:${minutes}`);
+              }
               setLastSavedUpdatedAt(data.post.updated_at);
               setSaveStatus('saved');
               setLastSavedAt(new Date(data.post.updated_at));
@@ -180,10 +194,6 @@ function ComposerContent() {
 
   useEffect(() => {
     fetchAccounts();
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setScheduledDate(tomorrow.toISOString().split('T')[0]);
-    setScheduledTime('10:00');
   }, [fetchAccounts]);
 
   // Autosave execution function
@@ -375,14 +385,15 @@ function ComposerContent() {
     setSubmitting(true);
 
     let finalScheduledAt: string | null = null;
-    if (scheduleMode && !publishNow && !asDraft) {
+    const isScheduling = !publishNow && !asDraft;
+    if (isScheduling) {
       if (!scheduledDate || !scheduledTime) {
         toast.error('Please select both date and time for scheduling.');
         setSubmitting(false);
         return;
       }
       const combined = new Date(`${scheduledDate}T${scheduledTime}:00`);
-      if (combined.getTime() <= Date.now()) {
+      if (isNaN(combined.getTime()) || combined.getTime() <= Date.now()) {
         toast.error('Scheduled time must be in the future.');
         setSubmitting(false);
         return;
@@ -450,7 +461,7 @@ function ComposerContent() {
         return;
       }
 
-      if (scheduleMode && !publishNow) {
+      if (isScheduling) {
         const targetPostId = draftId;
         if (targetPostId) {
           const updateRes = await fetch(`/api/posts/${targetPostId}`, {
@@ -466,6 +477,7 @@ function ComposerContent() {
               mediaAssets,
               scheduledAt: finalScheduledAt,
               timezone,
+              status: 'scheduled',
               expectedUpdatedAt: lastSavedUpdatedAt || undefined,
             }),
           });
@@ -521,7 +533,7 @@ function ComposerContent() {
 
         toast.success('Post scheduled in queue! 🚀');
         setTimeout(() => {
-          router.push('/posts?tab=scheduled');
+          router.push('/calendar');
         }, 600);
         return;
       }

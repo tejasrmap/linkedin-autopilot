@@ -62,7 +62,15 @@ function AIStudioContent() {
   // Calendar State
   const [calendarIndustry, setCalendarIndustry] = useState('Enterprise Technology Solutions');
   const [calendarFocus, setCalendarFocus] = useState('');
-  const [calendarPlan, setCalendarPlan] = useState<any[]>([]);
+  const [calendarPlan, setCalendarPlan] = useState<any[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('autopilot_calendar_plan');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  });
   const [loadingCalendar, setLoadingCalendar] = useState(false);
 
   // Brand Voice State
@@ -297,7 +305,13 @@ function AIStudioContent() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to build calendar');
-      setCalendarPlan(data.plan || []);
+      const newPlan = data.plan || [];
+      setCalendarPlan(newPlan);
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.setItem('autopilot_calendar_plan', JSON.stringify(newPlan));
+        } catch {}
+      }
       toast.success('Your 7-day plan is ready.');
     } catch (err: any) {
       toast.error(err.message || 'Failed to generate 7-day plan.');
@@ -444,13 +458,47 @@ function AIStudioContent() {
     }
   };
 
+  const getTargetDateForCalendarItem = (index: number) => {
+    const baseDate = new Date();
+    if (scheduleTiming === 'tomorrow') {
+      baseDate.setDate(baseDate.getDate() + 1);
+    } else {
+      // Next Monday
+      const dayOfWeek = baseDate.getDay();
+      const daysUntilNextMonday = ((1 + 7 - dayOfWeek) % 7) || 7;
+      baseDate.setDate(baseDate.getDate() + daysUntilNextMonday);
+    }
+
+    let currentDate = new Date(baseDate);
+    for (let i = 0; i < index; i++) {
+      currentDate.setDate(currentDate.getDate() + 1);
+      if (scheduleCadence === 'weekdays') {
+        while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+      }
+    }
+    return currentDate.toISOString().split('T')[0];
+  };
+
+  const updateCalendarPlan = (newPlan: any[]) => {
+    setCalendarPlan(newPlan);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('autopilot_calendar_plan', JSON.stringify(newPlan));
+      } catch {}
+    }
+  };
+
   // Send to Composer
-  const handleSendToComposer = (text: string, toneUsed?: string) => {
+  const handleSendToComposer = (text: string, toneUsed?: string, targetDate?: string, targetTime?: string) => {
     if (!text.trim()) return;
     const params = new URLSearchParams();
     params.set('content', text);
     if (sourceDraftId) params.set('draftId', sourceDraftId);
     if (toneUsed) params.set('tone', toneUsed);
+    if (targetDate) params.set('date', targetDate);
+    if (targetTime) params.set('time', targetTime);
     params.set('fromAi', 'true');
     router.push(`/composer?${params.toString()}`);
   };
@@ -862,7 +910,8 @@ function AIStudioContent() {
                               className="plain-icon"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleSendToComposer(draftText);
+                                const targetDate = getTargetDateForCalendarItem(i);
+                                handleSendToComposer(draftText, undefined, targetDate, '10:00');
                               }}
                               title="Open full draft in composer"
                             >
@@ -879,7 +928,7 @@ function AIStudioContent() {
                                 onChange={(e) => {
                                   const next = [...calendarPlan];
                                   next[i] = { ...next[i], title: e.target.value, theme: e.target.value };
-                                  setCalendarPlan(next);
+                                  updateCalendarPlan(next);
                                 }}
                                 placeholder="Day theme or title"
                                 style={{ marginBottom: '6px' }}
@@ -890,7 +939,7 @@ function AIStudioContent() {
                                 onChange={(e) => {
                                   const next = [...calendarPlan];
                                   next[i] = { ...next[i], fullDraft: e.target.value, draft: e.target.value };
-                                  setCalendarPlan(next);
+                                  updateCalendarPlan(next);
                                 }}
                                 rows={6}
                                 placeholder="Full post draft"
@@ -916,17 +965,30 @@ function AIStudioContent() {
                                 <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--primary, #6366f1)', textTransform: 'uppercase' }}>
                                   Full LinkedIn Post Draft
                                 </span>
-                                <button
-                                  type="button"
-                                  className="text-button"
-                                  style={{ fontSize: '12px', padding: '2px 6px' }}
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(draftText);
-                                    toast.success('Copied day draft to clipboard');
-                                  }}
-                                >
-                                  <Icon name="copy" size={13} /> Copy
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    style={{ fontSize: '12px', padding: '2px 6px' }}
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(draftText);
+                                      toast.success('Copied day draft to clipboard');
+                                    }}
+                                  >
+                                    <Icon name="copy" size={13} /> Copy
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    style={{ fontSize: '12px', padding: '2px 6px', color: 'var(--primary, #6366f1)' }}
+                                    onClick={() => {
+                                      const targetDate = getTargetDateForCalendarItem(i);
+                                      handleSendToComposer(draftText, undefined, targetDate, '10:00');
+                                    }}
+                                  >
+                                    Open in composer &rarr;
+                                  </button>
+                                </div>
                               </div>
                               <div style={{ color: 'var(--text-primary, #f1f5f9)' }}>{draftText}</div>
                             </div>

@@ -99,6 +99,8 @@ export default function CalendarPage() {
 
   const getPostsForDay = (day: number) => {
     return posts.filter((p) => {
+      // Unscheduled drafts have no target date and should not clutter calendar days
+      if (!p.scheduled_at && p.status === 'draft') return false;
       const targetDate = p.scheduled_at ? new Date(p.scheduled_at) : new Date(p.created_at);
       return (
         targetDate.getFullYear() === year &&
@@ -241,7 +243,7 @@ export default function CalendarPage() {
                         ? 'event-blue'
                         : p.status === 'scheduled'
                         ? 'event-violet'
-                        : 'event-blue'
+                        : 'event-gray'
                     }`}
                   >
                     {p.content?.substring(0, 24) || 'Scheduled post'}

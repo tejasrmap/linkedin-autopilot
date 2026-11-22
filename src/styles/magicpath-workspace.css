@@ -279,8 +279,10 @@
 .calendar-event { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 5px; border-radius: 4px; font-style: normal; font-size: 8px; }
 .event-blue { background: #edf4fa; color: #486d8a; border-left: 2px solid #75a5ce; }
 .event-violet { background: #f2f0f8; color: #6e638a; border-left: 2px solid #9b8bc7; }
+.event-gray { background: #f4f4f5; color: #71717a; border-left: 2px solid #a1a1aa; }
 .is-dark .event-blue { background: #293641; color: #bacbda; }
 .is-dark .event-violet { background: #342f3d; color: #d0c6e4; }
+.is-dark .event-gray { background: #27272a; color: #a1a1aa; }
 .calendar-legend { display: flex; gap: 15px; padding-top: 12px; color: var(--muted); font-size: 8px; }
 .calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .calendar-legend i { width: 6px; height: 6px; border-radius: 50%; }
