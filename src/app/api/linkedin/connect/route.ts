@@ -13,8 +13,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
-  const workspaceId = searchParams.get('workspaceId');
-  const orgAccess = searchParams.get('org') === 'true';
+  const workspaceId = request.headers.get('x-workspace-id') || searchParams.get('workspaceId');
+  const orgAccess = searchParams.get('org') === 'true' || searchParams.get('organization') === 'true';
 
   const auth = await getAuthContext(workspaceId);
   if (!auth) {

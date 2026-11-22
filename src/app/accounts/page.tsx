@@ -33,10 +33,23 @@ function AccountsContent() {
   const [orgNameInput, setOrgNameInput] = useState('');
   const [linkingOrg, setLinkingOrg] = useState(false);
 
+  const getWorkspaceHeader = useCallback((): Record<string, string> => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const ws = JSON.parse(sessionStorage.getItem('autopilot_current_ws') || '{}');
+      return ws.id ? { 'x-workspace-id': String(ws.id) } : {};
+    } catch {
+      return {};
+    }
+  }, []);
+
   const fetchAccounts = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/linkedin/accounts');
+      const headers = getWorkspaceHeader();
+      const wsId = headers['x-workspace-id'];
+      const url = wsId ? `/api/linkedin/accounts?workspaceId=${encodeURIComponent(wsId)}` : '/api/linkedin/accounts';
+      const res = await fetch(url, { headers });
       if (res.ok) {
         const data = await res.json();
         const accs = data.accounts || [];
@@ -44,13 +57,21 @@ function AccountsContent() {
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('autopilot_accounts', JSON.stringify(accs));
         }
+      } else {
+        const text = await res.text();
+        let errMsg = 'Failed to load accounts';
+        try {
+          const json = JSON.parse(text);
+          errMsg = json.error || errMsg;
+        } catch {}
+        toast.error(errMsg);
       }
     } catch (e: any) {
       toast.error('Failed to load accounts: ' + e.message);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [getWorkspaceHeader, toast]);
 
   useEffect(() => {
     fetchAccounts();
@@ -64,8 +85,20 @@ function AccountsContent() {
   const handleConnect = async (isOrg = false) => {
     setConnecting(true);
     try {
-      const res = await fetch(`/api/linkedin/auth?organization=${isOrg}`);
-      const data = await res.json();
+      const headers = getWorkspaceHeader();
+      const wsId = headers['x-workspace-id'];
+      const params = new URLSearchParams({ org: String(isOrg) });
+      if (wsId) params.set('workspaceId', wsId);
+
+      const res = await fetch(`/api/linkedin/connect?${params.toString()}`, { headers });
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Server returned an invalid response while initiating LinkedIn OAuth.');
+      }
+
       if (!res.ok) throw new Error(data.error || 'Failed to initialize LinkedIn OAuth');
       if (data.url) {
         window.location.href = data.url;
@@ -81,16 +114,27 @@ function AccountsContent() {
     if (!orgIdInput.trim() || !orgNameInput.trim()) return;
     setLinkingOrg(true);
     try {
+      const headers = {
+        'Content-Type': 'application/json',
+        ...getWorkspaceHeader(),
+      };
       const res = await fetch('/api/linkedin/organizations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           organizationUrn: orgIdInput.trim(),
           organizationName: orgNameInput.trim(),
         }),
       });
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Server returned an invalid response while linking organization.');
+      }
+
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || 'Failed to link LinkedIn organization');
       }
       toast.success(`Organization ${orgNameInput} linked!`);
@@ -109,10 +153,24 @@ function AccountsContent() {
     if (!disconnectAccountId) return;
     setDisconnecting(true);
     try {
-      const res = await fetch(`/api/linkedin/accounts/${disconnectAccountId}`, {
-        method: 'DELETE',
+      const headers = {
+        'Content-Type': 'application/json',
+        ...getWorkspaceHeader(),
+      };
+      const res = await fetch('/api/linkedin/disconnect', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ accountId: disconnectAccountId }),
       });
-      if (!res.ok) throw new Error('Failed to disconnect account');
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Server returned an invalid response while disconnecting account.');
+      }
+
+      if (!res.ok) throw new Error(data.error || 'Failed to disconnect account');
       toast.success('Account disconnected');
       setDisconnectAccountId(null);
       await fetchAccounts();

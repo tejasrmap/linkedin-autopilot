@@ -12,7 +12,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { accountId } = DisconnectSchema.parse(body);
 
-    const auth = await getAuthContext();
+    const requestWorkspaceId = request.headers.get('x-workspace-id');
+    const auth = await getAuthContext(requestWorkspaceId);
     if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

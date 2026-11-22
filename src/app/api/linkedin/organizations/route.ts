@@ -11,7 +11,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const workspaceId = searchParams.get('workspaceId');
+  const workspaceId = request.headers.get('x-workspace-id') || searchParams.get('workspaceId');
 
   const auth = await getAuthContext(workspaceId);
   if (!auth) {
