@@ -16,9 +16,17 @@ interface BulkPostItem {
 }
 
 export async function POST(request: Request) {
-  const auth = await getAuthContext();
+  const requestWorkspaceId = request.headers.get('x-workspace-id') || null;
+  const auth = await getAuthContext(requestWorkspaceId);
   if (!auth) {
+    if (requestWorkspaceId) {
+      return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (requestWorkspaceId && auth.workspaceId !== requestWorkspaceId) {
+    return NextResponse.json({ error: 'Forbidden: Access denied to requested workspace' }, { status: 403 });
   }
 
   if (!['owner', 'admin', 'editor'].includes(auth.role)) {

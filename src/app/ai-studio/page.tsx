@@ -75,10 +75,13 @@ function AIStudioContent() {
   const [loadingBrand, setLoadingBrand] = useState(true);
   const [brandError, setBrandError] = useState<string | null>(null);
 
-  // Bulk Schedule Modal State
-  const [showBulkScheduleModal, setShowBulkScheduleModal] = useState(false);
+  // Bulk Schedule & Calendar State
   const [scheduleCadence, setScheduleCadence] = useState<'daily' | 'weekdays'>('weekdays');
+  const [scheduleTiming, setScheduleTiming] = useState<'tomorrow' | 'next_week'>('tomorrow');
   const [schedulingBulk, setSchedulingBulk] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(false);
+  const [expandedDayIndex, setExpandedDayIndex] = useState<number | null>(null);
+  const [ideasAim, setIdeasAim] = useState('Build authority');
 
   useEffect(() => {
     if (urlTab && ['generate', 'rewrite', 'hashtags', 'ideas', 'calendar', 'brand'].includes(urlTab)) {
@@ -250,13 +253,17 @@ function AIStudioContent() {
 
   // Ideas Handler
   const handleGenerateIdeas = async () => {
+    if (!ideasIndustry.trim()) {
+      toast.error('Please enter an industry or specialty.');
+      return;
+    }
     setLoadingIdeas(true);
     try {
       const res = await fetch('/api/ai/ideas', {
         method: 'POST',
         headers: getAiHeaders(),
         body: JSON.stringify({
-          industry: ideasIndustry,
+          industry: `${ideasIndustry.trim()} (${ideasAim})`,
         }),
       });
 
@@ -265,7 +272,7 @@ function AIStudioContent() {
       setIdeas(data.ideas || []);
       toast.success('Fresh ideas generated below.');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to generate ideas. Please verify your Gemini API key in Brand Voice settings.');
+      toast.error(err.message || 'Failed to generate ideas.');
     } finally {
       setLoadingIdeas(false);
     }
@@ -296,6 +303,107 @@ function AIStudioContent() {
       toast.error(err.message || 'Failed to generate 7-day plan.');
     } finally {
       setLoadingCalendar(false);
+    }
+  };
+
+  // Schedule All Posts from Calendar
+  const handleScheduleAllPosts = async () => {
+    if (!calendarPlan || calendarPlan.length === 0) {
+      toast.error('Please generate a 7-day calendar first.');
+      return;
+    }
+
+    setSchedulingBulk(true);
+    try {
+      const baseDate = new Date();
+      if (scheduleTiming === 'tomorrow') {
+        baseDate.setDate(baseDate.getDate() + 1);
+      } else {
+        // Next Monday
+        const dayOfWeek = baseDate.getDay();
+        const daysUntilNextMonday = ((1 + 7 - dayOfWeek) % 7) || 7;
+        baseDate.setDate(baseDate.getDate() + daysUntilNextMonday);
+      }
+      baseDate.setHours(10, 0, 0, 0); // 10:00 AM local time
+
+      const postsToSchedule: Array<{ content: string; scheduledAt: string; socialAccountId?: string; postType: 'text' }> = [];
+      let currentDate = new Date(baseDate);
+
+      for (let i = 0; i < calendarPlan.length; i++) {
+        const item = calendarPlan[i];
+        const draftContent = item.fullDraft || item.draft || `${item.title || item.theme}: ${item.hook || ''}`;
+
+        // If weekdays only, skip Saturday (6) and Sunday (0)
+        if (scheduleCadence === 'weekdays') {
+          while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        }
+
+        postsToSchedule.push({
+          content: draftContent,
+          scheduledAt: currentDate.toISOString(),
+          socialAccountId: selectedAccountId || accounts[0]?.id || undefined,
+          postType: 'text',
+        });
+
+        // Advance to next day
+        currentDate = new Date(currentDate);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      const res = await fetch('/api/posts/bulk', {
+        method: 'POST',
+        headers: getAiHeaders(),
+        body: JSON.stringify({
+          socialAccountId: selectedAccountId || accounts[0]?.id || undefined,
+          posts: postsToSchedule,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to schedule posts');
+      }
+
+      toast.success(`Successfully scheduled ${postsToSchedule.length} posts to your calendar!`);
+      router.push('/calendar');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to schedule calendar posts.');
+    } finally {
+      setSchedulingBulk(false);
+    }
+  };
+
+  // Refine Draft Tone
+  const handleRefineTone = async (targetTone: string) => {
+    const currentText = activeTab === 'rewrite' ? rewrittenPost : generatedPost;
+    if (!currentText.trim()) {
+      toast.error('No draft to refine.');
+      return;
+    }
+    toast.info(`Refining to ${targetTone.toLowerCase()} tone...`);
+    try {
+      const res = await fetch('/api/ai/rewrite', {
+        method: 'POST',
+        headers: getAiHeaders(),
+        body: JSON.stringify({
+          content: currentText,
+          tone: targetTone.toLowerCase(),
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && (data.content || data.post)) {
+        const newText = data.content || data.post;
+        if (activeTab === 'rewrite') setRewrittenPost(newText);
+        else setGeneratedPost(newText);
+        toast.success(`Tone updated to ${targetTone}!`);
+      } else {
+        toast.error(data.error || 'Failed to refine tone');
+      }
+    } catch {
+      toast.error('Failed to refine tone');
     }
   };
 
@@ -619,15 +727,16 @@ function AIStudioContent() {
 
                 <label className="field-label">What are you aiming for?</label>
                 <div className="chip-row">
-                  <button type="button" className="choice-chip selected">
-                    Build authority
-                  </button>
-                  <button type="button" className="choice-chip">
-                    Start a conversation
-                  </button>
-                  <button type="button" className="choice-chip">
-                    Share a lesson
-                  </button>
+                  {['Build authority', 'Start a conversation', 'Share a lesson'].map((aim) => (
+                    <button
+                      key={aim}
+                      type="button"
+                      className={`choice-chip ${ideasAim === aim ? 'selected' : ''}`}
+                      onClick={() => setIdeasAim(aim)}
+                    >
+                      {aim}
+                    </button>
+                  ))}
                 </div>
 
                 <ActionButton onClick={handleGenerateIdeas} disabled={loadingIdeas}>
@@ -643,16 +752,19 @@ function AIStudioContent() {
                           title: 'The assumption worth challenging',
                           hook: 'What if the standard advice in your field is holding teams back?',
                           topic: 'A common assumption in my industry that deserves a closer look',
+                          fullDraft: 'What if the standard advice in your field is holding teams back?\n\nIn high-velocity teams, conventional wisdom often creates hidden bottlenecks.\n\nSimplify the foundation first.',
                         },
                         {
                           title: 'A small change with a big effect',
                           hook: 'Share one practical shift that made your work noticeably better.',
                           topic: 'A small change that made a meaningful difference in my work',
+                          fullDraft: 'Share one practical shift that made your work noticeably better.\n\nFor our team, shifting status updates to asynchronous written briefs unlocked 5+ hours of weekly focus time.',
                         },
                         {
                           title: 'A lesson you learned the hard way',
                           hook: 'Make an experience useful by sharing what you would do differently.',
                           topic: 'A lesson I learned the hard way and what I would do differently',
+                          fullDraft: 'Make an experience useful by sharing what you would do differently.\n\nEarly on, we focused on feature velocity over telemetry and verification. Here is what we changed.',
                         },
                       ]
                   ).map((ideaItem, i) => (
@@ -661,8 +773,8 @@ function AIStudioContent() {
                       title={ideaItem.title}
                       hook={ideaItem.hook}
                       onUse={() => {
-                        setTopic(ideaItem.topic || ideaItem.title);
-                        setActiveTab('generate');
+                        const contentToUse = ideaItem.fullDraft || ideaItem.draft || ideaItem.outline || ideaItem.topic || ideaItem.title;
+                        handleSendToComposer(contentToUse);
                       }}
                     />
                   ))}
@@ -711,9 +823,9 @@ function AIStudioContent() {
                       <button
                         type="button"
                         className="text-button"
-                        onClick={() => toast.info('Ready to review daily items')}
+                        onClick={() => setEditingPlan(!editingPlan)}
                       >
-                        Edit plan
+                        {editingPlan ? '✓ Done editing' : '✎ Edit plan'}
                       </button>
                     </div>
 
@@ -721,28 +833,104 @@ function AIStudioContent() {
                       const displayTitle = item.title || item.theme || `Day ${i + 1} Strategy`;
                       const displaySub = item.kind || item.contentType || item.format || item.theme || 'Strategic Perspective';
                       const draftText = item.fullDraft || item.draft || `${displayTitle}\n\n${item.hook || ''}`;
+                      const isExpanded = expandedDayIndex === i;
+
                       return (
-                        <div className="calendar-day-row" key={i}>
-                          <span>{item.day || `DAY ${i + 1}`}</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <b>{displayTitle}</b>
-                            <small>{displaySub}</small>
-                            {item.hook && (
-                              <p style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', margin: '4px 0 0 0', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                &ldquo;{item.hook}&rdquo;
-                              </p>
-                            )}
+                        <div
+                          className="calendar-day-row"
+                          key={i}
+                          style={{ flexDirection: 'column', alignItems: 'stretch', cursor: editingPlan ? 'default' : 'pointer' }}
+                          onClick={() => {
+                            if (!editingPlan) {
+                              setExpandedDayIndex(isExpanded ? null : i);
+                            }
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
+                            <span>{item.day || `DAY ${i + 1}`}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <b>{displayTitle}</b>
+                              <small>{displaySub}</small>
+                              {item.hook && !isExpanded && !editingPlan && (
+                                <p style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', margin: '4px 0 0 0', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                  &ldquo;{item.hook}&rdquo;
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              className="plain-icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSendToComposer(draftText);
+                              }}
+                              title="Open full draft in composer"
+                            >
+                              <Icon name="arrow" size={16} />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            className="plain-icon"
-                            onClick={() => {
-                              handleSendToComposer(draftText);
-                            }}
-                            title="Open full draft in composer"
-                          >
-                            <Icon name="arrow" size={16} />
-                          </button>
+
+                          {editingPlan && (
+                            <div style={{ marginTop: '10px' }} onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="text"
+                                className="ai-text-input"
+                                value={displayTitle}
+                                onChange={(e) => {
+                                  const next = [...calendarPlan];
+                                  next[i] = { ...next[i], title: e.target.value, theme: e.target.value };
+                                  setCalendarPlan(next);
+                                }}
+                                placeholder="Day theme or title"
+                                style={{ marginBottom: '6px' }}
+                              />
+                              <textarea
+                                className="large-textarea"
+                                value={draftText}
+                                onChange={(e) => {
+                                  const next = [...calendarPlan];
+                                  next[i] = { ...next[i], fullDraft: e.target.value, draft: e.target.value };
+                                  setCalendarPlan(next);
+                                }}
+                                rows={6}
+                                placeholder="Full post draft"
+                              />
+                            </div>
+                          )}
+
+                          {isExpanded && !editingPlan && (
+                            <div
+                              style={{
+                                marginTop: '10px',
+                                padding: '12px',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                lineHeight: '1.6',
+                                whiteSpace: 'pre-wrap',
+                                border: '1px solid rgba(255, 255, 255, 0.08)'
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--primary, #6366f1)', textTransform: 'uppercase' }}>
+                                  Full LinkedIn Post Draft
+                                </span>
+                                <button
+                                  type="button"
+                                  className="text-button"
+                                  style={{ fontSize: '12px', padding: '2px 6px' }}
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(draftText);
+                                    toast.success('Copied day draft to clipboard');
+                                  }}
+                                >
+                                  <Icon name="copy" size={13} /> Copy
+                                </button>
+                              </div>
+                              <div style={{ color: 'var(--text-primary, #f1f5f9)' }}>{draftText}</div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -752,17 +940,21 @@ function AIStudioContent() {
                         value={scheduleCadence}
                         onChange={(e) => setScheduleCadence(e.target.value as any)}
                       >
-                        <option value="weekdays">Weekdays</option>
-                        <option value="daily">Daily</option>
+                        <option value="weekdays">Weekdays (Mon - Fri)</option>
+                        <option value="daily">Daily (Mon - Sun)</option>
                       </select>
-                      <select>
-                        <option>Next week</option>
-                        <option>Tomorrow</option>
+                      <select
+                        value={scheduleTiming}
+                        onChange={(e) => setScheduleTiming(e.target.value as any)}
+                      >
+                        <option value="tomorrow">Starting Tomorrow (10:00 AM)</option>
+                        <option value="next_week">Starting Next Week (Mon 10:00 AM)</option>
                       </select>
                     </div>
 
-                    <ActionButton onClick={() => toast.success('Your posts are queued for scheduling review.')}>
-                      Schedule all posts <Icon name="arrow" size={15} />
+                    <ActionButton onClick={handleScheduleAllPosts} disabled={schedulingBulk}>
+                      {schedulingBulk ? 'Scheduling 7 posts…' : 'Schedule all posts'}{' '}
+                      <Icon name="arrow" size={15} />
                     </ActionButton>
                   </div>
                 )}
@@ -971,10 +1163,7 @@ function AIStudioContent() {
                   <button
                     key={t}
                     type="button"
-                    onClick={() => {
-                      setRewriteTone(t);
-                      toast.info(`Tone updated to ${t.toLowerCase()}`);
-                    }}
+                    onClick={() => handleRefineTone(t)}
                   >
                     {t}
                   </button>
