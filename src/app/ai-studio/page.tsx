@@ -273,14 +273,18 @@ function AIStudioContent() {
 
   // Calendar Handler
   const handleBuildCalendar = async () => {
+    if (!calendarIndustry.trim()) {
+      toast.error('Please enter an industry or niche.');
+      return;
+    }
     setLoadingCalendar(true);
     try {
       const res = await fetch('/api/ai/calendar', {
         method: 'POST',
         headers: getAiHeaders(),
         body: JSON.stringify({
-          industry: calendarIndustry,
-          focus: calendarFocus,
+          industry: calendarIndustry.trim(),
+          focus: calendarFocus.trim(),
         }),
       });
 
@@ -289,7 +293,7 @@ function AIStudioContent() {
       setCalendarPlan(data.plan || []);
       toast.success('Your 7-day plan is ready.');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to generate 7-day plan. Please verify your Gemini API key in Brand Voice settings.');
+      toast.error(err.message || 'Failed to generate 7-day plan.');
     } finally {
       setLoadingCalendar(false);
     }
@@ -299,6 +303,9 @@ function AIStudioContent() {
   const handleSaveBrand = async () => {
     setSavingBrand(true);
     try {
+      if (typeof window !== 'undefined' && geminiApiKey) {
+        localStorage.setItem('gemini_api_key', geminiApiKey.trim());
+      }
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (typeof window !== 'undefined') {
         try {
@@ -710,29 +717,35 @@ function AIStudioContent() {
                       </button>
                     </div>
 
-                    {calendarPlan.map((item: any, i: number) => (
-                      <div className="calendar-day-row" key={i}>
-                        <span>{item.day || `DAY ${i + 1}`}</span>
-                        <div>
-                          <b>{item.title}</b>
-                          <small>{item.kind || item.theme}</small>
+                    {calendarPlan.map((item: any, i: number) => {
+                      const displayTitle = item.title || item.theme || `Day ${i + 1} Strategy`;
+                      const displaySub = item.kind || item.contentType || item.format || item.theme || 'Strategic Perspective';
+                      const draftText = item.fullDraft || item.draft || `${displayTitle}\n\n${item.hook || ''}`;
+                      return (
+                        <div className="calendar-day-row" key={i}>
+                          <span>{item.day || `DAY ${i + 1}`}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <b>{displayTitle}</b>
+                            <small>{displaySub}</small>
+                            {item.hook && (
+                              <p style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', margin: '4px 0 0 0', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                &ldquo;{item.hook}&rdquo;
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="plain-icon"
+                            onClick={() => {
+                              handleSendToComposer(draftText);
+                            }}
+                            title="Open full draft in composer"
+                          >
+                            <Icon name="arrow" size={16} />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          className="plain-icon"
-                          onClick={() => {
-                            if (item.draft) {
-                              handleSendToComposer(item.draft);
-                            } else {
-                              handleSendToComposer(`${item.title}: ${item.kind}`);
-                            }
-                          }}
-                          title="Open in composer"
-                        >
-                          <Icon name="arrow" size={16} />
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     <div className="calendar-schedule-controls">
                       <select
@@ -799,6 +812,23 @@ function AIStudioContent() {
                   value={avoidWords}
                   onChange={(e) => setAvoidWords(e.target.value)}
                   placeholder="e.g. jargon, hype, overly formal language"
+                />
+
+                <label className="field-label">
+                  Google Gemini API Key <span className="optional">OPTIONAL · FOR CUSTOM AI QUOTA</span>
+                </label>
+                <input
+                  type="password"
+                  className="ai-text-input"
+                  value={geminiApiKey}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setGeminiApiKey(val);
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('gemini_api_key', val.trim());
+                    }
+                  }}
+                  placeholder="AIzaSy... (leave blank to use system default)"
                 />
 
                 <div className="brand-voice-preview">

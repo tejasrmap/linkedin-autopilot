@@ -14,6 +14,7 @@ import { z } from 'zod';
 const CalendarPlanSchema = z.object({
   industry: z.string().min(2, 'Industry must be at least 2 characters'),
   tone: z.string().default('Professional and visionary'),
+  focus: z.string().optional().default(''),
 });
 
 export async function POST(request: Request) {
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { industry, tone } = CalendarPlanSchema.parse(body);
+    const { industry, tone, focus } = CalendarPlanSchema.parse(body);
 
     // Rate limiting per workspace (20 AI generations per minute sliding window)
     const rateCheck = checkRateLimit(`ai:${auth.workspaceId}`, { limit: 20, windowMs: 60000 });
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     }
 
     const customKey = request.headers.get('x-gemini-key') || undefined;
-    const plan = await aiService.generateContentCalendar(industry, tone, customKey);
+    const plan = await aiService.generateContentCalendar(industry, tone, focus, customKey);
 
     // Track usage in ai_generations table
     try {
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
       await admin.from('ai_generations').insert({
         workspace_id: auth.workspaceId,
         user_id: auth.user.id,
-        prompt: `${industry} (${tone})`,
+        prompt: `${industry} (${tone})${focus ? ` - Focus: ${focus}` : ''}`,
         generated_content: JSON.stringify(plan),
         generation_type: 'calendar_7day',
       });
